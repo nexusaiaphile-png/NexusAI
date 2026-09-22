@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexusAI | Security Command Center</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- LOGIN -->
+    <section id="loginScreen" class="screen active">
+        <div class="login-card">
+            <div class="brand">
+                <div class="logo">N</div>
+                <div>
+                    <h1>NexusAI</h1>
+                    <span>AI SECURITY COMMAND CENTER</span>
+                </div>
+            </div>
+
+            <div class="status-pill">
+                <span></span> SYSTEM ONLINE
+            </div>
+
+            <h2>Client Login</h2>
+            <p class="muted">
+                Access your NexusAI security dashboard.
+            </p>
+
+            <form id="loginForm">
+                <label>Email address</label>
+                <input
+                    id="email"
+                    type="email"
+                    placeholder="you@company.co.za"
+                    required
+                >
+
+                <label>Password</label>
+                <input
+                    id="password"
+                    type="password"
+                    placeholder="Enter your password"
+                    required
+                >
+
+                <button type="submit" class="primary-btn">
+                    SIGN IN
+                </button>
+            </form>
+
+            <p class="demo-note">
+                Demo portal — backend authentication will be connected next.
+            </p>
+        </div>
+    </section>
+
+
+    <!-- DASHBOARD -->
+    <section id="dashboardScreen" class="screen">
+
+        <header class="topbar">
+            <div class="brand small">
+                <div class="logo">N</div>
+                <div>
+                    <strong>NexusAI</strong>
+                    <span>SECURITY COMMAND CENTER</span>
+                </div>
+            </div>
+
+            <div class="top-actions">
+                <div class="system-status">
+                    <span></span> SYSTEM ONLINE
+                </div>
+
+                <button id="logoutBtn" class="logout-btn">
+                    Logout
+                </button>
+            </div>
+        </header>
+
+
+        <main class="dashboard">
+
+            <div class="welcome">
+                <div>
+                    <p class="eyebrow">CLIENT DASHBOARD</p>
+                    <h1>Security Command Center</h1>
+                    <p>
+                        Monitor your cameras and NexusAI security events.
+                    </p>
+                </div>
+
+                <button id="activateBtn" class="primary-btn">
+                    + ACTIVATE NEXUSAI
+                </button>
+            </div>
+
+
+            <!-- STATS -->
+            <div class="stats-grid">
+
+                <div class="stat-card">
+                    <span class="stat-label">ACTIVE CAMERAS</span>
+                    <strong id="activeCameras">0 / 0</strong>
+                    <small>Protected by NexusAI</small>
+                </div>
+
+                <div class="stat-card">
+                    <span class="stat-label">TODAY'S EVENTS</span>
+                    <strong id="eventCount">0</strong>
+                    <small>Security detections</small>
+                </div>
+
+                <div class="stat-card">
+                    <span class="stat-label">SYSTEM STATUS</span>
+                    <strong class="online-text">ONLINE</strong>
+                    <small>NexusAI operating normally</small>
+                </div>
+
+                <div class="stat-card">
+                    <span class="stat-label">ALERT CHANNELS</span>
+                    <strong>READY</strong>
+                    <small>WhatsApp / Email</small>
+                </div>
+
+            </div>
+
+
+            <!-- CAMERAS -->
+            <section class="panel">
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">CAMERA MANAGEMENT</p>
+                        <h2>Your Cameras</h2>
+                    </div>
+
+                    <button id="addCameraBtn" class="secondary-btn">
+                        + Add Camera
+                    </button>
+                </div>
+
+                <div id="cameraList" class="camera-grid">
+
+                    <div class="empty-state" id="emptyCameras">
+                        <div class="empty-icon">📹</div>
+                        <h3>No cameras activated</h3>
+                        <p>
+                            Activate your first camera to start
+                            NexusAI protection.
+                        </p>
+
+                        <button
+                            class="primary-btn"
+                            id="emptyActivateBtn"
+                        >
+                            ACTIVATE NEXUSAI
+                        </button>
+                    </div>
+
+                </div>
+            </section>
+
+
+            <!-- ALERTS -->
+            <section class="panel">
+
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">SECURITY MONITORING</p>
+                        <h2>Recent Security Events</h2>
+                    </div>
+
+                    <span class="live-badge">
+                        ● LIVE
+                    </span>
+                </div>
+
+                <div id="eventList">
+
+                    <div class="empty-events">
+                        No security events recorded yet.
+                    </div>
+
+                </div>
+
+            </section>
+
+        </main>
+
+    </section>
+
+
+    <!-- ACTIVATION MODAL -->
+    <div id="activationModal" class="modal">
+
+        <div class="modal-card">
+
+            <button class="close-btn" id="closeModal">
+                ×
+            </button>
+
+            <p class="eyebrow">NEXUSAI ACTIVATION</p>
+
+            <h2>Activate NexusAI</h2>
+
+            <p class="muted">
+                Select the number of cameras you want to protect.
+            </p>
+
+            <div class="camera-count-grid">
+
+                <button class="count-btn" data-count="1">
+                    <strong>1</strong>
+                    <span>Camera</span>
+                </button>
+
+                <button class="count-btn" data-count="2">
+                    <strong>2</strong>
+                    <span>Cameras</span>
+                </button>
+
+                <button class="count-btn" data-count="3">
+                    <strong>3</strong>
+                    <span>Cameras</span>
+                </button>
+
+                <button class="count-btn" data-count="4">
+                    <strong>4</strong>
+                    <span>Cameras</span>
+                </button>
+
+                <button class="count-btn" data-count="5">
+                    <strong>5</strong>
+                    <span>Cameras</span>
+                </button>
+
+                <button class="count-btn" data-count="6">
+                    <strong>6+</strong>
+                    <span>Cameras</span>
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- CAMERA SETUP MODAL -->
+    <div id="cameraModal" class="modal">
+
+        <div class="modal-card wide">
+
+            <button class="close-btn" id="closeCameraModal">
+                ×
+            </button>
+
+            <p class="eyebrow">CAMERA SETUP</p>
+
+            <h2 id="cameraSetupTitle">
+                Camera 1
+            </h2>
+
+            <p class="muted">
+                Enter the camera information required for
+                NexusAI Verification.
+            </p>
+
+            <form id="cameraForm">
+
+                <label>Camera Name</label>
+                <input
+                    id="cameraName"
+                    type="text"
+                    placeholder="Main Entrance"
+                    required
+                >
+
+                <label>IP Address</label>
+                <input
+                    id="cameraIp"
+                    type="text"
+                    placeholder="192.168.1.100"
+                    required
+                >
+
+                <label>Username</label>
+                <input
+                    id="cameraUsername"
+                    type="text"
+                    placeholder="Camera username"
+                    required
+                >
+
+                <label>Password</label>
+                <input
+                    id="cameraPassword"
+                    type="password"
+                    placeholder="Camera password"
+                    required
+                >
+
+                <label>Location</label>
+                <input
+                    id="cameraLocation"
+                    type="text"
+                    placeholder="Main Entrance"
+                    required
+                >
+
+                <button
+                    type="button"
+                    id="verifyCameraBtn"
+                    class="primary-btn"
+                >
+                    TEST CAMERA
+                </button>
+
+            </form>
+
+
+            <!-- VERIFICATION -->
+            <div id="verificationBox" class="verification hidden">
+
+                <div class="verification-header">
+                    <div class="verify-icon">
+                        ✓
+                    </div>
+
+                    <div>
+                        <p class="eyebrow">
+                            NEXUSAI VERIFICATION
+                        </p>
+
+                        <h3 id="verificationTitle">
+                            Verifying camera...
+                        </h3>
+                    </div>
+                </div>
+
+
+                <div class="verification-list">
+
+                    <div>
+                        <span>Network connection</span>
+                        <strong id="networkCheck">...</strong>
+                    </div>
+
+                    <div>
+                        <span>Camera detected</span>
+                        <strong id="cameraCheck">...</strong>
+                    </div>
+
+                    <div>
+                        <span>Credentials</span>
+                        <strong id="credentialsCheck">...</strong>
+                    </div>
+
+                    <div>
+                        <span>NexusAI connection</span>
+                        <strong id="nexusCheck">...</strong>
+                    </div>
+
+                </div>
+
+
+                <div
+                    id="verificationSuccess"
+                    class="verification-success hidden"
+                >
+                    <strong>🟢 CAMERA VERIFIED</strong>
+
+                    <p>
+                        NexusAI connection established successfully.
+                        This camera is ready for activation.
+                    </p>
+
+                    <button
+                        id="activateCameraBtn"
+                        class="primary-btn"
+                    >
+                        ACTIVATE CAMERA
+                    </button>
+                </div>
+
+
+                <div
+                    id="verificationError"
+                    class="verification-error hidden"
+                >
+                    <strong>CAMERA VERIFICATION FAILED</strong>
+
+                    <p id="verificationErrorText">
+                        Please check the camera details and try again.
+                    </p>
+
+                    <button
+                        id="retryVerificationBtn"
+                        class="secondary-btn"
+                    >
+                        CHECK DETAILS
+                    </button>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <script src="app.js"></script>
+
+</body>
+</html>
