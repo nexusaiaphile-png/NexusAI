@@ -37,495 +37,260 @@ logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
 
 EVENT_NAMES = {
-    "weapon": ("WEAPON DETECTED", "CRITICAL"),
-    "gun": ("WEAPON DETECTED", "CRITICAL"),
-    "firearm": ("WEAPON DETECTED", "CRITICAL"),
-    "knife": ("WEAPON DETECTED", "CRITICAL"),
-    "threat": ("THREAT DETECTED", "CRITICAL"),
-    "theft": ("THEFT DETECTED", "CRITICAL"),
-    "stealing": ("THEFT DETECTED", "CRITICAL"),
-    "shoplifting": ("THEFT DETECTED", "CRITICAL"),
-    "objectremoval": ("OBJECT REMOVAL DETECTED", "HIGH"),
-    "intrusion": ("INTRUSION DETECTED", "HIGH"),
-    "linedetection": ("LINE CROSSING DETECTED", "HIGH"),
-    "linecrossing": ("LINE CROSSING DETECTED", "HIGH"),
-    "regionentrance": ("AREA ENTRY DETECTED", "HIGH"),
-    "regionexiting": ("AREA EXIT DETECTED", "MEDIUM"),
-    "loitering": ("LOITERING DETECTED", "MEDIUM"),
-    "motion": ("MOTION DETECTED", "LOW"),
+    "weapon": ("WEAPON DETECTED", "CRITICAL"), "gun": ("WEAPON DETECTED", "CRITICAL"),
+    "firearm": ("WEAPON DETECTED", "CRITICAL"), "knife": ("WEAPON DETECTED", "CRITICAL"),
+    "threat": ("THREAT DETECTED", "CRITICAL"), "theft": ("THEFT DETECTED", "CRITICAL"),
+    "stealing": ("THEFT DETECTED", "CRITICAL"), "shoplifting": ("THEFT DETECTED", "CRITICAL"),
+    "objectremoval": ("OBJECT REMOVAL DETECTED", "HIGH"), "intrusion": ("INTRUSION DETECTED", "HIGH"),
+    "linedetection": ("LINE CROSSING DETECTED", "HIGH"), "linecrossing": ("LINE CROSSING DETECTED", "HIGH"),
+    "regionentrance": ("AREA ENTRY DETECTED", "HIGH"), "regionexiting": ("AREA EXIT DETECTED", "MEDIUM"),
+    "loitering": ("LOITERING DETECTED", "MEDIUM"), "motion": ("MOTION DETECTED", "LOW"),
 }
 
 def camera_config():
-    return {
-        "camera_id": os.getenv("CAMERA_ID", "camera-1"),
-        "camera_name": os.getenv("CAMERA_NAME", "Camera 1"),
-        "camera_ip": os.getenv("CAM_IP", ""),
-        "camera_port": int(os.getenv("CAM_PORT", "80")),
-        "username": os.getenv("CAM_USER", ""),
-        "password": os.getenv("CAM_PASS", ""),
-        "location": os.getenv("LOCATION", "Main Entrance"),
-        "snapshot_channel": os.getenv("SNAPSHOT_CHANNEL", "101"),
-    }
+    return {"camera_id": os.getenv("CAMERA_ID", "camera-1"), "camera_name": os.getenv("CAMERA_NAME", "Camera 1"),
+            "camera_ip": os.getenv("CAM_IP", ""), "camera_port": int(os.getenv("CAM_PORT", "80")),
+            "username": os.getenv("CAM_USER", ""), "password": os.getenv("CAM_PASS", ""),
+            "location": os.getenv("LOCATION", "Main Entrance"), "snapshot_channel": os.getenv("SNAPSHOT_CHANNEL", "101")}
 
-def auth(cfg):
-    return HTTPDigestAuth(cfg["username"], cfg["password"])
+def auth(cfg): return HTTPDigestAuth(cfg["username"], cfg["password"])
 
 def headers():
-    return {
-        "Authorization": f"Bearer {EDGE_AGENT_TOKEN}",
-        "Content-Type": "application/json",
-        "User-Agent": "NexusAI-Edge-Agent/1.0",
-    }
+    return {"Authorization": f"Bearer {EDGE_AGENT_TOKEN}", "Content-Type": "application/json",
+            "User-Agent": "NexusAI-Edge-Agent/1.0"}
 
 def post_backend(path, payload):
     if not EDGE_AGENT_TOKEN:
         logging.error("NEXUSAI_EDGE_TOKEN is missing")
         return False
     try:
-        response = requests.post(
-            f"{API_BASE_URL}{path}",
-            json=payload,
-            headers=headers(),
-            timeout=10,
-        )
-        if 200 <= response.status_code < 300:
-            return True
-        logging.warning("Backend %s returned HTTP %s: %s",
-                        path, response.status_code, response.text[:300])
-    except requests.RequestException as exc:
-        logging.warning("Backend connection failed: %s", exc)
+        response = requests.post(f"{API_BASE_URL}{path}", json=payload, headers=headers(), timeout=10)
+        if 200 <= response.status_code < 300: return True
+        logging.warning("Backend %s returned HTTP %s: %s", path, response.status_code, response.text[:300])
+    except requests.RequestException as exc: logging.warning("Backend connection failed: %s", exc)
     return False
 
 def device_info(cfg):
-    url = f"http://{cfg['camera_ip']}:{cfg['camera_port']}/ISAPI/System/deviceInfo"
-    response = requests.get(url, auth=auth(cfg), timeout=8)
+    response = requests.get(f"http://{cfg['camera_ip']}:{cfg['camera_port']}/ISAPI/System/deviceInfo",
+                            auth=auth(cfg), timeout=8)
     response.raise_for_status()
     return response.text
 
 def local_network():
-    """Return the local IPv4 /24 network used by this computer."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        sock.connect(("8.8.8.8", 80))
-        local_ip = sock.getsockname()[0]
-    finally:
-        sock.close()
+        sock.connect(("8.8.8.8", 80)); local_ip = sock.getsockname()[0]
+    finally: sock.close()
     return ipaddress.ip_network(f"{local_ip}/24", strict=False)
 
-
 def probe_hikvision(ip):
-    """Identify reachable Hikvision-compatible devices without credentials."""
-    url = f"http://{ip}/ISAPI/System/deviceInfo"
     try:
-        response = requests.get(url, timeout=1.8, allow_redirects=False)
-        server = (response.headers.get("Server") or "").lower()
-        body = response.text[:2000].lower()
+        response = requests.get(f"http://{ip}/ISAPI/System/deviceInfo", timeout=1.8, allow_redirects=False)
+        server = (response.headers.get("Server") or "").lower(); body = response.text[:2000].lower()
         if response.status_code == 401 or "hikvision" in server or "hikvision" in body:
-            return {
-                "name": "Hikvision device",
-                "ip": ip,
-                "port": 80,
-                "type": "Hikvision",
-                "discovery": "LOCAL_NETWORK"
-            }
-    except requests.RequestException:
-        pass
+            return {"name": "Hikvision device", "ip": ip, "port": 80, "type": "Hikvision", "discovery": "LOCAL_NETWORK"}
+    except requests.RequestException: pass
     return None
 
-
 def discover_local_devices():
-    """Scan only the local /24 network of the computer running the Edge Agent."""
     try:
-        network = local_network()
-        hosts = [str(ip) for ip in network.hosts()]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=32) as pool:
-            results = list(pool.map(probe_hikvision, hosts))
-        devices = [item for item in results if item]
-        unique = {}
-        for device in devices:
-            unique[device["ip"]] = device
+        hosts = [str(ip) for ip in local_network().hosts()]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=32) as pool: results = list(pool.map(probe_hikvision, hosts))
+        unique = {d["ip"]: d for d in results if d}
         return list(unique.values())
     except Exception as exc:
-        logging.exception("Local network discovery failed: %s", exc)
-        return []
-
+        logging.exception("Local network discovery failed: %s", exc); return []
 
 def discover_channels(cfg):
-    """Discover usable Hikvision NVR/DVR channels via ISAPI."""
-    urls = [
-        f"http://{cfg['camera_ip']}:{cfg['camera_port']}/ISAPI/Streaming/channels",
-        f"http://{cfg['camera_ip']}:{cfg['camera_port']}/ISAPI/ContentMgmt/StreamingProxy/channels",
-    ]
-    last_error = None
+    urls = [f"http://{cfg['camera_ip']}:{cfg['camera_port']}/ISAPI/Streaming/channels",
+            f"http://{cfg['camera_ip']}:{cfg['camera_port']}/ISAPI/ContentMgmt/StreamingProxy/channels"]
     for url in urls:
         try:
             response = requests.get(url, auth=auth(cfg), timeout=10)
-            if response.status_code != 200:
-                last_error = f"HTTP {response.status_code}"
-                continue
-            root = ET.fromstring(response.text)
-            channels = []
+            if response.status_code != 200: continue
+            root = ET.fromstring(response.text); channels = []
             for node in root.iter():
-                if node.tag.split("}")[-1] != "StreamingChannel":
-                    continue
+                if node.tag.split("}")[-1] != "StreamingChannel": continue
                 values = {}
                 for child in node.iter():
                     key = child.tag.split("}")[-1]
-                    if child is not node and child.text:
-                        values.setdefault(key, child.text.strip())
+                    if child is not node and child.text: values.setdefault(key, child.text.strip())
                 channel_id = values.get("id")
-                if not channel_id:
-                    continue
-                enabled = values.get("enabled", "true").lower() != "false"
-                channels.append({
-                    "channel_id": str(channel_id),
-                    "channel_name": values.get("channelName") or str(channel_id),
-                    "enabled": enabled,
-                    "video_input_channel_id": values.get("dynVideoInputChannelID") or values.get("videoInputChannelID"),
-                })
-            enabled = [item for item in channels if item["enabled"]]
-            # NVRs expose multiple stream IDs per camera (for example 101/102).
-            # Prefer main-stream channel IDs ending in 01 so each physical camera
-            # appears once in the customer portal.
-            main_streams = [item for item in enabled if item["channel_id"].isdigit() and item["channel_id"].endswith("01")]
-            selected = main_streams or enabled
-            unique_by_input = {}
-            for item in selected:
-                key = item.get("video_input_channel_id") or item["channel_id"]
-                unique_by_input.setdefault(str(key), item)
-            if unique_by_input:
-                return list(unique_by_input.values())
-        except (requests.RequestException, ET.ParseError) as exc:
-            last_error = str(exc)
-    if last_error:
-        logging.info("Channel discovery unavailable: %s", last_error)
+                if channel_id:
+                    channels.append({"channel_id": str(channel_id), "channel_name": values.get("channelName") or str(channel_id),
+                                     "enabled": values.get("enabled", "true").lower() != "false",
+                                     "video_input_channel_id": values.get("dynVideoInputChannelID") or values.get("videoInputChannelID")})
+            enabled = [x for x in channels if x["enabled"]]
+            main = [x for x in enabled if x["channel_id"].isdigit() and x["channel_id"].endswith("01")]
+            selected = main or enabled; unique = {}
+            for item in selected: unique.setdefault(str(item.get("video_input_channel_id") or item["channel_id"]), item)
+            if unique: return list(unique.values())
+        except (requests.RequestException, ET.ParseError): pass
     return []
 
-
 def verify_camera(cfg):
-    result = {
-        "camera_id": cfg["camera_id"],
-        "camera_name": cfg["camera_name"],
-        "location": cfg["location"],
-        "network": "FAILED",
-        "camera": "FAILED",
-        "credentials": "NOT_CHECKED",
-        "nexusai": "EDGE_AGENT_READY",
-        "verified": False,
-        "device_type": "UNKNOWN",
-        "channels": [],
-    }
+    result = {"camera_id": cfg["camera_id"], "camera_name": cfg["camera_name"], "location": cfg["location"],
+              "network": "FAILED", "camera": "FAILED", "credentials": "NOT_CHECKED", "nexusai": "EDGE_AGENT_READY",
+              "verified": False, "device_type": "UNKNOWN", "channels": []}
     try:
-        with socket.create_connection((cfg["camera_ip"], cfg["camera_port"]), timeout=5):
-            result["network"] = "CONNECTED"
+        with socket.create_connection((cfg["camera_ip"], cfg["camera_port"]), timeout=5): result["network"] = "CONNECTED"
     except OSError as exc:
-        result["error"] = f"Camera/NVR unreachable: {exc}"
-        return result
-
+        result["error"] = f"Camera/NVR unreachable: {exc}"; return result
     try:
-        xml = device_info(cfg)
-        result["camera"] = "DETECTED"
-        result["credentials"] = "ACCEPTED"
+        xml = device_info(cfg); result["camera"] = "DETECTED"; result["credentials"] = "ACCEPTED"
         try:
-            root = ET.fromstring(xml)
-            values = {}
+            root = ET.fromstring(xml); values = {}
             for child in root.iter():
                 key = child.tag.split("}")[-1]
-                if child.text:
-                    values.setdefault(key, child.text.strip())
-            device_type = (values.get("deviceType") or "").strip()
-            result["device_type"] = device_type or "HIKVISION_DEVICE"
-        except ET.ParseError:
-            result["device_type"] = "HIKVISION_DEVICE"
-
+                if child.text: values.setdefault(key, child.text.strip())
+            result["device_type"] = values.get("deviceType") or "HIKVISION_DEVICE"
+        except ET.ParseError: result["device_type"] = "HIKVISION_DEVICE"
         channels = discover_channels(cfg)
         if channels:
             result["channels"] = channels
-            if any(token in result["device_type"].upper() for token in ("NVR", "DVR")):
-                result["device_type"] = "NVR"
-        result["verified"] = True
-        result["nexusai"] = "CONNECTED"
+            if any(t in result["device_type"].upper() for t in ("NVR", "DVR")): result["device_type"] = "NVR"
+        result["verified"] = True; result["nexusai"] = "CONNECTED"
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code == 401:
-            result["camera"] = "DETECTED"
-            result["credentials"] = "REJECTED"
-            result["error"] = "Incorrect camera/NVR username or password"
-        else:
-            result["error"] = f"Hikvision returned HTTP {exc.response.status_code if exc.response else 'ERROR'}"
-    except requests.RequestException as exc:
-        result["error"] = f"Camera/NVR request failed: {exc}"
+            result["camera"] = "DETECTED"; result["credentials"] = "REJECTED"; result["error"] = "Incorrect camera/NVR username or password"
+        else: result["error"] = f"Hikvision returned HTTP {exc.response.status_code if exc.response else 'ERROR'}"
+    except requests.RequestException as exc: result["error"] = f"Camera/NVR request failed: {exc}"
     return result
 
 def capture_snapshot(cfg):
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
-    url = (
-        f"http://{cfg['camera_ip']}:{cfg['camera_port']}"
-        f"/ISAPI/Streaming/channels/{cfg['snapshot_channel']}/picture"
-    )
     try:
-        response = requests.get(url, auth=auth(cfg), timeout=8)
-        if response.status_code != 200:
-            logging.warning("Snapshot failed: HTTP %s", response.status_code)
-            return None
-        filename = SNAPSHOT_DIR / (
-            f"{cfg['camera_id']}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.jpg"
-        )
-        filename.write_bytes(response.content)
-        return str(filename)
-    except requests.RequestException as exc:
-        logging.warning("Snapshot request failed: %s", exc)
-        return None
+        response = requests.get(f"http://{cfg['camera_ip']}:{cfg['camera_port']}/ISAPI/Streaming/channels/{cfg['snapshot_channel']}/picture",
+                                auth=auth(cfg), timeout=8)
+        if response.status_code != 200: return None
+        filename = SNAPSHOT_DIR / f"{cfg['camera_id']}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.jpg"
+        filename.write_bytes(response.content); return str(filename)
+    except requests.RequestException: return None
 
 def classify_event(payload):
     lower = payload.lower()
     for keyword, definition in EVENT_NAMES.items():
-        if keyword in lower:
-            return definition
+        if keyword in lower: return definition
     return ("SECURITY EVENT DETECTED", "MEDIUM")
 
 def extract_channel_id(raw_event):
-    patterns = [
-        r"<channelID>\\s*([^<]+)\\s*</channelID>",
-        r"<dynChannelID>\\s*([^<]+)\\s*</dynChannelID>",
-        r'"channelID"\\s*:\\s*"?(\\d+)',
-        r'"dynChannelID"\\s*:\\s*"?(\\d+)',
-    ]
-    for pattern in patterns:
+    for pattern in [r"<channelID>\s*([^<]+)\s*</channelID>", r"<dynChannelID>\s*([^<]+)\s*</dynChannelID>",
+                    r'"channelID"\s*:\s*"?(\d+)', r'"dynChannelID"\s*:\s*"?(\d+)']:
         match = re.search(pattern, raw_event, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
+        if match: return match.group(1).strip()
     return None
 
-
 def send_event(cfg, raw_event, channel=None):
-    event_name, severity = classify_event(raw_event)
-    timestamp = datetime.now(timezone.utc).isoformat()
-    event_cfg = dict(cfg)
+    event_name, severity = classify_event(raw_event); event_cfg = dict(cfg)
     if channel:
         event_cfg["camera_id"] = f"{cfg['camera_id']}-ch-{channel['channel_id']}"
         event_cfg["camera_name"] = channel.get("channel_name") or f"{cfg['camera_name']} CH {channel['channel_id']}"
         event_cfg["snapshot_channel"] = channel["channel_id"]
     snapshot = capture_snapshot(event_cfg)
-    payload = {
-        "site_id": SITE_ID,
-        "camera_id": event_cfg["camera_id"],
-        "camera_name": event_cfg["camera_name"],
-        "location": event_cfg["location"],
-        "event": event_name,
-        "severity": severity,
-        "timestamp": timestamp,
-        "source": "nexusai-edge-agent",
-        "snapshot_available": bool(snapshot),
-    }
-    delivered = post_backend("/api/edge/events", payload)
-    logging.info("Event=%s severity=%s camera=%s delivered=%s",
-                 event_name, severity, event_cfg["camera_name"], delivered)
+    post_backend("/api/edge/events", {"site_id": SITE_ID, "camera_id": event_cfg["camera_id"], "camera_name": event_cfg["camera_name"],
+                                      "location": event_cfg["location"], "event": event_name, "severity": severity,
+                                      "timestamp": datetime.now(timezone.utc).isoformat(), "source": "nexusai-edge-agent",
+                                      "snapshot_available": bool(snapshot)})
 
 def heartbeat(cfg, verification=None):
-    payload = {
-        "site_id": SITE_ID,
-        "agent_version": "1.0.0",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "status": "ONLINE",
-        "cameras": [{
-            "camera_id": cfg["camera_id"],
-            "camera_name": cfg["camera_name"],
-            "location": cfg["location"],
-            "verified": bool(verification and verification.get("verified")),
-        }],
-    }
-    post_backend("/api/edge/heartbeat", payload)
+    post_backend("/api/edge/heartbeat", {"site_id": SITE_ID, "agent_version": "1.3.0",
+                                          "timestamp": datetime.now(timezone.utc).isoformat(), "status": "ONLINE",
+                                          "cameras": [{"camera_id": cfg["camera_id"], "camera_name": cfg["camera_name"],
+                                                       "location": cfg["location"], "verified": bool(verification and verification.get("verified"))}]})
 
 def monitor_device(cfg, channels=None):
-    """Start a background Hikvision event listener for a camera or NVR."""
     session_key = f"{cfg['camera_ip']}:{cfg['camera_port']}:{cfg['username']}"
     with ACTIVE_SESSIONS_LOCK:
-        if session_key in ACTIVE_SESSIONS:
-            return False, "ALREADY_ACTIVE"
+        if session_key in ACTIVE_SESSIONS: return False, "ALREADY_ACTIVE"
         ACTIVE_SESSIONS[session_key] = True
-
     channel_map = {str(c["channel_id"]): c for c in (channels or [])}
-
     def worker():
-        url = (
-            f"http://{cfg['camera_ip']}:{cfg['camera_port']}"
-            "/ISAPI/Event/notification/alertStream"
-        )
+        url = f"http://{cfg['camera_ip']}:{cfg['camera_port']}/ISAPI/Event/notification/alertStream"
         try:
             while True:
                 try:
-                    logging.info("Connecting to Hikvision event stream: %s", url)
                     with requests.get(url, auth=auth(cfg), stream=True, timeout=60) as response:
-                        if response.status_code == 401:
-                            logging.error("Camera/NVR authentication failed")
-                            time.sleep(RECONNECT_SECONDS)
-                            continue
-                        if response.status_code != 200:
-                            logging.warning("Event stream returned HTTP %s", response.status_code)
-                            time.sleep(RECONNECT_SECONDS)
-                            continue
-                        logging.info("Hikvision event stream connected")
+                        if response.status_code != 200: time.sleep(RECONNECT_SECONDS); continue
                         for line in response.iter_lines():
-                            if not line:
-                                continue
+                            if not line: continue
                             decoded = line.decode("utf-8", errors="ignore")
-                            if not any(keyword in decoded.lower() for keyword in EVENT_NAMES):
-                                continue
-                            channel_id = extract_channel_id(decoded)
-                            send_event(cfg, decoded, channel_map.get(channel_id))
-                except requests.RequestException as exc:
-                    logging.warning("Event stream disconnected: %s", exc)
-                except Exception:
-                    logging.exception("Unexpected edge-agent monitoring error")
+                            if any(keyword in decoded.lower() for keyword in EVENT_NAMES):
+                                send_event(cfg, decoded, channel_map.get(extract_channel_id(decoded)))
+                except requests.RequestException: pass
                 time.sleep(RECONNECT_SECONDS)
         finally:
-            with ACTIVE_SESSIONS_LOCK:
-                ACTIVE_SESSIONS.pop(session_key, None)
-
+            with ACTIVE_SESSIONS_LOCK: ACTIVE_SESSIONS.pop(session_key, None)
     threading.Thread(target=worker, daemon=True, name=f"nexusai-monitor-{cfg['camera_ip']}").start()
     return True, "MONITORING_STARTED"
 
 class LocalAgentHandler(BaseHTTPRequestHandler):
     def _send_json(self, status, payload):
-        body = json.dumps(payload).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Private-Network", "true")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_OPTIONS(self):
-        self._send_json(204, {})
-
+        body = json.dumps(payload).encode("utf-8"); self.send_response(status)
+        self.send_header("Content-Type", "application/json"); self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type"); self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Private-Network", "true"); self.send_header("Content-Length", str(len(body)))
+        self.end_headers(); self.wfile.write(body)
+    def do_OPTIONS(self): self._send_json(204, {})
     def do_GET(self):
         if self.path == "/health":
-            self._send_json(200, {
-                "service": "NexusAI Edge Agent",
-                "status": "ONLINE",
-                "version": "1.2.0",
-            })
-            return
+            self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","version":"1.3.0","site_id":SITE_ID}); return
         if self.path == "/discover":
-            devices = discover_local_devices()
-            self._send_json(200, {
-                "service": "NexusAI Edge Agent",
-                "status": "ONLINE",
-                "network": "LOCAL_ONLY",
-                "devices": devices,
-            })
-            return
-        self._send_json(404, {"error": "Not found"})
-
+            self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","network":"LOCAL_ONLY","devices":discover_local_devices()}); return
+        self._send_json(404, {"error":"Not found"})
     def do_POST(self):
-        if self.path not in ("/verify", "/activate"):
-            self._send_json(404, {"error": "Not found"})
-            return
+        global SITE_ID
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            required = ["camera_name", "camera_ip", "camera_port", "username", "password", "location"]
+            length = int(self.headers.get("Content-Length","0")); payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if self.path == "/configure":
+                site_id = str(payload.get("site_id","")).strip()
+                if not site_id or len(site_id) > 100: self._send_json(400, {"error":"Valid site ID required"}); return
+                SITE_ID = site_id
+                self._send_json(200, {"configured":True,"site_id":SITE_ID}); return
+            if self.path not in ("/verify","/activate"):
+                self._send_json(404, {"error":"Not found"}); return
+            required = ["camera_name","camera_ip","camera_port","username","password","location"]
             if any(not payload.get(key) for key in required):
-                self._send_json(400, {"error": "All camera/NVR details are required"})
-                return
-
-            cfg = {
-                "camera_id": payload.get("camera_id", f"camera-{int(time.time())}"),
-                "camera_name": str(payload["camera_name"]),
-                "camera_ip": str(payload["camera_ip"]),
-                "camera_port": int(payload["camera_port"]),
-                "username": str(payload["username"]),
-                "password": str(payload["password"]),
-                "location": str(payload["location"]),
-                "snapshot_channel": str(payload.get("snapshot_channel", "101")),
-            }
+                self._send_json(400, {"error":"All camera/NVR details are required"}); return
+            cfg = {"camera_id":payload.get("camera_id",f"camera-{int(time.time())}"),"camera_name":str(payload["camera_name"]),
+                   "camera_ip":str(payload["camera_ip"]),"camera_port":int(payload["camera_port"]),
+                   "username":str(payload["username"]),"password":str(payload["password"]),"location":str(payload["location"]),
+                   "snapshot_channel":str(payload.get("snapshot_channel","101"))}
             result = verify_camera(cfg)
             if result.get("verified"):
                 if self.path == "/activate":
-                    started, monitor_status = monitor_device(cfg, result.get("channels"))
-                    result["monitoring"] = monitor_status
-                    result["monitoring_started"] = started
-
-                    # Immediately register this site as online and keep the
-                    # cloud heartbeat alive for portal status monitoring.
-                    heartbeat(cfg, result)
-                    heartbeat_key = f"{cfg['camera_ip']}:{cfg['camera_port']}:{cfg['username']}"
+                    started, monitor_status = monitor_device(cfg,result.get("channels")); result["monitoring"]=monitor_status; result["monitoring_started"]=started
+                    heartbeat(cfg,result)
+                    heartbeat_key=f"{cfg['camera_ip']}:{cfg['camera_port']}:{cfg['username']}"
                     with ACTIVE_SESSIONS_LOCK:
                         if heartbeat_key not in HEARTBEAT_THREADS:
-                            heartbeat_thread = threading.Thread(
-                                target=heartbeat_loop,
-                                args=(cfg, result),
-                                daemon=True,
-                                name=f"nexusai-heartbeat-{cfg['camera_ip']}",
-                            )
-                            HEARTBEAT_THREADS[heartbeat_key] = heartbeat_thread
-                            heartbeat_thread.start()
-
-                post_backend("/api/edge/verify", {"site_id": SITE_ID, **result})
-            self._send_json(200, result)
-        except (ValueError, json.JSONDecodeError) as exc:
-            self._send_json(400, {"error": f"Invalid request: {exc}"})
-        except Exception as exc:
-            logging.exception("Local verification API error")
-            self._send_json(500, {"error": "Edge Agent verification failed"})
-
-    def log_message(self, format, *args):
-        logging.info("Local API: " + format, *args)
-
+                            t=threading.Thread(target=heartbeat_loop,args=(cfg,result),daemon=True,name=f"nexusai-heartbeat-{cfg['camera_ip']}")
+                            HEARTBEAT_THREADS[heartbeat_key]=t; t.start()
+                post_backend("/api/edge/verify", {"site_id":SITE_ID,**result})
+            self._send_json(200,result)
+        except (ValueError,json.JSONDecodeError) as exc: self._send_json(400,{"error":f"Invalid request: {exc}"})
+        except Exception:
+            logging.exception("Local verification API error"); self._send_json(500,{"error":"Edge Agent verification failed"})
+    def log_message(self,format,*args): logging.info("Local API: "+format,*args)
 
 def start_local_api():
-    server = ThreadingHTTPServer((LOCAL_AGENT_HOST, LOCAL_AGENT_PORT), LocalAgentHandler)
-    threading.Thread(target=server.serve_forever, daemon=True, name="nexusai-local-api").start()
-    logging.info("Local verification API listening on %s:%s", LOCAL_AGENT_HOST, LOCAL_AGENT_PORT)
+    server=ThreadingHTTPServer((LOCAL_AGENT_HOST,LOCAL_AGENT_PORT),LocalAgentHandler)
+    threading.Thread(target=server.serve_forever,daemon=True,name="nexusai-local-api").start()
     print(f"Local verification API: http://{LOCAL_AGENT_HOST}:{LOCAL_AGENT_PORT}")
     return server
 
-
-def heartbeat_loop(cfg, verification):
+def heartbeat_loop(cfg,verification):
     while True:
-        try:
-            heartbeat(cfg, verification)
-        except Exception:
-            logging.exception("Heartbeat loop error")
-        time.sleep(HEARTBEAT_SECONDS)
-
+        heartbeat(cfg,verification); time.sleep(HEARTBEAT_SECONDS)
 
 def main():
-    print("=" * 60)
-    print("NEXUSAI EDGE AGENT")
-    print("=" * 60)
-    print(f"Site:     {SITE_ID}")
-    print(f"Camera:   {os.getenv('CAMERA_NAME', 'Camera 1')}")
-    print(f"Location: {os.getenv('LOCATION', 'Main Entrance')}")
-    print(f"Backend:  {API_BASE_URL}")
-    print("=" * 60)
-
-    start_local_api()
-
-    cfg = camera_config()
-    if all([cfg["camera_ip"], cfg["username"], cfg["password"]]):
-        verification = verify_camera(cfg)
-        print(json.dumps(verification, indent=2))
+    print("="*60); print("NEXUSAI EDGE AGENT"); print("="*60)
+    print(f"Site: {SITE_ID}"); print(f"Backend: {API_BASE_URL}"); print("="*60)
+    start_local_api(); cfg=camera_config()
+    if all([cfg["camera_ip"],cfg["username"],cfg["password"]]):
+        verification=verify_camera(cfg)
         if verification.get("verified"):
-            post_backend("/api/edge/verify", {"site_id": SITE_ID, **verification})
-            heartbeat(cfg, verification)
-            threading.Thread(
-                target=heartbeat_loop,
-                args=(cfg, verification),
-                daemon=True,
-                name="nexusai-heartbeat",
-            ).start()
-            monitor_device(cfg, verification.get("channels", []))
-        else:
-            logging.error("Configured camera/NVR verification failed: %s", verification)
-            print("Configured device verification failed. The local API remains available for portal setup.")
-    else:
-        print("No camera configured in .env. Waiting for NexusAI Portal activation.")
-    while True:
-        time.sleep(3600)
+            post_backend("/api/edge/verify",{"site_id":SITE_ID,**verification}); heartbeat(cfg,verification)
+            threading.Thread(target=heartbeat_loop,args=(cfg,verification),daemon=True).start(); monitor_device(cfg,verification.get("channels",[]))
+    while True: time.sleep(3600)
 
-if __name__ == "__main__":
-    main()
+if __name__=="__main__": main()
