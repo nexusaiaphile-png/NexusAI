@@ -103,13 +103,32 @@ function renderChannels(){
   $("cameraSelection").innerHTML=verifiedChannels.map((c,i)=>`<label class="camera-select"><input type="checkbox" data-channel="${i}"><div><strong>${escapeHTML(c.name||"Camera "+(i+1))}</strong><span>Channel ${escapeHTML(c.channel_id||String(i+1))}</span></div><b>SELECT</b></label>`).join("");
   document.querySelectorAll(".camera-select input").forEach(x=>x.onchange=()=>{const i=Number(x.dataset.channel); x.checked?selectedChannels.add(i):selectedChannels.delete(i); $("selectedCount").textContent=selectedChannels.size+" SELECTED";});
 }
-function protectSelected(){
+async function protectSelected(){
   if(!selectedChannels.size){ alert("Select at least one camera."); return; }
+  if(!selectedDevice){ alert("Select and verify your Hikvision device first."); return; }
   const chosen=[...selectedChannels].map(i=>verifiedChannels[i]);
-  chosen.forEach(c=>protectedCameras.push({id:SITE_ID+"-"+(c.channel_id||Date.now()),name:c.name||"Camera",location:c.location||"Site",status:"ONLINE",protection:"NEXUSAI PROTECTED",addedAt:new Date().toISOString()}));
-  localStorage.setItem("nexusai_cameras",JSON.stringify(protectedCameras));
-  $("protectedSummary").textContent=chosen.length+" camera"+(chosen.length===1?" is":"s are")+" now connected to your NexusAI protection dashboard.";
-  hide($("cameraPanel")); show($("commandPanel")); updateSteps(5); renderDashboard(); $("commandPanel").scrollIntoView({behavior:"smooth",block:"center"});
+  $("protectBtn").disabled=true; $("protectBtn").textContent="ACTIVATING…";
+  try{
+    const r=await fetch(EDGE_AGENT_URL+"/activate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      camera_id:SITE_ID+"-"+(selectedDevice.ip||Date.now()),
+      camera_name:selectedDevice.name||"Hikvision NVR",
+      camera_ip:selectedDevice.ip,
+      camera_port:selectedDevice.port||80,
+      username:$("hikUsername").value.trim(),
+      password:$("hikPassword").value,
+      location:"Client site"
+    })});
+    const d=await r.json();
+    if(!r.ok || !d.verified) throw new Error(d.error||"NexusAI activation failed.");
+    chosen.forEach(c=>protectedCameras.push({id:SITE_ID+"-"+(c.channel_id||Date.now()),name:c.channel_name||c.name||"Camera",location:c.location||"Client site",status:"ONLINE",protection:"NEXUSAI PROTECTED",addedAt:new Date().toISOString()}));
+    localStorage.setItem("nexusai_cameras",JSON.stringify(protectedCameras));
+    $("protectedSummary").textContent=chosen.length+" camera"+(chosen.length===1?" is":"s are")+" now connected to your NexusAI protection dashboard.";
+    hide($("cameraPanel")); show($("commandPanel")); updateSteps(5); renderDashboard(); $("commandPanel").scrollIntoView({behavior:"smooth",block:"center"});
+  }catch(e){
+    alert(e.message||"NexusAI activation failed.");
+  }finally{
+    $("protectBtn").disabled=false; $("protectBtn").textContent="PROTECT SELECTED CAMERAS";
+  }
 }
 function renderDashboard(){
   $("activeCameras").textContent=protectedCameras.length;
