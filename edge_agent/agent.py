@@ -3,6 +3,9 @@ import logging
 import os
 import socket
 import time
+import ipaddress
+import concurrent.futures
+
 import threading
 import re
 import xml.etree.ElementTree as ET
@@ -98,6 +101,53 @@ def device_info(cfg):
     response = requests.get(url, auth=auth(cfg), timeout=8)
     response.raise_for_status()
     return response.text
+
+def local_network():
+    """Return the local IPv4 /24 network used by this computer."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.connect(("8.8.8.8", 80))
+        local_ip = sock.getsockname()[0]
+    finally:
+        sock.close()
+    return ipaddress.ip_network(f"{local_ip}/24", strict=False)
+
+
+def probe_hikvision(ip):
+    """Identify reachable Hikvision-compatible devices without credentials."""
+    url = f"http://{ip}/ISAPI/System/deviceInfo"
+    try:
+        response = requests.get(url, timeout=1.8, allow_redirects=False)
+        server = (response.headers.get("Server") or "").lower()
+        body = response.text[:2000].lower()
+        if response.status_code == 401 or "hikvision" in server or "hikvision" in body:
+            return {
+                "name": "Hikvision device",
+                "ip": ip,
+                "port": 80,
+                "type": "Hikvision",
+                "discovery": "LOCAL_NETWORK"
+            }
+    except requests.RequestException:
+        pass
+    return None
+
+
+def discover_local_devices():
+    """Scan only the local /24 network of the computer running the Edge Agent."""
+    try:
+        network = local_network()
+        hosts = [str(ip) for ip in network.hosts()]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=32) as pool:
+            results = list(pool.map(probe_hikvision, hosts))
+        devices = [item for item in results if item]
+        unique = {}
+        for device in devices:
+            unique[device["ip"]] = device
+        return list(unique.values())
+    except Exception as exc:
+        logging.exception("Local network discovery failed: %s", exc)
+        return []
 
 
 def discover_channels(cfg):
@@ -343,6 +393,7 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -355,7 +406,16 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
             self._send_json(200, {
                 "service": "NexusAI Edge Agent",
                 "status": "ONLINE",
-                "version": "1.1.0",
+                "version": "1.2.0",
+            })
+            return
+        if self.path == "/discover":
+            devices = discover_local_devices()
+            self._send_json(200, {
+                "service": "NexusAI Edge Agent",
+                "status": "ONLINE",
+                "network": "LOCAL_ONLY",
+                "devices": devices,
             })
             return
         self._send_json(404, {"error": "Not found"})
