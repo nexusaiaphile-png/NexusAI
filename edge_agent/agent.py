@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-API_BASE_URL = os.getenv("NEXUSAI_API_URL", "https://nexusai-aphile.workers.dev").rstrip("/")
+API_BASE_URL = os.getenv("NEXUSAI_API_URL", "http://localhost:8000").rstrip("/")
 EDGE_AGENT_TOKEN = os.getenv("NEXUSAI_EDGE_TOKEN", "")
 SITE_ID = os.getenv("NEXUSAI_SITE_ID", "site-unknown")
 HEARTBEAT_SECONDS = int(os.getenv("HEARTBEAT_SECONDS", "30"))
