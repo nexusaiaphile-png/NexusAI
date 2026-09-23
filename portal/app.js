@@ -408,27 +408,35 @@ async function handleCameraVerification(event) {
     }
 
     try {
-        const response = await fetch(
-            `${EDGE_AGENT_URL}/verify`,
-            {
-                method: "POST",
+        // Never leave the client stuck on VERIFYING if the local Edge Agent
+        // is stopped, unreachable, or blocked by the browser.
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
 
-                headers: {
-                    "Content-Type":
-                        "application/json"
-                },
-
-                body: JSON.stringify({
-                    camera_id: `camera-${Date.now()}`,
-                    camera_name: cameraName,
-                    camera_ip: cameraIp,
-                    camera_port: 80,
-                    username: username,
-                    password: password,
-                    location: location
-                })
-            }
-        );
+        let response;
+        try {
+            response = await fetch(
+                `${EDGE_AGENT_URL}/verify`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        camera_id: `camera-${Date.now()}`,
+                        camera_name: cameraName,
+                        camera_ip: cameraIp,
+                        camera_port: 80,
+                        username: username,
+                        password: password,
+                        location: location
+                    }),
+                    signal: controller.signal
+                }
+            );
+        } finally {
+            clearTimeout(timeout);
+        }
 
         let result;
 
@@ -486,9 +494,11 @@ async function handleCameraVerification(event) {
             "NOT CONNECTED"
         );
 
-        showVerificationError(
-            "NexusAI Edge Agent is not running on this computer. Start the Edge Agent, then test the camera again."
-        );
+        const message = error?.name === "AbortError"
+            ? "NexusAI Edge Agent did not respond within 8 seconds. Make sure the Edge Agent is running on this computer."
+            : "NexusAI Edge Agent is not running or cannot be reached on this computer. Start the Edge Agent, then test the camera again.";
+
+        showVerificationError(message);
 
     } finally {
         if ($("verifyCameraBtn")) {
