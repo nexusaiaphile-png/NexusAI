@@ -532,65 +532,101 @@ function showVerificationError(message) {
 // ACTIVATE VERIFIED CAMERA
 // ============================================================
 
-function activateVerifiedCamera(event) {
-    if (event) {
-        event.preventDefault();
-    }
+async function activateVerifiedCamera(event) {
+    if (event) event.preventDefault();
+    if (!verificationPassed || !verificationData) return;
 
-    if (!verificationPassed) {
-        return;
-    }
-
-    const camera = {
-        id:
-            Date.now().toString(),
-
-        name:
-            $("cameraName").value.trim(),
-
-        ip:
-            $("cameraIp").value.trim(),
-
-        username:
-            $("cameraUsername").value.trim(),
-
-        location:
-            $("cameraLocation").value.trim(),
-
-        status:
-            "ACTIVE",
-
-        protection:
-            "NEXUSAI PROTECTED",
-
-        addedAt:
-            new Date().toISOString()
+    const device = {
+        name: $("cameraName").value.trim(),
+        ip: $("cameraIp").value.trim(),
+        username: $("cameraUsername").value.trim(),
+        location: $("cameraLocation").value.trim()
     };
 
-    // IMPORTANT:
-    // Camera password is intentionally NOT stored
-    // in localStorage or browser storage.
+    const activateButton = $("activateCameraBtn");
+    if (activateButton) {
+        activateButton.disabled = true;
+        activateButton.textContent = "ACTIVATING...";
+    }
 
-    cameras.push(camera);
+    try {
+        const response = await fetch(EDGE_AGENT_URL + "/activate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                camera_id: "device-" + Date.now(),
+                camera_name: device.name,
+                camera_ip: device.ip,
+                camera_port: 80,
+                username: device.username,
+                password: $("cameraPassword").value,
+                location: device.location
+            })
+        });
 
-    localStorage.setItem(
-        "nexusai_cameras",
-        JSON.stringify(cameras)
-    );
+        const activation = await response.json();
+        if (!response.ok || activation.verified !== true) {
+            throw new Error(activation.error || "NexusAI could not activate the device.");
+        }
 
-    addLocalEvent({
-        type: "NEXUSAI PROTECTION ACTIVATED",
-        camera: camera.name,
-        location: camera.location,
-        timestamp:
-            new Date().toISOString()
-    });
+        const channels = Array.isArray(activation.channels) ? activation.channels : [];
+        const isNvr = activation.device_type === "NVR" || channels.length > 1;
 
-    closeCameraModal();
+        if (isNvr && channels.length) {
+            channels.forEach((channel) => {
+                cameras.push({
+                    id: device.ip + "-" + channel.channel_id,
+                    name: channel.channel_name || ("Channel " + channel.channel_id),
+                    ip: device.ip,
+                    username: device.username,
+                    location: device.location,
+                    channelId: channel.channel_id,
+                    deviceType: "NVR_CHANNEL",
+                    status: "ACTIVE",
+                    protection: "NEXUSAI PROTECTED",
+                    addedAt: new Date().toISOString()
+                });
+            });
 
-    clearCameraForm();
+            addLocalEvent({
+                type: "NVR PROTECTION ACTIVATED",
+                camera: channels.length + " channels discovered",
+                location: device.location,
+                timestamp: new Date().toISOString()
+            });
+        } else {
+            cameras.push({
+                id: Date.now().toString(),
+                name: device.name,
+                ip: device.ip,
+                username: device.username,
+                location: device.location,
+                status: "ACTIVE",
+                protection: "NEXUSAI PROTECTED",
+                addedAt: new Date().toISOString()
+            });
 
-    renderDashboard();
+            addLocalEvent({
+                type: "NEXUSAI PROTECTION ACTIVATED",
+                camera: device.name,
+                location: device.location,
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        localStorage.setItem("nexusai_cameras", JSON.stringify(cameras));
+        closeCameraModal();
+        clearCameraForm();
+        renderDashboard();
+    } catch (error) {
+        console.error("NexusAI activation error:", error);
+        showVerificationError(error.message || "Activation failed. Make sure the NexusAI Edge Agent is running.");
+    } finally {
+        if (activateButton) {
+            activateButton.disabled = false;
+            activateButton.textContent = "ACTIVATE CAMERA";
+        }
+    }
 }
 
 // ============================================================
