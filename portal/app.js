@@ -52,9 +52,10 @@ function downloadInstructions(os){
   alert("NexusAI Edge Agent ("+os+") installation package will be connected here. The client must run it on a computer connected to the same local network as the Hikvision system, then enter site code "+$("siteCode").textContent+".");
 }
 async function checkBackend(){ try{ const r=await fetch(API_BASE_URL+"/health",{cache:"no-store"}); if(!r.ok) throw 0; }catch(e){ console.warn("Cloud unavailable",e); } }
+async function pairEdgeAgent(){ try{ const r=await fetch(EDGE_AGENT_URL+"/configure",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({site_id:SITE_ID})}); return r.ok; }catch(e){ return false; } }
 async function checkEdgeAgent(){
   try{
-    const r=await fetch(EDGE_AGENT_URL+"/health",{cache:"no-store"});
+    await pairEdgeAgent(); const r=await fetch(EDGE_AGENT_URL+"/health",{cache:"no-store"});
     edgeOnline=r.ok;
     updateEdgeUI({});
     if(edgeOnline){ show($("discoveryPanel")); updateSteps(2); }
@@ -130,6 +131,7 @@ async function protectSelected(){
     $("protectBtn").disabled=false; $("protectBtn").textContent="PROTECT SELECTED CAMERAS";
   }
 }
+async function refreshCloudStatus(){ try{ const r=await fetch(API_BASE_URL+"/api/portal/status?site_id="+encodeURIComponent(SITE_ID),{cache:"no-store"}); if(!r.ok)return; const d=await r.json(); if(d.edge_agent==="ONLINE"){ edgeOnline=true; updateEdgeUI({}); } }catch(e){} }
 function renderDashboard(){
   $("activeCameras").textContent=protectedCameras.length;
   $("eventCount").textContent=events.length;
@@ -137,4 +139,4 @@ function renderDashboard(){
   $("eventList").innerHTML=events.length?events.slice(0,20).map(e=>`<div class="event-row"><span>◉</span><div><strong>${escapeHTML(e.type||"Security event")}</strong><small>${escapeHTML(e.camera||"NexusAI")}</small></div><time>${new Date(e.timestamp||Date.now()).toLocaleString()}</time></div>`).join(""):'<div class="empty-state">No security events yet.</div>';
 }
 function escapeHTML(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
-document.addEventListener("DOMContentLoaded",init);
+document.addEventListener("DOMContentLoaded",()=>{ init(); setInterval(refreshCloudStatus,10000); });
