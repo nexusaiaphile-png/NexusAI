@@ -28,6 +28,22 @@ let events = readStoredArray("nexusai_events");
 
 let selectedCameraCount = 1;
 let verificationPassed = false;
+
+function updateCameraCountUI() {
+    const value = $("cameraCountValue");
+    const label = $("cameraCountLabel");
+    const continueButton = $("continueCameraCount");
+    if (value) value.textContent = String(selectedCameraCount);
+    if (label) label.textContent = selectedCameraCount === 1 ? "Camera" : "Cameras";
+    if (continueButton) continueButton.textContent = `CONTINUE WITH ${selectedCameraCount} CAMERA${selectedCameraCount === 1 ? "" : "S"}`;
+    const decrease = $("decreaseCameraCount");
+    if (decrease) decrease.disabled = selectedCameraCount <= 1;
+}
+
+function changeCameraCount(amount) {
+    selectedCameraCount = Math.max(1, Math.min(100, selectedCameraCount + amount));
+    updateCameraCountUI();
+}
 let verificationData = null;
 
 // ============================================================
@@ -232,40 +248,21 @@ function handleLogout() {
 
 function openActivationModal() {
     show($("activationModal"));
-
     selectedCameraCount = 1;
+    updateCameraCountUI();
 
-    const countButtons =
-        document.querySelectorAll(
-            "[data-count]"
-        );
+    $("decreaseCameraCount")?.addEventListener("click", () => {
+        changeCameraCount(-1);
+    });
 
-    countButtons.forEach((button) => {
-        button.classList.remove("active");
+    $("increaseCameraCount")?.addEventListener("click", () => {
+        changeCameraCount(1);
+    });
 
-        if (
-            Number(button.dataset.count) === 1
-        ) {
-            button.classList.add("active");
-        }
-
-        button.onclick = () => {
-            selectedCameraCount = Number(button.dataset.count);
-
-            countButtons.forEach((item) =>
-                item.classList.remove("active")
-            );
-
-            button.classList.add("active");
-
-            setTimeout(() => {
-                closeActivationModal();
-                openCameraModal();
-            }, 180);
-        };
+    $("continueCameraCount")?.addEventListener("click", () => {
+        openCameraModal();
     });
 }
-
 function closeActivationModal() {
     hide($("activationModal"));
 }
