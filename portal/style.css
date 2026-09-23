@@ -653,6 +653,19 @@ input:focus {
     transform: translateY(-2px);
 }
 
+.count-btn.active {
+    border-color: var(--cyan);
+    background: rgba(0, 229, 255, 0.10);
+    box-shadow:
+        0 0 0 1px rgba(0, 229, 255, 0.35),
+        0 0 24px rgba(0, 229, 255, 0.10);
+    transform: translateY(-1px);
+}
+
+.count-btn.active strong {
+    color: var(--cyan);
+}
+
 /* =========================
    VERIFICATION
    ========================= */
