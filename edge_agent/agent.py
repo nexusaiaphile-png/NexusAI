@@ -132,9 +132,18 @@ def discover_channels(cfg):
                     "enabled": enabled,
                     "video_input_channel_id": values.get("dynVideoInputChannelID") or values.get("videoInputChannelID"),
                 })
-            unique = {item["channel_id"]: item for item in channels if item["enabled"]}
-            if unique:
-                return list(unique.values())
+            enabled = [item for item in channels if item["enabled"]]
+            # NVRs expose multiple stream IDs per camera (for example 101/102).
+            # Prefer main-stream channel IDs ending in 01 so each physical camera
+            # appears once in the customer portal.
+            main_streams = [item for item in enabled if item["channel_id"].isdigit() and item["channel_id"].endswith("01")]
+            selected = main_streams or enabled
+            unique_by_input = {}
+            for item in selected:
+                key = item.get("video_input_channel_id") or item["channel_id"]
+                unique_by_input.setdefault(str(key), item)
+            if unique_by_input:
+                return list(unique_by_input.values())
         except (requests.RequestException, ET.ParseError) as exc:
             last_error = str(exc)
     if last_error:
@@ -181,7 +190,8 @@ def verify_camera(cfg):
         channels = discover_channels(cfg)
         if channels:
             result["channels"] = channels
-            result["device_type"] = "NVR" if "NVR" in result["device_type"].upper() or len(channels) > 1 else result["device_type"]
+            if any(token in result["device_type"].upper() for token in ("NVR", "DVR")):
+                result["device_type"] = "NVR"
         result["verified"] = True
         result["nexusai"] = "CONNECTED"
     except requests.HTTPError as exc:
