@@ -3,7 +3,7 @@
 // Connected to live NexusAI backend
 // ============================================================
 
-const API_BASE_URL = "https://nexusai-aphile.workers.dev";
+const API_BASE_URL = window.location.origin;
 const EDGE_AGENT_URL = "http://127.0.0.1:8787";
 
 // ============================================================
