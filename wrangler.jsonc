@@ -1,8 +1,0 @@
-{
-  "name": "nexusai",
-  "compatibility_date": "2026-09-21",
-  "assets": {
-    "directory": "./portal",
-    "not_found_handling": "404-page"
-  }
-}
