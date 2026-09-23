@@ -1,4 +1,5 @@
 const API_BASE_URL = window.location.origin;
+const EDGE_AGENT_URL = "http://127.0.0.1:8787";
 const SITE_ID = localStorage.getItem("nexusai_site_id") || ("site-" + crypto.randomUUID());
 localStorage.setItem("nexusai_site_id", SITE_ID);
 
@@ -53,10 +54,9 @@ function downloadInstructions(os){
 async function checkBackend(){ try{ const r=await fetch(API_BASE_URL+"/health",{cache:"no-store"}); if(!r.ok) throw 0; }catch(e){ console.warn("Cloud unavailable",e); } }
 async function checkEdgeAgent(){
   try{
-    const r=await fetch(API_BASE_URL+"/api/portal/status?site_id="+encodeURIComponent(SITE_ID),{cache:"no-store"});
-    const d=await r.json();
-    edgeOnline=d.edge_agent==="ONLINE";
-    updateEdgeUI(d);
+    const r=await fetch(EDGE_AGENT_URL+"/health",{cache:"no-store"});
+    edgeOnline=r.ok;
+    updateEdgeUI({});
     if(edgeOnline){ show($("discoveryPanel")); updateSteps(2); }
   }catch(e){ edgeOnline=false; updateEdgeUI({}); }
 }
@@ -69,7 +69,7 @@ async function scanNetwork(){
   if(!edgeOnline){ $("scanStatus").textContent="EDGE AGENT REQUIRED"; $("scanTitle").textContent="Connect the Edge Agent first"; $("scanText").textContent="Install and start the NexusAI Edge Agent on a computer at this site."; return; }
   $("scanBtn").disabled=true; $("scanBtn").textContent="SCANNING…"; $("scanStatus").textContent="SCANNING"; $("scanTitle").textContent="Searching local network…";
   try{
-    const r=await fetch(API_BASE_URL+"/api/portal/discover?site_id="+encodeURIComponent(SITE_ID),{cache:"no-store"});
+    const r=await fetch(EDGE_AGENT_URL+"/discover",{cache:"no-store"});
     const d=await r.json();
     discoveredDevices=Array.isArray(d.devices)?d.devices:[];
     renderDevices();
@@ -92,7 +92,7 @@ async function verifyDevice(){
   if(!selectedDevice || !password){ $("verifyResult").textContent="Select a device and enter the Hikvision password."; show($("verifyResult")); return; }
   $("verifyDeviceBtn").disabled=true; $("verifyDeviceBtn").textContent="VERIFYING…";
   try{
-    const r=await fetch(API_BASE_URL+"/api/portal/verify-device",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({site_id:SITE_ID,device:selectedDevice,username,password})});
+    const r=await fetch(EDGE_AGENT_URL+"/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:SITE_ID+"-"+(selectedDevice.ip||Date.now()),camera_name:selectedDevice.name||"Hikvision device",camera_ip:selectedDevice.ip,camera_port:selectedDevice.port||80,username,password,location:"Client site"})});
     const d=await r.json();
     if(!r.ok || !d.verified) throw new Error(d.error||"Device verification failed.");
     verifiedChannels=Array.isArray(d.channels)?d.channels:[]; renderChannels(); show($("cameraPanel")); hide($("verifyResult")); updateSteps(4); $("cameraPanel").scrollIntoView({behavior:"smooth",block:"center"});
