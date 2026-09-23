@@ -25,19 +25,29 @@ const $ = (id) => document.getElementById(id);
 
 function show(element) {
     if (!element) return;
-    if (element.classList.contains("modal")) {
+
+    if (
+        element.classList.contains("modal") ||
+        element.classList.contains("screen")
+    ) {
         element.classList.add("active");
         return;
     }
+
     element.style.display = "";
 }
 
 function hide(element) {
     if (!element) return;
-    if (element.classList.contains("modal")) {
+
+    if (
+        element.classList.contains("modal") ||
+        element.classList.contains("screen")
+    ) {
         element.classList.remove("active");
         return;
     }
+
     element.style.display = "none";
 }
 
