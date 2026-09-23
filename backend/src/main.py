@@ -203,4 +203,6 @@ async def edge_event(
 
 
 # Serve the client portal files (index.html, CSS and JavaScript) under /portal/.
+# This must be mounted after the API/public routes so FastAPI does not let
+# static-file routing swallow the health/API endpoints.
 app.mount("/portal", StaticFiles(directory=PORTAL_DIR, html=True), name="portal")
