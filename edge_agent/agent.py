@@ -429,25 +429,24 @@ def main():
     start_local_api()
 
     cfg = camera_config()
-    if not all([cfg["camera_ip"], cfg["username"], cfg["password"]]):
-        raise SystemExit("Missing CAM_IP, CAM_USER, or CAM_PASS in .env")
-
-    verification = verify_camera(cfg)
-    print(json.dumps(verification, indent=2))
-    if not verification.get("verified"):
-        logging.error("Camera verification failed: %s", verification)
-        raise SystemExit(1)
-
-    post_backend("/api/edge/verify", {"site_id": SITE_ID, **verification})
-    heartbeat(cfg, verification)
-    threading.Thread(
-        target=heartbeat_loop,
-        args=(cfg, verification),
-        daemon=True,
-        name="nexusai-heartbeat",
-    ).start()
-    channels = verification.get("channels", [])
-    monitor_device(cfg, channels)
+    if all([cfg["camera_ip"], cfg["username"], cfg["password"]]):
+        verification = verify_camera(cfg)
+        print(json.dumps(verification, indent=2))
+        if verification.get("verified"):
+            post_backend("/api/edge/verify", {"site_id": SITE_ID, **verification})
+            heartbeat(cfg, verification)
+            threading.Thread(
+                target=heartbeat_loop,
+                args=(cfg, verification),
+                daemon=True,
+                name="nexusai-heartbeat",
+            ).start()
+            monitor_device(cfg, verification.get("channels", []))
+        else:
+            logging.error("Configured camera/NVR verification failed: %s", verification)
+            print("Configured device verification failed. The local API remains available for portal setup.")
+    else:
+        print("No camera configured in .env. Waiting for NexusAI Portal activation.")
     while True:
         time.sleep(3600)
 
