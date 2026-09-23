@@ -28,6 +28,7 @@ LOCAL_AGENT_PORT = int(os.getenv("LOCAL_AGENT_PORT", "8787"))
 
 ACTIVE_SESSIONS = {}
 ACTIVE_SESSIONS_LOCK = threading.Lock()
+HEARTBEAT_THREADS = {}
 
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
@@ -387,6 +388,22 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
                     started, monitor_status = monitor_device(cfg, result.get("channels"))
                     result["monitoring"] = monitor_status
                     result["monitoring_started"] = started
+
+                    # Immediately register this site as online and keep the
+                    # cloud heartbeat alive for portal status monitoring.
+                    heartbeat(cfg, result)
+                    heartbeat_key = f"{cfg['camera_ip']}:{cfg['camera_port']}:{cfg['username']}"
+                    with ACTIVE_SESSIONS_LOCK:
+                        if heartbeat_key not in HEARTBEAT_THREADS:
+                            heartbeat_thread = threading.Thread(
+                                target=heartbeat_loop,
+                                args=(cfg, result),
+                                daemon=True,
+                                name=f"nexusai-heartbeat-{cfg['camera_ip']}",
+                            )
+                            HEARTBEAT_THREADS[heartbeat_key] = heartbeat_thread
+                            heartbeat_thread.start()
+
                 post_backend("/api/edge/verify", {"site_id": SITE_ID, **result})
             self._send_json(200, result)
         except (ValueError, json.JSONDecodeError) as exc:
