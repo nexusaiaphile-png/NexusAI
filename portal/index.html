@@ -210,39 +210,16 @@
                 Select the number of cameras you want to protect.
             </p>
 
-            <div class="camera-count-grid">
-
-                <button class="count-btn" data-count="1">
-                    <strong>1</strong>
-                    <span>Camera</span>
-                </button>
-
-                <button class="count-btn" data-count="2">
-                    <strong>2</strong>
-                    <span>Cameras</span>
-                </button>
-
-                <button class="count-btn" data-count="3">
-                    <strong>3</strong>
-                    <span>Cameras</span>
-                </button>
-
-                <button class="count-btn" data-count="4">
-                    <strong>4</strong>
-                    <span>Cameras</span>
-                </button>
-
-                <button class="count-btn" data-count="5">
-                    <strong>5</strong>
-                    <span>Cameras</span>
-                </button>
-
-                <button class="count-btn" data-count="6">
-                    <strong>6+</strong>
-                    <span>Cameras</span>
-                </button>
-
+            <div class="camera-count-picker">
+                <button type="button" class="count-stepper" id="decreaseCameraCount" aria-label="Decrease camera count">−</button>
+                <div class="camera-count-value">
+                    <strong id="cameraCountValue">1</strong>
+                    <span id="cameraCountLabel">Camera</span>
+                </div>
+                <button type="button" class="count-stepper" id="increaseCameraCount" aria-label="Increase camera count">+</button>
             </div>
+            <p class="count-helper">Add the number of cameras you want NexusAI to protect.</p>
+            <button type="button" class="primary-btn count-continue-btn" id="continueCameraCount">CONTINUE WITH 1 CAMERA</button>
 
         </div>
 
