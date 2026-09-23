@@ -1,38 +1,47 @@
-# NexusAI Hikvision AI Security Alert Relay
+# NexusAI Technologies
 
-NexusAI security alert relay for Hikvision cameras using the ISAPI event stream.
+NexusAI Technologies — AI security technology built for what comes next.
 
-## Features
+## Render deployment
 
-- Hikvision ISAPI alert-stream monitoring
-- Automatic reconnection
-- Event detection for intrusion, line crossing, region events, loitering, weapon, threat and motion events
-- Automatic camera snapshot capture
-- WhatsApp alert delivery
-- Gmail alert delivery with snapshot attachment
-- Environment-variable based configuration
+The repository is configured for a Render Python Web Service.
 
-## Setup
+- Build command: `pip install -r backend/requirements.txt`
+- Start command: `uvicorn backend.src.main:app --host 0.0.0.0 --port $PORT`
+- Health check: `/health`
+- Public site: `/`
+- About: `/about`
+- Founder: `/founder`
+- Client portal: `/portal/`
 
-1. Install Python 3.
-2. Install dependencies:
+Render must receive the application's HTTP server on `0.0.0.0:$PORT`; the included `render.yaml` configures this automatically. citeturn0search0turn0search12
+
+## Environment variables
+
+Set secrets in Render Environment, never in GitHub:
+
+- `NEXUSAI_EDGE_TOKEN` — shared token for Edge Agent API calls
+- Future database/API credentials should also be configured as Render environment variables.
+
+Do not commit `.env`.
+
+## Edge Agent
+
+The `edge_agent/` application is designed to run at the customer's site because it needs access to private Hikvision/NVR network addresses. It communicates outbound with the public NexusAI API.
+
+Configure its `NEXUSAI_API_URL` to the Render service URL, for example:
+
+`https://<your-render-service>.onrender.com`
+
+After the custom domain is connected, it can use:
+
+`https://getnexusai.co.za`
+
+## Local development
 
 ```bash
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
+uvicorn backend.src.main:app --reload
 ```
 
-3. Copy `.env.example` to `.env`.
-4. Fill in the real camera, WhatsApp and Gmail values in `.env`.
-5. Run:
-
-```bash
-python main.py
-```
-
-## Security
-
-Never commit `.env`, passwords, API tokens, app passwords or camera credentials to GitHub. The repository includes a `.gitignore` that excludes `.env` and runtime files.
-
-## Important
-
-The relay responds to events reported by the Hikvision camera. It does not itself create a new AI detection model; the exact detections available depend on the camera/NVR and its configured analytics.
+The public site and API are served by the same FastAPI service, so the client portal uses the current origin instead of the old Cloudflare Worker URL.
