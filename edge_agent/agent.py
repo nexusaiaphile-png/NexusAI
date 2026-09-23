@@ -4,6 +4,7 @@ import os
 import socket
 import time
 import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,6 +21,8 @@ HEARTBEAT_SECONDS = int(os.getenv("HEARTBEAT_SECONDS", "30"))
 RECONNECT_SECONDS = int(os.getenv("RECONNECT_SECONDS", "10"))
 SNAPSHOT_DIR = Path(os.getenv("SNAPSHOT_DIR", "snapshots"))
 LOG_FILE = os.getenv("LOG_FILE", "nexusai_edge.log")
+LOCAL_AGENT_HOST = os.getenv("LOCAL_AGENT_HOST", "127.0.0.1")
+LOCAL_AGENT_PORT = int(os.getenv("LOCAL_AGENT_PORT", "8787"))
 
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
@@ -211,6 +214,75 @@ def listen(cfg):
             logging.exception("Unexpected edge-agent error")
         time.sleep(RECONNECT_SECONDS)
 
+class LocalAgentHandler(BaseHTTPRequestHandler):
+    def _send_json(self, status, payload):
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        self._send_json(204, {})
+
+    def do_GET(self):
+        if self.path == "/health":
+            self._send_json(200, {
+                "service": "NexusAI Edge Agent",
+                "status": "ONLINE",
+                "version": "1.1.0",
+            })
+            return
+        self._send_json(404, {"error": "Not found"})
+
+    def do_POST(self):
+        if self.path != "/verify":
+            self._send_json(404, {"error": "Not found"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            required = ["camera_name", "camera_ip", "camera_port", "username", "password", "location"]
+            if any(not payload.get(key) for key in required):
+                self._send_json(400, {"error": "All camera details are required"})
+                return
+
+            cfg = {
+                "camera_id": payload.get("camera_id", f"camera-{int(time.time())}"),
+                "camera_name": str(payload["camera_name"]),
+                "camera_ip": str(payload["camera_ip"]),
+                "camera_port": int(payload["camera_port"]),
+                "username": str(payload["username"]),
+                "password": str(payload["password"]),
+                "location": str(payload["location"]),
+                "snapshot_channel": str(payload.get("snapshot_channel", "101")),
+            }
+            result = verify_camera(cfg)
+            if result.get("verified"):
+                post_backend("/api/edge/verify", {"site_id": SITE_ID, **result})
+            self._send_json(200, result)
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(400, {"error": f"Invalid request: {exc}"})
+        except Exception as exc:
+            logging.exception("Local verification API error")
+            self._send_json(500, {"error": "Edge Agent verification failed"})
+
+    def log_message(self, format, *args):
+        logging.info("Local API: " + format, *args)
+
+
+def start_local_api():
+    server = ThreadingHTTPServer((LOCAL_AGENT_HOST, LOCAL_AGENT_PORT), LocalAgentHandler)
+    threading.Thread(target=server.serve_forever, daemon=True, name="nexusai-local-api").start()
+    logging.info("Local verification API listening on %s:%s", LOCAL_AGENT_HOST, LOCAL_AGENT_PORT)
+    print(f"Local verification API: http://{LOCAL_AGENT_HOST}:{LOCAL_AGENT_PORT}")
+    return server
+
+
 def heartbeat_loop(cfg, verification):
     while True:
         try:
@@ -229,6 +301,8 @@ def main():
     print(f"Location: {os.getenv('LOCATION', 'Main Entrance')}")
     print(f"Backend:  {API_BASE_URL}")
     print("=" * 60)
+
+    start_local_api()
 
     cfg = camera_config()
     if not all([cfg["camera_ip"], cfg["username"], cfg["password"]]):
