@@ -852,3 +852,7 @@ input:focus {
         display: none;
     }
 }
+
+
+/* Client camera count stepper */
+.camera-count-picker{display:flex;align-items:center;justify-content:center;gap:28px;margin:28px 0 14px}.count-stepper{width:58px;height:58px;border:1px solid #27404d;border-radius:14px;background:#081018;color:#5ee7ff;font-size:32px;font-weight:700;cursor:pointer}.count-stepper:hover{border-color:#5ee7ff;transform:translateY(-1px)}.count-stepper:disabled{opacity:.35;cursor:not-allowed;transform:none}.camera-count-value{min-width:150px;text-align:center}.camera-count-value strong{display:block;font-size:64px;line-height:1;color:#eefcff}.camera-count-value span{display:block;margin-top:8px;color:#91a5b3;font-size:14px;text-transform:uppercase;letter-spacing:2px}.count-helper{text-align:center;color:#91a5b3;font-size:13px;margin:0 0 18px}.count-continue-btn{width:100%}
