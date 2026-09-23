@@ -1,4 +1,3 @@
-```javascript
 // ============================================================
 // NEXUSAI CLIENT PORTAL
 // Connected to live NexusAI backend
@@ -172,7 +171,7 @@ function openActivationModal() {
 
     const countButtons =
         document.querySelectorAll(
-            "[data-camera-count]"
+            "[data-count]"
         );
 
     countButtons.forEach((button) => {
@@ -186,7 +185,7 @@ function openActivationModal() {
 
         button.onclick = () => {
             selectedCameraCount =
-                Number(button.dataset.cameraCount);
+                Number(button.dataset.count);
 
             countButtons.forEach((item) =>
                 item.classList.remove("active")
@@ -802,4 +801,3 @@ async function checkNexusAIBackend() {
 
 // Run health check when portal loads.
 checkNexusAIBackend();
-```
