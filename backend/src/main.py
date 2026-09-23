@@ -1,25 +1,26 @@
 import os
+from pathlib import Path
+
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr
-from workers import asgi
 
+BASE_DIR = Path(__file__).resolve().parents[2]
+PORTAL_DIR = BASE_DIR / "portal"
+ROOT_INDEX = BASE_DIR / "index.html"
 
 app = FastAPI(
     title="NexusAI API",
     description="NexusAI Security Client Portal API",
-    version="1.1.0",
+    version="2.0.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://getnexusai.co.za",
-        "https://www.getnexusai.co.za",
-        "http://localhost:3000",
-        "http://localhost:5173",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -46,7 +47,7 @@ class EdgeHeartbeat(BaseModel):
     agent_version: str
     timestamp: str
     status: str
-    cameras: list[EdgeCamera] = []
+    cameras: list[EdgeCamera] = Field(default_factory=list)
 
 
 class EdgeVerification(BaseModel):
@@ -60,6 +61,8 @@ class EdgeVerification(BaseModel):
     nexusai: str
     verified: bool = False
     error: str | None = None
+    device_type: str | None = None
+    channels: list[dict] = Field(default_factory=list)
 
 
 class EdgeEvent(BaseModel):
@@ -80,21 +83,30 @@ def require_edge_token(token: str | None):
         raise HTTPException(status_code=401, detail="Invalid NexusAI Edge Agent token")
 
 
-@app.get("/")
-async def root():
-    return {
-        "service": "NexusAI API",
-        "status": "ONLINE",
-        "version": "1.1.0",
-    }
+@app.get("/", include_in_schema=False)
+async def public_home():
+    return FileResponse(ROOT_INDEX)
+
+
+@app.get("/about", include_in_schema=False)
+async def public_about():
+    return FileResponse(PORTAL_DIR / "about.html")
+
+
+@app.get("/founder", include_in_schema=False)
+async def public_founder():
+    return FileResponse(PORTAL_DIR / "founder.html")
+
+
+@app.get("/portal", include_in_schema=False)
+@app.get("/portal/", include_in_schema=False)
+async def client_portal():
+    return FileResponse(PORTAL_DIR / "index.html")
 
 
 @app.get("/health")
 async def health():
-    return {
-        "status": "healthy",
-        "service": "NexusAI Backend",
-    }
+    return {"status": "healthy", "service": "NexusAI Backend", "version": "2.0.0"}
 
 
 @app.get("/api/status")
@@ -104,7 +116,7 @@ async def api_status():
         "security_engine": "READY",
         "camera_verification": "EDGE_AGENT",
         "edge_agent": "READY",
-        "api_version": "1.1.0",
+        "api_version": "2.0.0",
     }
 
 
@@ -155,6 +167,7 @@ async def edge_verify(
         "credentials": verification.credentials,
         "nexusai": "CONNECTED" if verification.verified else "NOT_CONNECTED",
         "error": verification.error,
+        "channels": verification.channels,
     }
 
 
@@ -174,4 +187,9 @@ async def edge_event(
     }
 
 
-Default = asgi.entrypoint(app)
+# Serve shared public assets after explicit application routes.
+app.mount("/portal/assets", StaticFiles(directory=PORTAL_DIR), name="portal-assets")
+
+
+# Static files referenced by the public pages (story.css, robots.txt, sitemap.xml, etc.).
+# These are mounted individually so /about and /founder remain clean URLs.
