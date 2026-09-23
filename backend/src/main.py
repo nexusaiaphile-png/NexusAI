@@ -12,6 +12,11 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 PORTAL_DIR = BASE_DIR / "portal"
 ROOT_INDEX = BASE_DIR / "index.html"
 
+# In-memory edge state for the current NexusAI service instance.
+# Production persistence can be moved to Postgres without changing the API contract.
+EDGE_SITES: dict[str, dict] = {}
+EDGE_EVENTS: list[dict] = []
+
 app = FastAPI(
     title="NexusAI API",
     description="NexusAI Security Client Portal API",
