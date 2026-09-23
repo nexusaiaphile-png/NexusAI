@@ -3,6 +3,7 @@ import logging
 import os
 import socket
 import time
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -210,6 +211,15 @@ def listen(cfg):
             logging.exception("Unexpected edge-agent error")
         time.sleep(RECONNECT_SECONDS)
 
+def heartbeat_loop(cfg, verification):
+    while True:
+        try:
+            heartbeat(cfg, verification)
+        except Exception:
+            logging.exception("Heartbeat loop error")
+        time.sleep(HEARTBEAT_SECONDS)
+
+
 def main():
     print("=" * 60)
     print("NEXUSAI EDGE AGENT")
@@ -232,6 +242,12 @@ def main():
 
     post_backend("/api/edge/verify", {"site_id": SITE_ID, **verification})
     heartbeat(cfg, verification)
+    threading.Thread(
+        target=heartbeat_loop,
+        args=(cfg, verification),
+        daemon=True,
+        name="nexusai-heartbeat",
+    ).start()
     listen(cfg)
 
 if __name__ == "__main__":
