@@ -587,7 +587,7 @@ async function activateVerifiedCamera(event) {
     }
 
     try {
-        const response = await fetch(`${EDGE_AGENT_URL}/api/cameras/verify`, {
+        const response = await fetch(`${EDGE_AGENT_URL}/activate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
