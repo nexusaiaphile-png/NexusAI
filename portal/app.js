@@ -49,7 +49,12 @@ function showLogin(){ $("loginScreen").classList.add("active"); $("dashboardScre
 function showDashboard(){ $("loginScreen").classList.remove("active"); $("dashboardScreen").classList.add("active"); renderDashboard(); checkEdgeAgent(); }
 function startInstall(){ show($("installPanel")); $("installPanel").scrollIntoView({behavior:"smooth",block:"center"}); updateSteps(1); }
 function downloadInstructions(os){
-  alert("NexusAI Edge Agent ("+os+") installation package will be connected here. The client must run it on a computer connected to the same local network as the Hikvision system, then enter site code "+$("siteCode").textContent+".");
+  const url = os === "Windows"
+    ? "https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/install_windows.ps1"
+    : "https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/install_mac.sh";
+  const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener"; a.click();
+  $("setupTitle").textContent = os + " Edge Agent download started";
+  $("scanText").textContent = "Run the downloaded installer on a computer connected to the same local network as your Hikvision system. Then return here and check the connection.";
 }
 async function checkBackend(){ try{ const r=await fetch(API_BASE_URL+"/health",{cache:"no-store"}); if(!r.ok) throw 0; }catch(e){ console.warn("Cloud unavailable",e); } }
 async function pairEdgeAgent(){ try{ const r=await fetch(EDGE_AGENT_URL+"/configure",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({site_id:SITE_ID})}); return r.ok; }catch(e){ return false; } }
