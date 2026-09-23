@@ -1,774 +1,803 @@
-/* =========================================================
-   NEXUSAI CLIENT PORTAL
-   Frontend application logic
-   ========================================================= */
+```javascript
+// ============================================================
+// NEXUSAI CLIENT PORTAL
+// Connected to live NexusAI backend
+// ============================================================
 
-const loginScreen = document.getElementById("loginScreen");
-const dashboardScreen = document.getElementById("dashboardScreen");
+const API_BASE_URL = "https://nexusai-aphile.workers.dev";
 
-const loginForm = document.getElementById("loginForm");
-const logoutBtn = document.getElementById("logoutBtn");
+// ============================================================
+// STATE
+// ============================================================
 
-const activationModal = document.getElementById("activationModal");
-const cameraModal = document.getElementById("cameraModal");
+let cameras = JSON.parse(localStorage.getItem("nexusai_cameras") || "[]");
+let events = JSON.parse(localStorage.getItem("nexusai_events") || "[]");
 
-const activateBtn = document.getElementById("activateBtn");
-const emptyActivateBtn = document.getElementById("emptyActivateBtn");
-const addCameraBtn = document.getElementById("addCameraBtn");
-
-const closeModal = document.getElementById("closeModal");
-const closeCameraModal = document.getElementById("closeCameraModal");
-
-const cameraForm = document.getElementById("cameraForm");
-const verifyCameraBtn = document.getElementById("verifyCameraBtn");
-
-const verificationBox = document.getElementById("verificationBox");
-const verificationSuccess =
-    document.getElementById("verificationSuccess");
-const verificationError =
-    document.getElementById("verificationError");
-
-const activateCameraBtn =
-    document.getElementById("activateCameraBtn");
-
-const retryVerificationBtn =
-    document.getElementById("retryVerificationBtn");
-
-const verificationTitle =
-    document.getElementById("verificationTitle");
-
-const verificationErrorText =
-    document.getElementById("verificationErrorText");
-
-const activeCameras =
-    document.getElementById("activeCameras");
-
-const eventCount =
-    document.getElementById("eventCount");
-
-const cameraList =
-    document.getElementById("cameraList");
-
-const emptyCameras =
-    document.getElementById("emptyCameras");
-
-const eventList =
-    document.getElementById("eventList");
-
-const cameraSetupTitle =
-    document.getElementById("cameraSetupTitle");
-
-const cameraName =
-    document.getElementById("cameraName");
-
-const cameraIp =
-    document.getElementById("cameraIp");
-
-const cameraUsername =
-    document.getElementById("cameraUsername");
-
-const cameraPassword =
-    document.getElementById("cameraPassword");
-
-const cameraLocation =
-    document.getElementById("cameraLocation");
-
-const networkCheck =
-    document.getElementById("networkCheck");
-
-const cameraCheck =
-    document.getElementById("cameraCheck");
-
-const credentialsCheck =
-    document.getElementById("credentialsCheck");
-
-const nexusCheck =
-    document.getElementById("nexusCheck");
-
-
-/* =========================================================
-   APPLICATION STATE
-   ========================================================= */
-
-let cameras = [];
-let securityEvents = [];
-let selectedCameraNumber = 1;
+let selectedCameraCount = 1;
 let verificationPassed = false;
+let verificationData = null;
 
+// ============================================================
+// DOM HELPERS
+// ============================================================
 
-/* =========================================================
-   INITIALIZATION
-   ========================================================= */
+const $ = (id) => document.getElementById(id);
+
+function show(element) {
+    if (element) element.style.display = "";
+}
+
+function hide(element) {
+    if (element) element.style.display = "none";
+}
+
+function escapeHTML(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+// ============================================================
+// LOGIN
+// ============================================================
 
 document.addEventListener("DOMContentLoaded", () => {
-    loadLocalData();
-    updateDashboard();
+    initializePortal();
+});
 
-    if (localStorage.getItem("nexusai_logged_in") === "true") {
+function initializePortal() {
+    const loggedIn = localStorage.getItem("nexusai_logged_in");
+
+    if (loggedIn === "true") {
         showDashboard();
     } else {
         showLogin();
     }
-});
 
+    bindEvents();
+}
 
-/* =========================================================
-   LOGIN
-   ========================================================= */
+function bindEvents() {
+    $("loginForm")?.addEventListener("submit", handleLogin);
 
-loginForm.addEventListener("submit", (event) => {
-    event.preventDefault();
+    $("logoutBtn")?.addEventListener("click", handleLogout);
 
-    const email = document.getElementById("email").value.trim();
-    const password = document.getElementById("password").value.trim();
+    $("activateBtn")?.addEventListener(
+        "click",
+        openActivationModal
+    );
 
-    if (!email || !password) {
-        return;
-    }
+    $("emptyActivateBtn")?.addEventListener(
+        "click",
+        openActivationModal
+    );
 
-    /*
-       DEMO AUTHENTICATION
+    $("addCameraBtn")?.addEventListener(
+        "click",
+        openCameraModal
+    );
 
-       Real authentication will be connected to the
-       NexusAI backend later.
+    $("closeModal")?.addEventListener(
+        "click",
+        closeActivationModal
+    );
 
-       No password is being sent anywhere here.
-    */
+    $("closeCameraModal")?.addEventListener(
+        "click",
+        closeCameraModal
+    );
 
-    localStorage.setItem("nexusai_logged_in", "true");
-    localStorage.setItem("nexusai_user_email", email);
+    $("cameraForm")?.addEventListener(
+        "submit",
+        handleCameraVerification
+    );
 
-    showDashboard();
-});
+    $("verifyCameraBtn")?.addEventListener(
+        "click",
+        handleCameraVerification
+    );
 
+    $("retryVerificationBtn")?.addEventListener(
+        "click",
+        resetVerification
+    );
+
+    $("activateCameraBtn")?.addEventListener(
+        "click",
+        activateVerifiedCamera
+    );
+
+    document.addEventListener("click", (event) => {
+        if (
+            event.target === $("activationModal")
+        ) {
+            closeActivationModal();
+        }
+
+        if (
+            event.target === $("cameraModal")
+        ) {
+            closeCameraModal();
+        }
+    });
+}
+
+// ============================================================
+// LOGIN
+// ============================================================
 
 function showLogin() {
-    loginScreen.classList.add("active");
-    dashboardScreen.classList.remove("active");
+    show($("loginScreen"));
+    hide($("dashboardScreen"));
 }
-
 
 function showDashboard() {
-    loginScreen.classList.remove("active");
-    dashboardScreen.classList.add("active");
+    hide($("loginScreen"));
+    show($("dashboardScreen"));
 
-    updateDashboard();
+    renderDashboard();
 }
 
+function handleLogin(event) {
+    event.preventDefault();
 
-/* =========================================================
-   LOGOUT
-   ========================================================= */
+    localStorage.setItem(
+        "nexusai_logged_in",
+        "true"
+    );
 
-logoutBtn.addEventListener("click", () => {
-    localStorage.removeItem("nexusai_logged_in");
+    showDashboard();
+}
+
+function handleLogout() {
+    localStorage.removeItem(
+        "nexusai_logged_in"
+    );
+
     showLogin();
-});
+}
 
-
-/* =========================================================
-   ACTIVATION MODAL
-   ========================================================= */
+// ============================================================
+// ACTIVATION MODAL
+// ============================================================
 
 function openActivationModal() {
-    activationModal.classList.add("active");
-}
+    show($("activationModal"));
 
+    selectedCameraCount = 1;
+
+    const countButtons =
+        document.querySelectorAll(
+            "[data-camera-count]"
+        );
+
+    countButtons.forEach((button) => {
+        button.classList.remove("active");
+
+        if (
+            Number(button.dataset.cameraCount) === 1
+        ) {
+            button.classList.add("active");
+        }
+
+        button.onclick = () => {
+            selectedCameraCount =
+                Number(button.dataset.cameraCount);
+
+            countButtons.forEach((item) =>
+                item.classList.remove("active")
+            );
+
+            button.classList.add("active");
+        };
+    });
+}
 
 function closeActivationModal() {
-    activationModal.classList.remove("active");
+    hide($("activationModal"));
 }
 
+// ============================================================
+// CAMERA MODAL
+// ============================================================
 
-activateBtn.addEventListener("click", openActivationModal);
+function openCameraModal() {
+    closeActivationModal();
 
-emptyActivateBtn.addEventListener(
-    "click",
-    openActivationModal
-);
-
-addCameraBtn.addEventListener(
-    "click",
-    openActivationModal
-);
-
-closeModal.addEventListener(
-    "click",
-    closeActivationModal
-);
-
-
-/* =========================================================
-   CAMERA COUNT
-   ========================================================= */
-
-document.querySelectorAll(".count-btn").forEach((button) => {
-
-    button.addEventListener("click", () => {
-
-        selectedCameraNumber =
-            Number(button.dataset.count);
-
-        /*
-           For now we configure one camera at a time.
-           The backend will later support complete
-           multi-camera onboarding.
-        */
-
-        closeActivationModal();
-
-        openCameraSetup(
-            cameras.length + 1
-        );
-    });
-
-});
-
-
-/* =========================================================
-   CAMERA SETUP
-   ========================================================= */
-
-function openCameraSetup(cameraNumber) {
-
-    selectedCameraNumber = cameraNumber;
-
-    cameraSetupTitle.textContent =
-        `Camera ${cameraNumber}`;
-
-    cameraForm.reset();
+    show($("cameraModal"));
 
     resetVerification();
 
-    cameraModal.classList.add("active");
+    if ($("cameraSetupTitle")) {
+        $("cameraSetupTitle").textContent =
+            cameras.length > 0
+                ? "Add Camera"
+                : "Activate NexusAI";
+    }
 }
 
-
-function closeCameraSetup() {
-    cameraModal.classList.remove("active");
+function closeCameraModal() {
+    hide($("cameraModal"));
 }
 
-
-closeCameraModal.addEventListener(
-    "click",
-    closeCameraSetup
-);
-
-
-/* =========================================================
-   RESET VERIFICATION
-   ========================================================= */
+// ============================================================
+// RESET VERIFICATION
+// ============================================================
 
 function resetVerification() {
-
-    verificationBox.classList.add("hidden");
-
-    verificationSuccess.classList.add("hidden");
-
-    verificationError.classList.add("hidden");
-
     verificationPassed = false;
+    verificationData = null;
 
-    networkCheck.textContent = "...";
-    cameraCheck.textContent = "...";
-    credentialsCheck.textContent = "...";
-    nexusCheck.textContent = "...";
+    hide($("verificationBox"));
+    hide($("verificationSuccess"));
+    hide($("verificationError"));
+
+    show($("cameraForm"));
+
+    if ($("activateCameraBtn")) {
+        $("activateCameraBtn").disabled = true;
+    }
+
+    setCheck(
+        "networkCheck",
+        "Waiting"
+    );
+
+    setCheck(
+        "cameraCheck",
+        "Waiting"
+    );
+
+    setCheck(
+        "credentialsCheck",
+        "Waiting"
+    );
+
+    setCheck(
+        "nexusCheck",
+        "Waiting"
+    );
 }
 
+// ============================================================
+// REAL CAMERA VERIFICATION
+// ============================================================
 
-/* =========================================================
-   CAMERA VERIFICATION
-   ========================================================= */
+async function handleCameraVerification(event) {
+    if (event) {
+        event.preventDefault();
+    }
 
-verifyCameraBtn.addEventListener(
-    "click",
-    verifyCamera
-);
+    const cameraName =
+        $("cameraName")?.value.trim();
 
-
-async function verifyCamera() {
-
-    const name =
-        cameraName.value.trim();
-
-    const ip =
-        cameraIp.value.trim();
+    const cameraIp =
+        $("cameraIp")?.value.trim();
 
     const username =
-        cameraUsername.value.trim();
+        $("cameraUsername")?.value.trim();
 
     const password =
-        cameraPassword.value.trim();
+        $("cameraPassword")?.value;
 
     const location =
-        cameraLocation.value.trim();
-
+        $("cameraLocation")?.value.trim();
 
     if (
-        !name ||
-        !ip ||
+        !cameraName ||
+        !cameraIp ||
         !username ||
         !password ||
         !location
     ) {
-        alert(
+        showVerificationError(
             "Please complete all camera details before testing."
         );
 
         return;
     }
 
+    verificationPassed = false;
 
-    verificationBox.classList.remove(
-        "hidden"
+    hide($("verificationSuccess"));
+    hide($("verificationError"));
+    show($("verificationBox"));
+
+    if ($("verificationTitle")) {
+        $("verificationTitle").textContent =
+            "NexusAI Verification";
+    }
+
+    setCheck(
+        "networkCheck",
+        "Checking..."
     );
 
-    verificationSuccess.classList.add(
-        "hidden"
+    setCheck(
+        "cameraCheck",
+        "Waiting..."
     );
 
-    verificationError.classList.add(
-        "hidden"
+    setCheck(
+        "credentialsCheck",
+        "Waiting..."
     );
 
-
-    verificationTitle.textContent =
-        "Running NexusAI Verification...";
-
-
-    verifyCameraBtn.disabled = true;
-
-    verifyCameraBtn.textContent =
-        "VERIFYING...";
-
-
-    /*
-       DEMO VERIFICATION
-
-       This currently simulates the verification process.
-
-       IMPORTANT:
-       The real version will send the camera information
-       securely to the NexusAI backend, which will test:
-
-       1. Network connectivity
-       2. Camera availability
-       3. Authentication
-       4. NexusAI connection
-       5. Camera readiness
-
-       Camera credentials must NOT be sent directly from
-       this public frontend to third-party services.
-    */
-
-
-    await verificationStep(
-        networkCheck,
-        "CHECKING...",
-        "CONNECTED"
+    setCheck(
+        "nexusCheck",
+        "Waiting..."
     );
 
-    await verificationStep(
-        cameraCheck,
-        "CHECKING...",
-        "DETECTED"
-    );
+    if ($("verifyCameraBtn")) {
+        $("verifyCameraBtn").disabled = true;
+        $("verifyCameraBtn").textContent =
+            "VERIFYING...";
+    }
 
-    await verificationStep(
-        credentialsCheck,
-        "CHECKING...",
-        "ACCEPTED"
-    );
+    try {
+        const response = await fetch(
+            `${API_BASE_URL}/api/cameras/verify`,
+            {
+                method: "POST",
 
-    await verificationStep(
-        nexusCheck,
-        "CONNECTING...",
-        "CONNECTED"
-    );
+                headers: {
+                    "Content-Type":
+                        "application/json"
+                },
 
+                body: JSON.stringify({
+                    camera_name: cameraName,
+                    camera_ip: cameraIp,
+                    camera_port: 80,
+                    username: username,
+                    password: password,
+                    location: location
+                })
+            }
+        );
 
-    verificationTitle.textContent =
-        "Camera verification successful";
+        let result;
 
-
-    verificationPassed = true;
-
-
-    verificationSuccess.classList.remove(
-        "hidden"
-    );
-
-
-    verifyCameraBtn.disabled = false;
-
-    verifyCameraBtn.textContent =
-        "TEST CAMERA";
-}
-
-
-function verificationStep(
-    element,
-    processingText,
-    successText
-) {
-
-    return new Promise((resolve) => {
-
-        element.textContent =
-            processingText;
-
-        setTimeout(() => {
-
-            element.textContent =
-                `✓ ${successText}`;
-
-            resolve();
-
-        }, 650);
-
-    });
-
-}
-
-
-/* =========================================================
-   ACTIVATE VERIFIED CAMERA
-   ========================================================= */
-
-activateCameraBtn.addEventListener(
-    "click",
-    () => {
-
-        if (!verificationPassed) {
-            return;
+        try {
+            result = await response.json();
+        } catch {
+            throw new Error(
+                "NexusAI returned an invalid response."
+            );
         }
 
+        updateVerificationChecks(result);
 
-        const camera = {
+        if (
+            response.ok &&
+            result.verified === true
+        ) {
+            verificationPassed = true;
+            verificationData = result;
 
-            id: Date.now(),
+            showVerificationSuccess();
 
-            name:
-                cameraName.value.trim(),
+        } else {
+            verificationPassed = false;
 
-            ip:
-                cameraIp.value.trim(),
+            showVerificationError(
+                result.error ||
+                "NexusAI could not verify this camera."
+            );
+        }
 
-            username:
-                cameraUsername.value.trim(),
-
-            /*
-               SECURITY NOTE:
-               Password is deliberately NOT stored
-               in localStorage.
-
-               The real backend will securely store
-               credentials server-side.
-            */
-
-            location:
-                cameraLocation.value.trim(),
-
-            status: "ONLINE",
-
-            protected: true,
-
-            activatedAt:
-                new Date().toISOString()
-
-        };
-
-
-        cameras.push(camera);
-
-        saveLocalData();
-
-        updateDashboard();
-
-        closeCameraSetup();
-
-        alert(
-            `${camera.name} has been activated and is now protected by NexusAI.`
+    } catch (error) {
+        console.error(
+            "NexusAI verification error:",
+            error
         );
 
+        setCheck(
+            "networkCheck",
+            "API ERROR"
+        );
+
+        setCheck(
+            "cameraCheck",
+            "NOT CHECKED"
+        );
+
+        setCheck(
+            "credentialsCheck",
+            "NOT CHECKED"
+        );
+
+        setCheck(
+            "nexusCheck",
+            "NOT CONNECTED"
+        );
+
+        showVerificationError(
+            "NexusAI could not reach the verification service. Please check the connection and try again."
+        );
+
+    } finally {
+        if ($("verifyCameraBtn")) {
+            $("verifyCameraBtn").disabled = false;
+            $("verifyCameraBtn").textContent =
+                "TEST CAMERA";
+        }
     }
-);
-
-
-/* =========================================================
-   RETRY VERIFICATION
-   ========================================================= */
-
-retryVerificationBtn.addEventListener(
-    "click",
-    () => {
-
-        verificationError.classList.add(
-            "hidden"
-        );
-
-        verificationSuccess.classList.add(
-            "hidden"
-        );
-
-        verificationPassed = false;
-
-    }
-);
-
-
-/* =========================================================
-   DASHBOARD UPDATE
-   ========================================================= */
-
-function updateDashboard() {
-
-    activeCameras.textContent =
-        `${cameras.length} / ${cameras.length}`;
-
-    eventCount.textContent =
-        securityEvents.length;
-
-    renderCameras();
-
-    renderEvents();
-
 }
 
+// ============================================================
+// VERIFICATION UI
+// ============================================================
 
-/* =========================================================
-   RENDER CAMERAS
-   ========================================================= */
-
-function renderCameras() {
-
-    cameraList
-        .querySelectorAll(".camera-card")
-        .forEach((card) => card.remove());
-
-
-    if (cameras.length === 0) {
-
-        emptyCameras.classList.remove(
-            "hidden"
-        );
-
-        return;
-    }
-
-
-    emptyCameras.classList.add(
-        "hidden"
+function updateVerificationChecks(result) {
+    setCheck(
+        "networkCheck",
+        result.network || "UNKNOWN"
     );
 
+    setCheck(
+        "cameraCheck",
+        result.camera || "UNKNOWN"
+    );
 
-    cameras.forEach((camera) => {
+    setCheck(
+        "credentialsCheck",
+        result.credentials || "UNKNOWN"
+    );
 
-        const card =
-            document.createElement("div");
-
-        card.className =
-            "camera-card";
-
-
-        card.innerHTML = `
-
-            <div class="camera-card-top">
-
-                <div class="camera-icon">
-                    📹
-                </div>
-
-                <span class="online-badge">
-                    ● ${camera.status}
-                </span>
-
-            </div>
-
-            <h3>
-                ${escapeHtml(camera.name)}
-            </h3>
-
-            <p class="camera-location">
-                ${escapeHtml(camera.location)}
-            </p>
-
-            <div class="protected">
-                🛡️ NEXUSAI PROTECTED
-            </div>
-
-        `;
-
-
-        cameraList.appendChild(card);
-
-    });
-
+    setCheck(
+        "nexusCheck",
+        result.nexusai || "UNKNOWN"
+    );
 }
 
+function setCheck(id, status) {
+    const element = $(id);
 
-/* =========================================================
-   RENDER SECURITY EVENTS
-   ========================================================= */
+    if (!element) return;
 
-function renderEvents() {
+    const normalized =
+        String(status)
+            .toUpperCase();
 
-    if (securityEvents.length === 0) {
+    element.textContent = normalized;
 
-        eventList.innerHTML = `
-            <div class="empty-events">
-                No security events recorded yet.
-            </div>
-        `;
+    element.classList.remove(
+        "success",
+        "error",
+        "warning"
+    );
 
+    if (
+        [
+            "CONNECTED",
+            "DETECTED",
+            "ACCEPTED",
+            "READY"
+        ].includes(normalized)
+    ) {
+        element.classList.add(
+            "success"
+        );
+    } else if (
+        [
+            "REJECTED",
+            "NOT CONNECTED",
+            "NOT DETECTED",
+            "UNREACHABLE",
+            "ERROR",
+            "API ERROR"
+        ].includes(normalized)
+    ) {
+        element.classList.add(
+            "error"
+        );
+    } else {
+        element.classList.add(
+            "warning"
+        );
+    }
+}
+
+function showVerificationSuccess() {
+    hide($("verificationError"));
+    show($("verificationSuccess"));
+
+    if ($("verificationTitle")) {
+        $("verificationTitle").textContent =
+            "Camera Verified";
+    }
+
+    if ($("activateCameraBtn")) {
+        $("activateCameraBtn").disabled =
+            false;
+    }
+}
+
+function showVerificationError(message) {
+    hide($("verificationSuccess"));
+    show($("verificationError"));
+
+    if ($("verificationErrorText")) {
+        $("verificationErrorText").textContent =
+            message;
+    }
+}
+
+// ============================================================
+// ACTIVATE VERIFIED CAMERA
+// ============================================================
+
+function activateVerifiedCamera(event) {
+    if (event) {
+        event.preventDefault();
+    }
+
+    if (!verificationPassed) {
         return;
     }
 
+    const camera = {
+        id:
+            Date.now().toString(),
 
-    eventList.innerHTML = "";
+        name:
+            $("cameraName").value.trim(),
 
+        ip:
+            $("cameraIp").value.trim(),
 
-    securityEvents
-        .slice()
-        .reverse()
-        .forEach((event) => {
+        username:
+            $("cameraUsername").value.trim(),
 
-            const row =
-                document.createElement("div");
+        location:
+            $("cameraLocation").value.trim(),
 
-            row.className =
-                "event-row";
+        status:
+            "ACTIVE",
 
+        protection:
+            "NEXUSAI PROTECTED",
 
-            row.innerHTML = `
+        addedAt:
+            new Date().toISOString()
+    };
 
-                <div class="event-icon">
-                    🚨
-                </div>
+    // IMPORTANT:
+    // Camera password is intentionally NOT stored
+    // in localStorage or browser storage.
 
-                <div>
-
-                    <div class="event-title">
-                        ${escapeHtml(event.type)}
-                    </div>
-
-                    <div class="event-meta">
-                        ${escapeHtml(event.camera)}
-                        •
-                        ${escapeHtml(event.location)}
-                    </div>
-
-                </div>
-
-                <div class="event-time">
-                    ${escapeHtml(event.time)}
-                </div>
-
-            `;
-
-
-            eventList.appendChild(row);
-
-        });
-
-}
-
-
-/* =========================================================
-   LOCAL STORAGE
-   ========================================================= */
-
-function saveLocalData() {
-
-    /*
-       Demo only.
-
-       Do NOT use localStorage for real client
-       credentials or production security data.
-    */
+    cameras.push(camera);
 
     localStorage.setItem(
         "nexusai_cameras",
         JSON.stringify(cameras)
     );
 
-    localStorage.setItem(
-        "nexusai_events",
-        JSON.stringify(securityEvents)
-    );
+    addLocalEvent({
+        type: "NEXUSAI PROTECTION ACTIVATED",
+        camera: camera.name,
+        location: camera.location,
+        timestamp:
+            new Date().toISOString()
+    });
 
+    closeCameraModal();
+
+    clearCameraForm();
+
+    renderDashboard();
 }
 
+// ============================================================
+// CLEAR CAMERA FORM
+// ============================================================
 
-function loadLocalData() {
+function clearCameraForm() {
+    [
+        "cameraName",
+        "cameraIp",
+        "cameraUsername",
+        "cameraPassword",
+        "cameraLocation"
+    ].forEach((id) => {
+        if ($(id)) {
+            $(id).value = "";
+        }
+    });
 
+    resetVerification();
+}
+
+// ============================================================
+// DASHBOARD
+// ============================================================
+
+function renderDashboard() {
+    updateStats();
+    renderCameras();
+    renderEvents();
+}
+
+function updateStats() {
+    if ($("activeCameras")) {
+        $("activeCameras").textContent =
+            cameras.length;
+    }
+
+    if ($("eventCount")) {
+        $("eventCount").textContent =
+            events.length;
+    }
+}
+
+// ============================================================
+// CAMERA LIST
+// ============================================================
+
+function renderCameras() {
+    const list = $("cameraList");
+    const empty = $("emptyCameras");
+
+    if (!list) return;
+
+    if (cameras.length === 0) {
+        list.innerHTML = "";
+
+        show(empty);
+
+        return;
+    }
+
+    hide(empty);
+
+    list.innerHTML = cameras
+        .map(
+            (camera) => `
+                <div class="camera-card">
+                    <div class="camera-card-header">
+                        <strong>
+                            ${escapeHTML(camera.name)}
+                        </strong>
+
+                        <span class="status-badge success">
+                            ● ACTIVE
+                        </span>
+                    </div>
+
+                    <div class="camera-details">
+                        <div>
+                            <span>Location</span>
+                            <strong>
+                                ${escapeHTML(camera.location)}
+                            </strong>
+                        </div>
+
+                        <div>
+                            <span>Protection</span>
+                            <strong>
+                                NEXUSAI PROTECTED
+                            </strong>
+                        </div>
+
+                        <div>
+                            <span>Camera</span>
+                            <strong>
+                                ONLINE
+                            </strong>
+                        </div>
+                    </div>
+                </div>
+            `
+        )
+        .join("");
+}
+
+// ============================================================
+// SECURITY EVENTS
+// ============================================================
+
+function addLocalEvent(event) {
+    events.unshift(event);
+
+    events = events.slice(0, 50);
+
+    localStorage.setItem(
+        "nexusai_events",
+        JSON.stringify(events)
+    );
+}
+
+function renderEvents() {
+    const list = $("eventList");
+
+    if (!list) return;
+
+    if (events.length === 0) {
+        list.innerHTML = `
+            <div class="empty-state">
+                <p>No security events yet.</p>
+            </div>
+        `;
+
+        return;
+    }
+
+    list.innerHTML = events
+        .map((event) => {
+            const date =
+                new Date(event.timestamp);
+
+            return `
+                <div class="event-row">
+                    <div class="event-icon">
+                        🚨
+                    </div>
+
+                    <div class="event-information">
+                        <strong>
+                            ${escapeHTML(event.type)}
+                        </strong>
+
+                        <span>
+                            ${escapeHTML(event.camera)}
+                            •
+                            ${escapeHTML(event.location)}
+                        </span>
+                    </div>
+
+                    <time>
+                        ${date.toLocaleString()}
+                    </time>
+                </div>
+            `;
+        })
+        .join("");
+}
+
+// ============================================================
+// BACKEND HEALTH CHECK
+// ============================================================
+
+async function checkNexusAIBackend() {
     try {
+        const response = await fetch(
+            `${API_BASE_URL}/health`,
+            {
+                method: "GET",
+                cache: "no-store"
+            }
+        );
 
-        cameras =
-            JSON.parse(
-                localStorage.getItem(
-                    "nexusai_cameras"
-                )
-            ) || [];
+        if (!response.ok) {
+            throw new Error(
+                "Backend unavailable"
+            );
+        }
 
+        const result =
+            await response.json();
 
-        securityEvents =
-            JSON.parse(
-                localStorage.getItem(
-                    "nexusai_events"
-                )
-            ) || [];
+        console.log(
+            "NexusAI backend:",
+            result
+        );
+
+        return true;
 
     } catch (error) {
-
         console.error(
-            "Failed to load NexusAI data:",
+            "NexusAI backend health check failed:",
             error
         );
 
-        cameras = [];
-        securityEvents = [];
-
+        return false;
     }
-
 }
 
-
-/* =========================================================
-   SECURITY HELPER
-   ========================================================= */
-
-function escapeHtml(value) {
-
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-
-}
-
-
-/* =========================================================
-   MODAL BACKDROP
-   ========================================================= */
-
-window.addEventListener(
-    "click",
-    (event) => {
-
-        if (
-            event.target === activationModal
-        ) {
-            closeActivationModal();
-        }
-
-        if (
-            event.target === cameraModal
-        ) {
-            closeCameraSetup();
-        }
-
-    }
-);
+// Run health check when portal loads.
+checkNexusAIBackend();
+```
