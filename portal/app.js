@@ -5,6 +5,7 @@
 // ============================================================
 
 const API_BASE_URL = "https://nexusai-aphile.workers.dev";
+const EDGE_AGENT_URL = "http://127.0.0.1:8787";
 
 // ============================================================
 // STATE
@@ -178,7 +179,7 @@ function openActivationModal() {
         button.classList.remove("active");
 
         if (
-            Number(button.dataset.cameraCount) === 1
+            Number(button.dataset.count) === 1
         ) {
             button.classList.add("active");
         }
@@ -339,7 +340,7 @@ async function handleCameraVerification(event) {
 
     try {
         const response = await fetch(
-            `${API_BASE_URL}/api/cameras/verify`,
+            `${EDGE_AGENT_URL}/verify`,
             {
                 method: "POST",
 
@@ -349,6 +350,7 @@ async function handleCameraVerification(event) {
                 },
 
                 body: JSON.stringify({
+                    camera_id: `camera-${Date.now()}`,
                     camera_name: cameraName,
                     camera_ip: cameraIp,
                     camera_port: 80,
@@ -385,7 +387,7 @@ async function handleCameraVerification(event) {
 
             showVerificationError(
                 result.error ||
-                "NexusAI could not verify this camera."
+                "NexusAI could not verify this camera. Check the camera details and Edge Agent connection."
             );
         }
 
@@ -416,7 +418,7 @@ async function handleCameraVerification(event) {
         );
 
         showVerificationError(
-            "NexusAI could not reach the verification service. Please check the connection and try again."
+            "NexusAI Edge Agent is not running on this computer. Start the Edge Agent, then test the camera again."
         );
 
     } finally {
