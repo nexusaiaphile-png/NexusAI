@@ -10,8 +10,19 @@ const EDGE_AGENT_URL = window.location.origin;
 // STATE
 // ============================================================
 
-let cameras = JSON.parse(localStorage.getItem("nexusai_cameras") || "[]");
-let events = JSON.parse(localStorage.getItem("nexusai_events") || "[]");
+function readStoredArray(key) {
+    try {
+        const value = JSON.parse(localStorage.getItem(key) || "[]");
+        return Array.isArray(value) ? value : [];
+    } catch (error) {
+        console.warn("NexusAI local storage reset:", key, error);
+        localStorage.removeItem(key);
+        return [];
+    }
+}
+
+let cameras = readStoredArray("nexusai_cameras");
+let events = readStoredArray("nexusai_events");
 
 let selectedCameraCount = 1;
 let verificationPassed = false;
@@ -705,9 +716,21 @@ function renderCameras() {
     if (!list) return;
 
     if (cameras.length === 0) {
-        list.innerHTML = "";
+        list.innerHTML = `
+            <div class="empty-state" id="emptyCameras">
+                <div class="empty-icon">📹</div>
+                <h3>No cameras activated</h3>
+                <p>Activate your first camera to start NexusAI protection.</p>
+                <button class="primary-btn" id="emptyActivateBtn">
+                    ACTIVATE NEXUSAI
+                </button>
+            </div>
+        `;
 
-        show(empty);
+        $("emptyActivateBtn")?.addEventListener(
+            "click",
+            openActivationModal
+        );
 
         return;
     }
