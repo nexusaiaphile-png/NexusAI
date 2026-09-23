@@ -1,394 +1,98 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NexusAI | Security Command Center</title>
-    <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NexusAI | Client Installation & Security Command Center</title>
+<link rel="stylesheet" href="style.css?v=20260923-6">
 </head>
-
 <body>
+<section id="loginScreen" class="screen active">
+  <div class="auth-shell">
+    <div class="brand"><div class="logo">N</div><div><strong>NexusAI</strong><span>AI SECURITY TECHNOLOGY</span></div></div>
+    <div class="status-pill"><i></i> NEXUSAI CLOUD ONLINE</div>
+    <h1>Client Security Portal</h1>
+    <p>Connect your existing Hikvision system and protect your cameras with NexusAI.</p>
+    <form id="loginForm">
+      <label>Email address</label><input id="email" type="email" placeholder="you@company.co.za" required>
+      <label>Password</label><input id="password" type="password" placeholder="Your password" required>
+      <button class="primary-btn" type="submit">SIGN IN</button>
+    </form>
+    <small>Self-installation is designed to connect your own local camera system securely.</small>
+  </div>
+</section>
 
-    <!-- LOGIN -->
-    <section id="loginScreen" class="screen active">
-        <div class="login-card">
-            <div class="brand">
-                <div class="logo">N</div>
-                <div>
-                    <h1>NexusAI</h1>
-                    <span>AI SECURITY COMMAND CENTER</span>
-                </div>
-            </div>
+<section id="dashboardScreen" class="screen">
+<header class="topbar">
+  <div class="brand compact"><div class="logo">N</div><div><strong>NexusAI</strong><span>CLIENT SECURITY COMMAND CENTER</span></div></div>
+  <div class="top-actions"><div id="edgeStatus" class="edge-status"><i></i> EDGE AGENT WAITING</div><button id="logoutBtn" class="logout-btn">LOG OUT</button></div>
+</header>
 
-            <div class="status-pill">
-                <span></span> SYSTEM ONLINE
-            </div>
+<main class="dashboard">
+  <section class="hero">
+    <div><p class="eyebrow">CLIENT SECURITY COMMAND CENTER</p><h1>Your security. Connected.</h1><p>Install NexusAI yourself, discover your Hikvision system, select the cameras you want protected and activate AI security.</p></div>
+    <button id="startInstallBtn" class="primary-btn hero-btn">START SELF-INSTALLATION</button>
+  </section>
 
-            <h2>Client Login</h2>
-            <p class="muted">
-                Access your NexusAI security dashboard.
-            </p>
-
-            <form id="loginForm">
-                <label>Email address</label>
-                <input
-                    id="email"
-                    type="email"
-                    placeholder="you@company.co.za"
-                    required
-                >
-
-                <label>Password</label>
-                <input
-                    id="password"
-                    type="password"
-                    placeholder="Enter your password"
-                    required
-                >
-
-                <button type="submit" class="primary-btn">
-                    SIGN IN
-                </button>
-            </form>
-
-            <p class="demo-note">
-                Demo portal — backend authentication will be connected next.
-            </p>
-        </div>
-    </section>
-
-
-    <!-- DASHBOARD -->
-    <section id="dashboardScreen" class="screen">
-
-        <header class="topbar">
-            <div class="brand small">
-                <div class="logo">N</div>
-                <div>
-                    <strong>NexusAI</strong>
-                    <span>SECURITY COMMAND CENTER</span>
-                </div>
-            </div>
-
-            <div class="top-actions">
-                <div class="system-status">
-                    <span></span> SYSTEM ONLINE
-                </div>
-
-                <button id="logoutBtn" class="logout-btn">
-                    Logout
-                </button>
-            </div>
-        </header>
-
-
-        <main class="dashboard">
-
-            <div class="welcome">
-                <div>
-                    <p class="eyebrow">CLIENT DASHBOARD</p>
-                    <h1>Security Command Center</h1>
-                    <p>
-                        Monitor your cameras and NexusAI security events.
-                    </p>
-                </div>
-
-                <button id="activateBtn" class="primary-btn">
-                    + ACTIVATE NEXUSAI
-                </button>
-            </div>
-
-
-            <!-- STATS -->
-            <div class="stats-grid">
-
-                <div class="stat-card">
-                    <span class="stat-label">ACTIVE CAMERAS</span>
-                    <strong id="activeCameras">0 / 0</strong>
-                    <small>Protected by NexusAI</small>
-                </div>
-
-                <div class="stat-card">
-                    <span class="stat-label">TODAY'S EVENTS</span>
-                    <strong id="eventCount">0</strong>
-                    <small>Security detections</small>
-                </div>
-
-                <div class="stat-card">
-                    <span class="stat-label">SYSTEM STATUS</span>
-                    <strong class="online-text">ONLINE</strong>
-                    <small>NexusAI operating normally</small>
-                </div>
-
-                <div class="stat-card">
-                    <span class="stat-label">ALERT CHANNELS</span>
-                    <strong>READY</strong>
-                    <small>WhatsApp / Email</small>
-                </div>
-
-            </div>
-
-
-            <!-- CAMERAS -->
-            <section class="panel">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">CAMERA MANAGEMENT</p>
-                        <h2>Your Cameras</h2>
-                    </div>
-
-                    <button id="addCameraBtn" class="secondary-btn">
-                        + Add Camera
-                    </button>
-                </div>
-
-                <div id="cameraList" class="camera-grid">
-
-                    <div class="empty-state" id="emptyCameras">
-                        <div class="empty-icon">📹</div>
-                        <h3>No cameras activated</h3>
-                        <p>
-                            Activate your first camera to start
-                            NexusAI protection.
-                        </p>
-
-                        <button
-                            class="primary-btn"
-                            id="emptyActivateBtn"
-                        >
-                            ACTIVATE NEXUSAI
-                        </button>
-                    </div>
-
-                </div>
-            </section>
-
-
-            <!-- ALERTS -->
-            <section class="panel">
-
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">SECURITY MONITORING</p>
-                        <h2>Recent Security Events</h2>
-                    </div>
-
-                    <span class="live-badge">
-                        ● LIVE
-                    </span>
-                </div>
-
-                <div id="eventList">
-
-                    <div class="empty-events">
-                        No security events recorded yet.
-                    </div>
-
-                </div>
-
-            </section>
-
-        </main>
-
-    </section>
-
-
-    <!-- ACTIVATION MODAL -->
-    <div id="activationModal" class="modal">
-
-        <div class="modal-card">
-
-            <button class="close-btn" id="closeModal">
-                ×
-            </button>
-
-            <p class="eyebrow">NEXUSAI ACTIVATION</p>
-
-            <h2>Activate NexusAI</h2>
-
-            <p class="muted">
-                Select the number of cameras you want to protect.
-            </p>
-
-            <div class="camera-count-picker">
-                <button type="button" class="count-stepper" id="decreaseCameraCount" aria-label="Decrease camera count">−</button>
-                <div class="camera-count-value">
-                    <strong id="cameraCountValue">1</strong>
-                    <span id="cameraCountLabel">Camera</span>
-                </div>
-                <button type="button" class="count-stepper" id="increaseCameraCount" aria-label="Increase camera count">+</button>
-            </div>
-            <p class="count-helper">Add the number of cameras you want NexusAI to protect.</p>
-            <button type="button" class="primary-btn count-continue-btn" id="continueCameraCount">CONTINUE WITH 1 CAMERA</button>
-
-        </div>
-
+  <section class="setup-progress panel">
+    <div class="progress-head"><div><p class="eyebrow">SELF-INSTALLATION</p><h2 id="setupTitle">Ready to connect your site</h2></div><span id="setupBadge" class="badge">STEP 1 OF 5</span></div>
+    <div class="steps">
+      <div class="step active" data-step="1"><b>1</b><span>Install</span></div>
+      <div class="line"></div><div class="step" data-step="2"><b>2</b><span>Discover</span></div>
+      <div class="line"></div><div class="step" data-step="3"><b>3</b><span>Verify</span></div>
+      <div class="line"></div><div class="step" data-step="4"><b>4</b><span>Select</span></div>
+      <div class="line"></div><div class="step" data-step="5"><b>5</b><span>Protect</span></div>
     </div>
+  </section>
 
-
-    <!-- CAMERA SETUP MODAL -->
-    <div id="cameraModal" class="modal">
-
-        <div class="modal-card wide">
-
-            <button class="close-btn" id="closeCameraModal">
-                ×
-            </button>
-
-            <p class="eyebrow">CAMERA SETUP</p>
-
-            <h2 id="cameraSetupTitle">
-                Camera 1
-            </h2>
-
-            <p class="muted">
-                Enter your Hikvision camera or NVR details. NexusAI will automatically detect the device and discover connected channels.
-            </p>
-
-            <form id="cameraForm">
-
-                <label>Device / NVR Name</label>
-                <input
-                    id="cameraName"
-                    type="text"
-                    placeholder="Shop NVR / Main Entrance Camera"
-                    required
-                >
-
-                <label>IP Address</label>
-                <input
-                    id="cameraIp"
-                    type="text"
-                    placeholder="192.168.1.100"
-                    required
-                >
-
-                <label>Username</label>
-                <input
-                    id="cameraUsername"
-                    type="text"
-                    placeholder="Camera username"
-                    required
-                >
-
-                <label>Password</label>
-                <input
-                    id="cameraPassword"
-                    type="password"
-                    placeholder="Camera password"
-                    required
-                >
-
-                <label>Location</label>
-                <input
-                    id="cameraLocation"
-                    type="text"
-                    placeholder="Main Entrance"
-                    required
-                >
-
-                <button
-                    type="button"
-                    id="verifyCameraBtn"
-                    class="primary-btn"
-                >
-                    TEST CAMERA
-                </button>
-
-            </form>
-
-
-            <!-- VERIFICATION -->
-            <div id="verificationBox" class="verification hidden">
-
-                <div class="verification-header">
-                    <div class="verify-icon">
-                        ✓
-                    </div>
-
-                    <div>
-                        <p class="eyebrow">
-                            NEXUSAI VERIFICATION
-                        </p>
-
-                        <h3 id="verificationTitle">
-                            Verifying camera...
-                        </h3>
-                    </div>
-                </div>
-
-
-                <div class="verification-list">
-
-                    <div>
-                        <span>Network connection</span>
-                        <strong id="networkCheck">...</strong>
-                    </div>
-
-                    <div>
-                        <span>Camera detected</span>
-                        <strong id="cameraCheck">...</strong>
-                    </div>
-
-                    <div>
-                        <span>Credentials</span>
-                        <strong id="credentialsCheck">...</strong>
-                    </div>
-
-                    <div>
-                        <span>NexusAI connection</span>
-                        <strong id="nexusCheck">...</strong>
-                    </div>
-
-                </div>
-
-
-                <div
-                    id="verificationSuccess"
-                    class="verification-success hidden"
-                >
-                    <strong>🟢 CAMERA VERIFIED</strong>
-
-                    <p>
-                        NexusAI connection established successfully.
-                        This camera is ready for activation.
-                    </p>
-
-                    <button
-                        id="activateCameraBtn"
-                        class="primary-btn"
-                    >
-                        ACTIVATE CAMERA
-                    </button>
-                </div>
-
-
-                <div
-                    id="verificationError"
-                    class="verification-error hidden"
-                >
-                    <strong>CAMERA VERIFICATION FAILED</strong>
-
-                    <p id="verificationErrorText">
-                        Please check the camera details and try again.
-                    </p>
-
-                    <button
-                        id="retryVerificationBtn"
-                        class="secondary-btn"
-                    >
-                        CHECK DETAILS
-                    </button>
-                </div>
-
-            </div>
-
-        </div>
-
+  <section id="installPanel" class="panel install-panel">
+    <div class="install-icon">N</div>
+    <div><p class="eyebrow">STEP 1 • NEXUSAI EDGE AGENT</p><h2>Connect this site</h2><p>Install the NexusAI Edge Agent on a computer connected to the same local network as your Hikvision NVR or cameras.</p></div>
+    <div class="install-code"><span>YOUR SITE CODE</span><strong id="siteCode">GENERATING…</strong><button id="copySiteCode" class="secondary-btn">COPY</button></div>
+    <div class="download-grid">
+      <button id="windowsInstallBtn" class="download-card"><strong>WINDOWS</strong><span>Install NexusAI Edge Agent</span><em>READY FOR CLIENT INSTALL</em></button>
+      <button id="macInstallBtn" class="download-card"><strong>macOS</strong><span>Install NexusAI Edge Agent</span><em>READY FOR CLIENT INSTALL</em></button>
     </div>
+    <div class="notice"><strong>Why an Edge Agent?</strong><span>Your cameras stay on your private local network. The Edge Agent connects locally to your Hikvision equipment and securely communicates with NexusAI Cloud.</span></div>
+    <button id="checkAgentBtn" class="secondary-btn wide-btn">CHECK EDGE AGENT CONNECTION</button>
+  </section>
 
+  <section id="discoveryPanel" class="panel hidden">
+    <div class="panel-header"><div><p class="eyebrow">STEP 2 • LOCAL DISCOVERY</p><h2>Find your Hikvision system</h2><p class="muted">NexusAI scans only the network available to the installed Edge Agent. Discovery does not authorize any device.</p></div><span id="scanStatus" class="badge">WAITING</span></div>
+    <div class="scan-box"><div id="scanRing">N</div><h3 id="scanTitle">Ready to scan</h3><p id="scanText">The Edge Agent will discover compatible Hikvision devices on this site.</p><button id="scanBtn" class="primary-btn">SCAN MY NETWORK</button></div>
+    <div id="deviceList" class="device-list"></div>
+  </section>
 
-    <script src="app.js?v=20260923-5"></script>
+  <section id="verificationPanel" class="panel hidden">
+    <div class="panel-header"><div><p class="eyebrow">STEP 3 • DEVICE VERIFICATION</p><h2 id="selectedDeviceTitle">Verify your Hikvision device</h2><p class="muted">Discovery only identifies a reachable device. You must authenticate before NexusAI can use it.</p></div><span class="badge">AUTHORIZATION REQUIRED</span></div>
+    <div class="device-summary"><span>SELECTED DEVICE</span><strong id="selectedDeviceAddress">—</strong><small id="selectedDeviceType">—</small></div>
+    <label>Hikvision username</label><input id="hikUsername" value="admin" autocomplete="off">
+    <label>Hikvision password</label><input id="hikPassword" type="password" placeholder="Enter your Hikvision password" autocomplete="off">
+    <button id="verifyDeviceBtn" class="primary-btn">VERIFY DEVICE</button>
+    <div id="verifyResult" class="result-box hidden"></div>
+  </section>
 
+  <section id="cameraPanel" class="panel hidden">
+    <div class="panel-header"><div><p class="eyebrow">STEP 4 • CAMERA SELECTION</p><h2>Select cameras to protect</h2><p class="muted">These channels belong to the verified NVR. NexusAI will only activate the cameras you choose.</p></div><span id="selectedCount" class="badge">0 SELECTED</span></div>
+    <div id="cameraSelection" class="camera-selection"></div>
+    <button id="protectBtn" class="primary-btn">PROTECT SELECTED CAMERAS</button>
+  </section>
+
+  <section id="commandPanel" class="panel hidden">
+    <div class="success-hero"><div class="success-mark">✓</div><p class="eyebrow">NEXUSAI ACTIVATION COMPLETE</p><h2>Your site is protected.</h2><p id="protectedSummary">NexusAI is connected to your verified Hikvision system.</p><div class="live-status"><i></i> NEXUSAI SECURITY ENGINE ONLINE</div></div>
+  </section>
+
+  <section class="stats-grid">
+    <div class="stat-card"><span>PROTECTED CAMERAS</span><strong id="activeCameras">0</strong><small>Connected to NexusAI</small></div>
+    <div class="stat-card"><span>SECURITY EVENTS</span><strong id="eventCount">0</strong><small>Detected activity</small></div>
+    <div class="stat-card"><span>EDGE STATUS</span><strong id="edgeStat">WAITING</strong><small>Site connection</small></div>
+    <div class="stat-card"><span>SECURITY ENGINE</span><strong class="online">ONLINE</strong><small>NexusAI cloud</small></div>
+  </section>
+
+  <section class="panel"><div class="panel-header"><div><p class="eyebrow">PROTECTED CAMERAS</p><h2>Your Cameras</h2></div></div><div id="cameraList" class="camera-grid"><div class="empty-state">Complete self-installation to see your protected cameras.</div></div></section>
+  <section class="panel"><div class="panel-header"><div><p class="eyebrow">SECURITY MONITORING</p><h2>Recent Events</h2></div><span class="live">● LIVE</span></div><div id="eventList" class="event-list"><div class="empty-state">No security events yet.</div></div></section>
+</main>
+</section>
+<script src="app.js?v=20260923-6"></script>
 </body>
 </html>
