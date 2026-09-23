@@ -4,7 +4,9 @@
 // ============================================================
 
 const API_BASE_URL = window.location.origin;
-const EDGE_AGENT_URL = window.location.origin;
+const EDGE_AGENT_URL = "http://127.0.0.1:8787";
+const SITE_ID = localStorage.getItem("nexusai_site_id") || "site-demo";
+let edgeAgentOnline = false;
 
 // ============================================================
 // STATE
@@ -215,14 +217,18 @@ function openActivationModal() {
         }
 
         button.onclick = () => {
-            selectedCameraCount =
-                Number(button.dataset.count);
+            selectedCameraCount = Number(button.dataset.count);
 
             countButtons.forEach((item) =>
                 item.classList.remove("active")
             );
 
             button.classList.add("active");
+
+            setTimeout(() => {
+                closeActivationModal();
+                openCameraModal();
+            }, 180);
         };
     });
 }
@@ -370,7 +376,7 @@ async function handleCameraVerification(event) {
 
     try {
         const response = await fetch(
-            `${EDGE_AGENT_URL}/api/cameras/verify`,
+            `${EDGE_AGENT_URL}/verify`,
             {
                 method: "POST",
 
@@ -691,6 +697,8 @@ function renderDashboard() {
     updateStats();
     renderCameras();
     renderEvents();
+    checkEdgeAgent();
+    syncRemoteEvents();
 }
 
 function updateStats() {
@@ -883,3 +891,68 @@ async function checkNexusAIBackend() {
 
 // Run health check when portal loads.
 checkNexusAIBackend();
+async function checkEdgeAgent() {
+    try {
+        const response = await fetch(EDGE_AGENT_URL + "/health", {
+            method: "GET",
+            cache: "no-store"
+        });
+        edgeAgentOnline = response.ok;
+    } catch {
+        edgeAgentOnline = false;
+    }
+    updateEdgeStatus();
+}
+
+async function syncRemoteEvents() {
+    try {
+        const response = await fetch(
+            API_BASE_URL + "/api/portal/events?site_id=" +
+            encodeURIComponent(SITE_ID) + "&limit=50",
+            { cache: "no-store" }
+        );
+        if (!response.ok) return;
+
+        const payload = await response.json();
+        const remoteEvents = Array.isArray(payload.events) ? payload.events : [];
+
+        const normalized = remoteEvents.map((event) => ({
+            type: event.event,
+            camera: event.camera_name,
+            location: event.location,
+            severity: event.severity,
+            timestamp: event.timestamp
+        }));
+
+        const localOnly = events.filter(
+            (local) => !normalized.some(
+                (remote) =>
+                    remote.timestamp === local.timestamp &&
+                    remote.camera === local.camera
+            )
+        );
+
+        events = [...normalized, ...localOnly].slice(0, 50);
+        localStorage.setItem("nexusai_events", JSON.stringify(events));
+        renderEvents();
+        updateStats();
+    } catch (error) {
+        console.warn("NexusAI remote event sync unavailable:", error);
+    }
+}
+
+function updateEdgeStatus() {
+    const status = document.querySelector(".system-status");
+    if (!status) return;
+
+    status.innerHTML = edgeAgentOnline
+        ? "<span></span> EDGE AGENT ONLINE"
+        : "<span></span> CLOUD ONLINE • EDGE AGENT OFFLINE";
+}
+
+setInterval(() => {
+    if (localStorage.getItem("nexusai_logged_in") === "true") {
+        checkEdgeAgent();
+        syncRemoteEvents();
+    }
+}, 15000);
