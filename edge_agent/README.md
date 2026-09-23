@@ -37,3 +37,8 @@ Never commit .env or real camera passwords to GitHub.
 Customer camera/NVR -> NexusAI Edge Agent -> NexusAI Cloud API -> Client Portal
 
 The edge agent must run on a device that can reach the camera/NVR over the customer's local network.
+
+
+## Portal verification API
+
+When the agent is running, the client portal can verify a camera locally through `http://127.0.0.1:8787/verify`. Camera credentials are sent directly from the browser to the local Edge Agent and are not sent to the public NexusAI API. The agent verifies network access, ISAPI device access, and credentials, then reports verification metadata to the NexusAI API.
