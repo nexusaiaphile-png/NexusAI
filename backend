@@ -1,0 +1,326 @@
+import os
+import socket
+import logging
+from typing import Optional
+
+import requests
+from requests.auth import HTTPDigestAuth
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, SecretStr
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# ============================================================
+# NEXUSAI CLIENT PORTAL BACKEND
+# ============================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+app = FastAPI(
+    title="NexusAI API",
+    description="NexusAI security client portal backend",
+    version="1.0.0",
+)
+
+# ============================================================
+# CORS
+# ============================================================
+
+frontend_origin = os.getenv(
+    "FRONTEND_ORIGIN",
+    "https://getnexusai.co.za",
+)
+
+allowed_origins = [
+    frontend_origin,
+    "https://www.getnexusai.co.za",
+    "http://localhost:3000",
+    "http://localhost:5173",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=list(set(allowed_origins)),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ============================================================
+# DATA MODELS
+# ============================================================
+
+class CameraVerificationRequest(BaseModel):
+    camera_name: str = Field(default="Camera 1", max_length=100)
+    camera_ip: str = Field(..., max_length=255)
+    camera_port: int = Field(default=80, ge=1, le=65535)
+    username: str = Field(..., max_length=100)
+    password: SecretStr
+    location: str = Field(default="Main Entrance", max_length=200)
+
+
+class VerificationResponse(BaseModel):
+    verified: bool
+    network: str
+    camera: str
+    credentials: str
+    nexusai: str
+    camera_name: Optional[str] = None
+    location: Optional[str] = None
+    error: Optional[str] = None
+    verification_mode: str = "direct"
+
+
+# ============================================================
+# HEALTH CHECK
+# ============================================================
+
+@app.get("/")
+def root():
+    return {
+        "service": "NexusAI API",
+        "status": "ONLINE",
+        "version": "1.0.0",
+    }
+
+
+@app.get("/health")
+def health():
+    return {
+        "status": "healthy",
+        "service": "NexusAI Backend",
+    }
+
+
+# ============================================================
+# NETWORK TEST
+# ============================================================
+
+def check_network(camera_ip: str, camera_port: int) -> bool:
+    """
+    Check whether the camera IP/port is reachable.
+    Does not expose or log credentials.
+    """
+
+    try:
+        with socket.create_connection(
+            (camera_ip, camera_port),
+            timeout=5,
+        ):
+            return True
+
+    except (socket.timeout, socket.error, OSError):
+        return False
+
+
+# ============================================================
+# HIKVISION / NEXUSAI VERIFICATION
+# ============================================================
+
+def verify_camera_connection(
+    camera_ip: str,
+    camera_port: int,
+    username: str,
+    password: str,
+):
+    """
+    Attempts to communicate with the Hikvision ISAPI endpoint.
+
+    Important:
+    This works when the camera is reachable from the machine
+    running this backend. Most customer cameras use private LAN
+    addresses, so production verification should eventually be
+    performed by the NexusAI Edge Agent at the customer's site.
+    """
+
+    base_url = f"http://{camera_ip}:{camera_port}"
+
+    device_info_url = (
+        f"{base_url}/ISAPI/System/deviceInfo"
+    )
+
+    try:
+        response = requests.get(
+            device_info_url,
+            auth=HTTPDigestAuth(username, password),
+            timeout=8,
+        )
+
+        if response.status_code == 200:
+            return {
+                "success": True,
+                "camera": "DETECTED",
+                "credentials": "ACCEPTED",
+                "message": "NexusAI successfully connected to the camera.",
+            }
+
+        if response.status_code == 401:
+            return {
+                "success": False,
+                "camera": "DETECTED",
+                "credentials": "REJECTED",
+                "message": "Incorrect camera username or password.",
+            }
+
+        if response.status_code == 403:
+            return {
+                "success": False,
+                "camera": "DETECTED",
+                "credentials": "REJECTED",
+                "message": "Camera rejected the authentication request.",
+            }
+
+        if response.status_code == 404:
+            return {
+                "success": False,
+                "camera": "NOT_SUPPORTED",
+                "credentials": "UNKNOWN",
+                "message": (
+                    "Camera responded, but the NexusAI ISAPI "
+                    "endpoint was not available."
+                ),
+            }
+
+        return {
+            "success": False,
+            "camera": "DETECTED",
+            "credentials": "UNKNOWN",
+            "message": (
+                f"Camera responded with HTTP "
+                f"{response.status_code}."
+            ),
+        }
+
+    except requests.exceptions.ConnectTimeout:
+        return {
+            "success": False,
+            "camera": "UNREACHABLE",
+            "credentials": "NOT_CHECKED",
+            "message": "Camera connection timed out.",
+        }
+
+    except requests.exceptions.ConnectionError:
+        return {
+            "success": False,
+            "camera": "UNREACHABLE",
+            "credentials": "NOT_CHECKED",
+            "message": (
+                "Could not connect to the camera. "
+                "Check the IP address and network connection."
+            ),
+        }
+
+    except requests.exceptions.RequestException as exc:
+        logging.error(
+            "Camera request failed: %s",
+            type(exc).__name__,
+        )
+
+        return {
+            "success": False,
+            "camera": "ERROR",
+            "credentials": "NOT_CHECKED",
+            "message": "Camera verification failed.",
+        }
+
+
+# ============================================================
+# CAMERA VERIFICATION API
+# ============================================================
+
+@app.post(
+    "/api/cameras/verify",
+    response_model=VerificationResponse,
+)
+def verify_camera(request: CameraVerificationRequest):
+
+    # Never log the password.
+    camera_ip = request.camera_ip.strip()
+    username = request.username.strip()
+
+    # --------------------------------------------------------
+    # STEP 1 — NETWORK
+    # --------------------------------------------------------
+
+    network_connected = check_network(
+        camera_ip,
+        request.camera_port,
+    )
+
+    if not network_connected:
+        return VerificationResponse(
+            verified=False,
+            network="NOT CONNECTED",
+            camera="NOT DETECTED",
+            credentials="NOT CHECKED",
+            nexusai="NOT CONNECTED",
+            camera_name=request.camera_name,
+            location=request.location,
+            error=(
+                "Camera unreachable. Check the IP address, "
+                "network connection, and camera power."
+            ),
+        )
+
+    # --------------------------------------------------------
+    # STEP 2 — CAMERA + CREDENTIALS
+    # --------------------------------------------------------
+
+    result = verify_camera_connection(
+        camera_ip=camera_ip,
+        camera_port=request.camera_port,
+        username=username,
+        password=request.password.get_secret_value(),
+    )
+
+    if not result["success"]:
+        return VerificationResponse(
+            verified=False,
+            network="CONNECTED",
+            camera=result["camera"],
+            credentials=result["credentials"],
+            nexusai="NOT CONNECTED",
+            camera_name=request.camera_name,
+            location=request.location,
+            error=result["message"],
+        )
+
+    # --------------------------------------------------------
+    # STEP 3 — NEXUSAI CONNECTION
+    # --------------------------------------------------------
+
+    logging.info(
+        "Camera verified: name=%s location=%s",
+        request.camera_name,
+        request.location,
+    )
+
+    return VerificationResponse(
+        verified=True,
+        network="CONNECTED",
+        camera="DETECTED",
+        credentials="ACCEPTED",
+        nexusai="CONNECTED",
+        camera_name=request.camera_name,
+        location=request.location,
+        verification_mode="direct",
+    )
+
+
+# ============================================================
+# API INFORMATION
+# ============================================================
+
+@app.get("/api/status")
+def api_status():
+    return {
+        "nexusai": "ONLINE",
+        "security_engine": "READY",
+        "camera_verification": "AVAILABLE",
+        "api_version": "1.0.0",
+    }
