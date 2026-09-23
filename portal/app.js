@@ -82,8 +82,36 @@ function escapeHTML(value) {
 // LOGIN
 // ============================================================
 
+window.addEventListener("error", (event) => {
+    console.error("NexusAI portal error:", event.error || event.message);
+    const login = document.getElementById("loginScreen");
+    const dashboard = document.getElementById("dashboardScreen");
+    if (login && dashboard && !dashboard.classList.contains("active")) {
+        login.classList.add("active");
+        login.classList.remove("hidden");
+    }
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+    console.error("NexusAI portal promise error:", event.reason);
+});
+
 document.addEventListener("DOMContentLoaded", () => {
-    initializePortal();
+    try {
+        initializePortal();
+    } catch (error) {
+        console.error("NexusAI portal initialization failed:", error);
+        const login = $("loginScreen");
+        const dashboard = $("dashboardScreen");
+        if (login) {
+            login.classList.add("active");
+            login.classList.remove("hidden");
+        }
+        if (dashboard) {
+            dashboard.classList.remove("active");
+            dashboard.classList.add("hidden");
+        }
+    }
 });
 
 function initializePortal() {
