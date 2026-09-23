@@ -104,6 +104,21 @@ async def client_portal():
     return FileResponse(PORTAL_DIR / "index.html")
 
 
+@app.get("/story.css", include_in_schema=False)
+async def story_css():
+    return FileResponse(PORTAL_DIR / "story.css", media_type="text/css")
+
+
+@app.get("/robots.txt", include_in_schema=False)
+async def robots_txt():
+    return FileResponse(PORTAL_DIR / "robots.txt", media_type="text/plain")
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+async def sitemap_xml():
+    return FileResponse(PORTAL_DIR / "sitemap.xml", media_type="application/xml")
+
+
 @app.get("/health")
 async def health():
     return {"status": "healthy", "service": "NexusAI Backend", "version": "2.0.0"}
@@ -187,9 +202,5 @@ async def edge_event(
     }
 
 
-# Serve shared public assets after explicit application routes.
-app.mount("/portal/assets", StaticFiles(directory=PORTAL_DIR), name="portal-assets")
-
-
-# Static files referenced by the public pages (story.css, robots.txt, sitemap.xml, etc.).
-# These are mounted individually so /about and /founder remain clean URLs.
+# Serve the client portal files (index.html, CSS and JavaScript) under /portal/.
+app.mount("/portal", StaticFiles(directory=PORTAL_DIR, html=True), name="portal")
