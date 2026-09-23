@@ -1,998 +1,121 @@
-// ============================================================
-// NEXUSAI CLIENT PORTAL
-// Connected to live NexusAI backend
-// ============================================================
-
 const API_BASE_URL = window.location.origin;
-const EDGE_AGENT_URL = "http://127.0.0.1:8787";
-const SITE_ID = localStorage.getItem("nexusai_site_id") || "site-demo";
-let edgeAgentOnline = false;
+const SITE_ID = localStorage.getItem("nexusai_site_id") || ("site-" + crypto.randomUUID());
+localStorage.setItem("nexusai_site_id", SITE_ID);
 
-// ============================================================
-// STATE
-// ============================================================
+let edgeOnline = false;
+let discoveredDevices = [];
+let selectedDevice = null;
+let verifiedChannels = [];
+let selectedChannels = new Set();
+let protectedCameras = JSON.parse(localStorage.getItem("nexusai_cameras") || "[]");
+let events = JSON.parse(localStorage.getItem("nexusai_events") || "[]");
 
-function readStoredArray(key) {
-    try {
-        const value = JSON.parse(localStorage.getItem(key) || "[]");
-        return Array.isArray(value) ? value : [];
-    } catch (error) {
-        console.warn("NexusAI local storage reset:", key, error);
-        localStorage.removeItem(key);
-        return [];
-    }
+const $ = id => document.getElementById(id);
+const show = el => el && el.classList.remove("hidden");
+const hide = el => el && el.classList.add("hidden");
+
+function updateSteps(step){
+  document.querySelectorAll(".step").forEach(el => el.classList.toggle("active", Number(el.dataset.step) <= step));
+  $("setupBadge").textContent = "STEP " + step + " OF 5";
 }
-
-let cameras = readStoredArray("nexusai_cameras");
-let events = readStoredArray("nexusai_events");
-
-let selectedCameraCount = 1;
-let verificationPassed = false;
-
-function updateCameraCountUI() {
-    const value = $("cameraCountValue");
-    const label = $("cameraCountLabel");
-    const continueButton = $("continueCameraCount");
-    if (value) value.textContent = String(selectedCameraCount);
-    if (label) label.textContent = selectedCameraCount === 1 ? "Camera" : "Cameras";
-    if (continueButton) continueButton.textContent = `CONTINUE WITH ${selectedCameraCount} CAMERA${selectedCameraCount === 1 ? "" : "S"}`;
-    const decrease = $("decreaseCameraCount");
-    if (decrease) decrease.disabled = selectedCameraCount <= 1;
+function setInstallState(title, text){
+  $("setupTitle").textContent = title;
+  $("scanText").textContent = text;
 }
-
-function changeCameraCount(amount) {
-    selectedCameraCount = Math.max(1, Math.min(100, selectedCameraCount + amount));
-    updateCameraCountUI();
+function makeSiteCode(){
+  return "NEX-" + SITE_ID.slice(-8).replaceAll("-","").toUpperCase();
 }
-let verificationData = null;
-
-// ============================================================
-// DOM HELPERS
-// ============================================================
-
-const $ = (id) => document.getElementById(id);
-
-function show(element) {
-    if (!element) return;
-
-    // Many portal components start with the .hidden utility class.
-    // Remove it explicitly so verification/error/success panels can appear.
-    element.classList.remove("hidden");
-
-    if (
-        element.classList.contains("modal") ||
-        element.classList.contains("screen")
-    ) {
-        element.classList.add("active");
-        return;
-    }
-
-    element.style.display = "";
+function init(){
+  $("siteCode").textContent = makeSiteCode();
+  bind();
+  renderDashboard();
+  checkBackend();
+  if(localStorage.getItem("nexusai_logged_in") === "true") showDashboard(); else showLogin();
 }
-
-function hide(element) {
-    if (!element) return;
-
-    if (
-        element.classList.contains("modal") ||
-        element.classList.contains("screen")
-    ) {
-        element.classList.remove("active");
-        return;
-    }
-
-    element.classList.add("hidden");
-    element.style.display = "none";
+function bind(){
+  $("loginForm").addEventListener("submit", e => { e.preventDefault(); localStorage.setItem("nexusai_logged_in","true"); showDashboard(); });
+  $("logoutBtn").onclick = () => { localStorage.removeItem("nexusai_logged_in"); showLogin(); };
+  $("startInstallBtn").onclick = startInstall;
+  $("checkAgentBtn").onclick = checkEdgeAgent;
+  $("scanBtn").onclick = scanNetwork;
+  $("verifyDeviceBtn").onclick = verifyDevice;
+  $("protectBtn").onclick = protectSelected;
+  $("copySiteCode").onclick = async () => { await navigator.clipboard?.writeText($("siteCode").textContent); $("copySiteCode").textContent="COPIED"; setTimeout(()=>$("copySiteCode").textContent="COPY",1200); };
+  $("windowsInstallBtn").onclick = () => downloadInstructions("Windows");
+  $("macInstallBtn").onclick = () => downloadInstructions("macOS");
 }
-
-function escapeHTML(value) {
-    return String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+function showLogin(){ $("loginScreen").classList.add("active"); $("dashboardScreen").classList.remove("active"); }
+function showDashboard(){ $("loginScreen").classList.remove("active"); $("dashboardScreen").classList.add("active"); renderDashboard(); checkEdgeAgent(); }
+function startInstall(){ show($("installPanel")); $("installPanel").scrollIntoView({behavior:"smooth",block:"center"}); updateSteps(1); }
+function downloadInstructions(os){
+  alert("NexusAI Edge Agent ("+os+") installation package will be connected here. The client must run it on a computer connected to the same local network as the Hikvision system, then enter site code "+$("siteCode").textContent+".");
 }
-
-// ============================================================
-// LOGIN
-// ============================================================
-
-window.addEventListener("error", (event) => {
-    console.error("NexusAI portal error:", event.error || event.message);
-    const login = document.getElementById("loginScreen");
-    const dashboard = document.getElementById("dashboardScreen");
-    if (login && dashboard && !dashboard.classList.contains("active")) {
-        login.classList.add("active");
-        login.classList.remove("hidden");
-    }
-});
-
-window.addEventListener("unhandledrejection", (event) => {
-    console.error("NexusAI portal promise error:", event.reason);
-});
-
-document.addEventListener("DOMContentLoaded", () => {
-    try {
-        initializePortal();
-    } catch (error) {
-        console.error("NexusAI portal initialization failed:", error);
-        const login = $("loginScreen");
-        const dashboard = $("dashboardScreen");
-        if (login) {
-            login.classList.add("active");
-            login.classList.remove("hidden");
-        }
-        if (dashboard) {
-            dashboard.classList.remove("active");
-            dashboard.classList.add("hidden");
-        }
-    }
-});
-
-function initializePortal() {
-    const loggedIn = localStorage.getItem("nexusai_logged_in");
-
-    if (loggedIn === "true") {
-        showDashboard();
-    } else {
-        showLogin();
-    }
-
-    bindEvents();
+async function checkBackend(){ try{ const r=await fetch(API_BASE_URL+"/health",{cache:"no-store"}); if(!r.ok) throw 0; }catch(e){ console.warn("Cloud unavailable",e); } }
+async function checkEdgeAgent(){
+  try{
+    const r=await fetch(API_BASE_URL+"/api/portal/status?site_id="+encodeURIComponent(SITE_ID),{cache:"no-store"});
+    const d=await r.json();
+    edgeOnline=d.edge_agent==="ONLINE";
+    updateEdgeUI(d);
+    if(edgeOnline){ show($("discoveryPanel")); updateSteps(2); }
+  }catch(e){ edgeOnline=false; updateEdgeUI({}); }
 }
-
-function bindEvents() {
-    $("loginForm")?.addEventListener("submit", handleLogin);
-
-    $("logoutBtn")?.addEventListener("click", handleLogout);
-
-    $("activateBtn")?.addEventListener(
-        "click",
-        openActivationModal
-    );
-
-    $("emptyActivateBtn")?.addEventListener(
-        "click",
-        openActivationModal
-    );
-
-    $("addCameraBtn")?.addEventListener(
-        "click",
-        openCameraModal
-    );
-
-    $("closeModal")?.addEventListener(
-        "click",
-        closeActivationModal
-    );
-
-    $("closeCameraModal")?.addEventListener(
-        "click",
-        closeCameraModal
-    );
-
-    $("cameraForm")?.addEventListener(
-        "submit",
-        handleCameraVerification
-    );
-
-    $("verifyCameraBtn")?.addEventListener(
-        "click",
-        handleCameraVerification
-    );
-
-    $("retryVerificationBtn")?.addEventListener(
-        "click",
-        resetVerification
-    );
-
-    $("activateCameraBtn")?.addEventListener(
-        "click",
-        activateVerifiedCamera
-    );
-
-    document.addEventListener("click", (event) => {
-        if (
-            event.target === $("activationModal")
-        ) {
-            closeActivationModal();
-        }
-
-        if (
-            event.target === $("cameraModal")
-        ) {
-            closeCameraModal();
-        }
-    });
+function updateEdgeUI(d){
+  $("edgeStatus").innerHTML = edgeOnline ? "<i></i> EDGE AGENT ONLINE" : "<i></i> EDGE AGENT WAITING";
+  $("edgeStat").textContent = edgeOnline ? "ONLINE" : "WAITING";
+  if(edgeOnline){ $("scanStatus").textContent="READY"; $("scanTitle").textContent="Edge Agent connected"; $("scanText").textContent="Your local NexusAI Edge Agent is connected. You can now discover your Hikvision system."; }
 }
-
-// ============================================================
-// LOGIN
-// ============================================================
-
-function showLogin() {
-    show($("loginScreen"));
-    hide($("dashboardScreen"));
+async function scanNetwork(){
+  if(!edgeOnline){ $("scanStatus").textContent="EDGE AGENT REQUIRED"; $("scanTitle").textContent="Connect the Edge Agent first"; $("scanText").textContent="Install and start the NexusAI Edge Agent on a computer at this site."; return; }
+  $("scanBtn").disabled=true; $("scanBtn").textContent="SCANNING…"; $("scanStatus").textContent="SCANNING"; $("scanTitle").textContent="Searching local network…";
+  try{
+    const r=await fetch(API_BASE_URL+"/api/portal/discover?site_id="+encodeURIComponent(SITE_ID),{cache:"no-store"});
+    const d=await r.json();
+    discoveredDevices=Array.isArray(d.devices)?d.devices:[];
+    renderDevices();
+    $("scanTitle").textContent=discoveredDevices.length ? discoveredDevices.length+" compatible device(s) found" : "No compatible devices found";
+    $("scanText").textContent=discoveredDevices.length ? "Select your Hikvision device. Discovery does not authorize or activate it." : "Make sure the Edge Agent computer and Hikvision system are connected to the same local network.";
+    $("scanStatus").textContent=discoveredDevices.length ? "FOUND" : "NO DEVICES";
+  }catch(e){ $("scanTitle").textContent="Discovery unavailable"; $("scanText").textContent="The Edge Agent is not responding to the cloud discovery request."; $("scanStatus").textContent="ERROR"; }
+  finally{ $("scanBtn").disabled=false; $("scanBtn").textContent="SCAN MY NETWORK"; }
 }
-
-function showDashboard() {
-    hide($("loginScreen"));
-    show($("dashboardScreen"));
-
-    renderDashboard();
+function renderDevices(){
+  $("deviceList").innerHTML=discoveredDevices.map((d,i)=>`<button class="device-card" data-device="${i}"><div class="device-icon">N</div><div><strong>${escapeHTML(d.name||"Hikvision device")}</strong><span>${escapeHTML(d.ip||"Local device")} • ${escapeHTML(d.type||"Hikvision")}</span></div><b>SELECT</b></button>`).join("");
+  document.querySelectorAll(".device-card").forEach(b=>b.onclick=()=>selectDevice(Number(b.dataset.device)));
 }
-
-function handleLogin(event) {
-    event.preventDefault();
-
-    localStorage.setItem(
-        "nexusai_logged_in",
-        "true"
-    );
-
-    showDashboard();
+function selectDevice(i){
+  selectedDevice=discoveredDevices[i]; $("selectedDeviceTitle").textContent="Verify "+(selectedDevice.name||"Hikvision device"); $("selectedDeviceAddress").textContent=selectedDevice.ip||"Local device"; $("selectedDeviceType").textContent=selectedDevice.type||"Hikvision device";
+  show($("verificationPanel")); updateSteps(3); $("verificationPanel").scrollIntoView({behavior:"smooth",block:"center"});
 }
-
-function handleLogout() {
-    localStorage.removeItem(
-        "nexusai_logged_in"
-    );
-
-    showLogin();
+async function verifyDevice(){
+  const username=$("hikUsername").value.trim(), password=$("hikPassword").value;
+  if(!selectedDevice || !password){ $("verifyResult").textContent="Select a device and enter the Hikvision password."; show($("verifyResult")); return; }
+  $("verifyDeviceBtn").disabled=true; $("verifyDeviceBtn").textContent="VERIFYING…";
+  try{
+    const r=await fetch(API_BASE_URL+"/api/portal/verify-device",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({site_id:SITE_ID,device:selectedDevice,username,password})});
+    const d=await r.json();
+    if(!r.ok || !d.verified) throw new Error(d.error||"Device verification failed.");
+    verifiedChannels=Array.isArray(d.channels)?d.channels:[]; renderChannels(); show($("cameraPanel")); hide($("verifyResult")); updateSteps(4); $("cameraPanel").scrollIntoView({behavior:"smooth",block:"center"});
+  }catch(e){ $("verifyResult").textContent=e.message; show($("verifyResult")); $("verifyResult").className="result-box error"; }
+  finally{ $("verifyDeviceBtn").disabled=false; $("verifyDeviceBtn").textContent="VERIFY DEVICE"; }
 }
-
-// ============================================================
-// ACTIVATION MODAL
-// ============================================================
-
-function openActivationModal() {
-    show($("activationModal"));
-    selectedCameraCount = 1;
-    updateCameraCountUI();
-
-    $("decreaseCameraCount")?.addEventListener("click", () => {
-        changeCameraCount(-1);
-    });
-
-    $("increaseCameraCount")?.addEventListener("click", () => {
-        changeCameraCount(1);
-    });
-
-    $("continueCameraCount")?.addEventListener("click", () => {
-        openCameraModal();
-    });
+function renderChannels(){
+  $("cameraSelection").innerHTML=verifiedChannels.map((c,i)=>`<label class="camera-select"><input type="checkbox" data-channel="${i}"><div><strong>${escapeHTML(c.name||"Camera "+(i+1))}</strong><span>Channel ${escapeHTML(c.channel_id||String(i+1))}</span></div><b>SELECT</b></label>`).join("");
+  document.querySelectorAll(".camera-select input").forEach(x=>x.onchange=()=>{const i=Number(x.dataset.channel); x.checked?selectedChannels.add(i):selectedChannels.delete(i); $("selectedCount").textContent=selectedChannels.size+" SELECTED";});
 }
-function closeActivationModal() {
-    hide($("activationModal"));
+function protectSelected(){
+  if(!selectedChannels.size){ alert("Select at least one camera."); return; }
+  const chosen=[...selectedChannels].map(i=>verifiedChannels[i]);
+  chosen.forEach(c=>protectedCameras.push({id:SITE_ID+"-"+(c.channel_id||Date.now()),name:c.name||"Camera",location:c.location||"Site",status:"ONLINE",protection:"NEXUSAI PROTECTED",addedAt:new Date().toISOString()}));
+  localStorage.setItem("nexusai_cameras",JSON.stringify(protectedCameras));
+  $("protectedSummary").textContent=chosen.length+" camera"+(chosen.length===1?" is":"s are")+" now connected to your NexusAI protection dashboard.";
+  hide($("cameraPanel")); show($("commandPanel")); updateSteps(5); renderDashboard(); $("commandPanel").scrollIntoView({behavior:"smooth",block:"center"});
 }
-
-// ============================================================
-// CAMERA MODAL
-// ============================================================
-
-function openCameraModal() {
-    closeActivationModal();
-
-    show($("cameraModal"));
-
-    resetVerification();
-
-    if ($("cameraSetupTitle")) {
-        $("cameraSetupTitle").textContent =
-            cameras.length > 0
-                ? "Add Camera"
-                : "Activate NexusAI";
-    }
+function renderDashboard(){
+  $("activeCameras").textContent=protectedCameras.length;
+  $("eventCount").textContent=events.length;
+  $("cameraList").innerHTML=protectedCameras.length?protectedCameras.map(c=>`<div class="camera-card"><div class="camera-top"><div class="camera-icon">◉</div><span class="online-badge">● ONLINE</span></div><h3>${escapeHTML(c.name)}</h3><p>${escapeHTML(c.location||"Site camera")}</p><div class="protected">✓ NEXUSAI PROTECTED</div></div>`).join(""):'<div class="empty-state">Complete self-installation to see your protected cameras.</div>';
+  $("eventList").innerHTML=events.length?events.slice(0,20).map(e=>`<div class="event-row"><span>◉</span><div><strong>${escapeHTML(e.type||"Security event")}</strong><small>${escapeHTML(e.camera||"NexusAI")}</small></div><time>${new Date(e.timestamp||Date.now()).toLocaleString()}</time></div>`).join(""):'<div class="empty-state">No security events yet.</div>';
 }
-
-function closeCameraModal() {
-    hide($("cameraModal"));
-}
-
-// ============================================================
-// RESET VERIFICATION
-// ============================================================
-
-function resetVerification() {
-    verificationPassed = false;
-    verificationData = null;
-
-    hide($("verificationBox"));
-    hide($("verificationSuccess"));
-    hide($("verificationError"));
-
-    show($("cameraForm"));
-
-    if ($("activateCameraBtn")) {
-        $("activateCameraBtn").disabled = true;
-    }
-
-    setCheck(
-        "networkCheck",
-        "Waiting"
-    );
-
-    setCheck(
-        "cameraCheck",
-        "Waiting"
-    );
-
-    setCheck(
-        "credentialsCheck",
-        "Waiting"
-    );
-
-    setCheck(
-        "nexusCheck",
-        "Waiting"
-    );
-}
-
-// ============================================================
-// REAL CAMERA VERIFICATION
-// ============================================================
-
-async function handleCameraVerification(event) {
-    if (event) {
-        event.preventDefault();
-    }
-
-    const cameraName =
-        $("cameraName")?.value.trim();
-
-    const cameraIp =
-        $("cameraIp")?.value.trim();
-
-    const username =
-        $("cameraUsername")?.value.trim();
-
-    const password =
-        $("cameraPassword")?.value;
-
-    const location =
-        $("cameraLocation")?.value.trim();
-
-    if (
-        !cameraName ||
-        !cameraIp ||
-        !username ||
-        !password ||
-        !location
-    ) {
-        showVerificationError(
-            "Please complete all camera details before testing."
-        );
-
-        return;
-    }
-
-    verificationPassed = false;
-
-    hide($("verificationSuccess"));
-    hide($("verificationError"));
-    show($("verificationBox"));
-
-    if ($("verificationTitle")) {
-        $("verificationTitle").textContent =
-            "NexusAI Verification";
-    }
-
-    setCheck(
-        "networkCheck",
-        "Checking..."
-    );
-
-    setCheck(
-        "cameraCheck",
-        "Waiting..."
-    );
-
-    setCheck(
-        "credentialsCheck",
-        "Waiting..."
-    );
-
-    setCheck(
-        "nexusCheck",
-        "Waiting..."
-    );
-
-    if ($("verifyCameraBtn")) {
-        $("verifyCameraBtn").disabled = true;
-        $("verifyCameraBtn").textContent =
-            "VERIFYING...";
-    }
-
-    try {
-        // Never leave the client stuck on VERIFYING if the local Edge Agent
-        // is stopped, unreachable, or blocked by the browser.
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000);
-
-        let response;
-        try {
-            response = await fetch(
-                `${EDGE_AGENT_URL}/verify`,
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        camera_id: `camera-${Date.now()}`,
-                        camera_name: cameraName,
-                        camera_ip: cameraIp,
-                        camera_port: 80,
-                        username: username,
-                        password: password,
-                        location: location
-                    }),
-                    signal: controller.signal
-                }
-            );
-        } finally {
-            clearTimeout(timeout);
-        }
-
-        let result;
-
-        try {
-            result = await response.json();
-        } catch {
-            throw new Error(
-                "NexusAI returned an invalid response."
-            );
-        }
-
-        updateVerificationChecks(result);
-
-        if (
-            response.ok &&
-            result.verified === true
-        ) {
-            verificationPassed = true;
-            verificationData = result;
-
-            showVerificationSuccess();
-
-        } else {
-            verificationPassed = false;
-
-            showVerificationError(
-                result.error ||
-                "NexusAI could not verify this camera. Check the camera details and Edge Agent connection."
-            );
-        }
-
-    } catch (error) {
-        console.error(
-            "NexusAI verification error:",
-            error
-        );
-
-        setCheck(
-            "networkCheck",
-            "API ERROR"
-        );
-
-        setCheck(
-            "cameraCheck",
-            "NOT CHECKED"
-        );
-
-        setCheck(
-            "credentialsCheck",
-            "NOT CHECKED"
-        );
-
-        setCheck(
-            "nexusCheck",
-            "NOT CONNECTED"
-        );
-
-        const message = error?.name === "AbortError"
-            ? "NexusAI Edge Agent did not respond within 8 seconds. Make sure the Edge Agent is running on this computer."
-            : "NexusAI Edge Agent is not running or cannot be reached on this computer. Start the Edge Agent, then test the camera again.";
-
-        showVerificationError(message);
-
-    } finally {
-        if ($("verifyCameraBtn")) {
-            $("verifyCameraBtn").disabled = false;
-            $("verifyCameraBtn").textContent =
-                "TEST CAMERA";
-        }
-    }
-}
-
-// ============================================================
-// VERIFICATION UI
-// ============================================================
-
-function updateVerificationChecks(result) {
-    setCheck(
-        "networkCheck",
-        result.network || "UNKNOWN"
-    );
-
-    setCheck(
-        "cameraCheck",
-        result.camera || "UNKNOWN"
-    );
-
-    setCheck(
-        "credentialsCheck",
-        result.credentials || "UNKNOWN"
-    );
-
-    setCheck(
-        "nexusCheck",
-        result.nexusai || "UNKNOWN"
-    );
-}
-
-function setCheck(id, status) {
-    const element = $(id);
-
-    if (!element) return;
-
-    const normalized =
-        String(status)
-            .toUpperCase();
-
-    element.textContent = normalized;
-
-    element.classList.remove(
-        "success",
-        "error",
-        "warning"
-    );
-
-    if (
-        [
-            "CONNECTED",
-            "DETECTED",
-            "ACCEPTED",
-            "READY"
-        ].includes(normalized)
-    ) {
-        element.classList.add(
-            "success"
-        );
-    } else if (
-        [
-            "REJECTED",
-            "NOT CONNECTED",
-            "NOT DETECTED",
-            "UNREACHABLE",
-            "ERROR",
-            "API ERROR"
-        ].includes(normalized)
-    ) {
-        element.classList.add(
-            "error"
-        );
-    } else {
-        element.classList.add(
-            "warning"
-        );
-    }
-}
-
-function showVerificationSuccess() {
-    hide($("verificationError"));
-    show($("verificationSuccess"));
-
-    if ($("verificationTitle")) {
-        $("verificationTitle").textContent =
-            "Camera Verified";
-    }
-
-    if ($("activateCameraBtn")) {
-        $("activateCameraBtn").disabled =
-            false;
-    }
-}
-
-function showVerificationError(message) {
-    hide($("verificationSuccess"));
-    show($("verificationError"));
-
-    if ($("verificationErrorText")) {
-        $("verificationErrorText").textContent =
-            message;
-    }
-}
-
-// ============================================================
-// ACTIVATE VERIFIED CAMERA
-// ============================================================
-
-async function activateVerifiedCamera(event) {
-    if (event) event.preventDefault();
-    if (!verificationPassed || !verificationData) return;
-
-    const device = {
-        name: $("cameraName").value.trim(),
-        ip: $("cameraIp").value.trim(),
-        username: $("cameraUsername").value.trim(),
-        location: $("cameraLocation").value.trim()
-    };
-
-    const activateButton = $("activateCameraBtn");
-    if (activateButton) {
-        activateButton.disabled = true;
-        activateButton.textContent = "ACTIVATING...";
-    }
-
-    try {
-        const response = await fetch(`${EDGE_AGENT_URL}/activate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                camera_id: "device-" + Date.now(),
-                camera_name: device.name,
-                camera_ip: device.ip,
-                camera_port: 80,
-                username: device.username,
-                password: $("cameraPassword").value,
-                location: device.location
-            })
-        });
-
-        const activation = await response.json();
-        if (!response.ok || activation.verified !== true) {
-            throw new Error(
-                activation.error ||
-                "NexusAI Edge Agent is required before this camera can be activated."
-            );
-        }
-
-        const channels = Array.isArray(activation.channels) ? activation.channels : [];
-        const isNvr = activation.device_type === "NVR" || channels.length > 1;
-
-        if (isNvr && channels.length) {
-            channels.forEach((channel) => {
-                cameras.push({
-                    id: device.ip + "-" + channel.channel_id,
-                    name: channel.channel_name || ("Channel " + channel.channel_id),
-                    ip: device.ip,
-                    username: device.username,
-                    location: device.location,
-                    channelId: channel.channel_id,
-                    deviceType: "NVR_CHANNEL",
-                    status: "ACTIVE",
-                    protection: "NEXUSAI PROTECTED",
-                    addedAt: new Date().toISOString()
-                });
-            });
-
-            addLocalEvent({
-                type: "NVR PROTECTION ACTIVATED",
-                camera: channels.length + " channels discovered",
-                location: device.location,
-                timestamp: new Date().toISOString()
-            });
-        } else {
-            cameras.push({
-                id: Date.now().toString(),
-                name: device.name,
-                ip: device.ip,
-                username: device.username,
-                location: device.location,
-                status: "ACTIVE",
-                protection: "NEXUSAI PROTECTED",
-                addedAt: new Date().toISOString()
-            });
-
-            addLocalEvent({
-                type: "NEXUSAI PROTECTION ACTIVATED",
-                camera: device.name,
-                location: device.location,
-                timestamp: new Date().toISOString()
-            });
-        }
-
-        localStorage.setItem("nexusai_cameras", JSON.stringify(cameras));
-        closeCameraModal();
-        clearCameraForm();
-        renderDashboard();
-    } catch (error) {
-        console.error("NexusAI activation error:", error);
-        showVerificationError(error.message || "Activation failed. Make sure the NexusAI Edge Agent is running.");
-    } finally {
-        if (activateButton) {
-            activateButton.disabled = false;
-            activateButton.textContent = "ACTIVATE CAMERA";
-        }
-    }
-}
-
-// ============================================================
-// CLEAR CAMERA FORM
-// ============================================================
-
-function clearCameraForm() {
-    [
-        "cameraName",
-        "cameraIp",
-        "cameraUsername",
-        "cameraPassword",
-        "cameraLocation"
-    ].forEach((id) => {
-        if ($(id)) {
-            $(id).value = "";
-        }
-    });
-
-    resetVerification();
-}
-
-// ============================================================
-// DASHBOARD
-// ============================================================
-
-function renderDashboard() {
-    updateStats();
-    renderCameras();
-    renderEvents();
-    checkEdgeAgent();
-    syncRemoteEvents();
-}
-
-function updateStats() {
-    if ($("activeCameras")) {
-        $("activeCameras").textContent =
-            cameras.length;
-    }
-
-    if ($("eventCount")) {
-        $("eventCount").textContent =
-            events.length;
-    }
-}
-
-// ============================================================
-// CAMERA LIST
-// ============================================================
-
-function renderCameras() {
-    const list = $("cameraList");
-    const empty = $("emptyCameras");
-
-    if (!list) return;
-
-    if (cameras.length === 0) {
-        list.innerHTML = `
-            <div class="empty-state" id="emptyCameras">
-                <div class="empty-icon">📹</div>
-                <h3>No cameras activated</h3>
-                <p>Activate your first camera to start NexusAI protection.</p>
-                <button class="primary-btn" id="emptyActivateBtn">
-                    ACTIVATE NEXUSAI
-                </button>
-            </div>
-        `;
-
-        $("emptyActivateBtn")?.addEventListener(
-            "click",
-            openActivationModal
-        );
-
-        return;
-    }
-
-    hide(empty);
-
-    list.innerHTML = cameras
-        .map(
-            (camera) => `
-                <div class="camera-card">
-                    <div class="camera-card-header">
-                        <strong>
-                            ${escapeHTML(camera.name)}
-                        </strong>
-
-                        <span class="status-badge success">
-                            ● ACTIVE
-                        </span>
-                    </div>
-
-                    <div class="camera-details">
-                        <div>
-                            <span>Location</span>
-                            <strong>
-                                ${escapeHTML(camera.location)}
-                            </strong>
-                        </div>
-
-                        <div>
-                            <span>Protection</span>
-                            <strong>
-                                NEXUSAI PROTECTED
-                            </strong>
-                        </div>
-
-                        <div>
-                            <span>Camera</span>
-                            <strong>
-                                ONLINE
-                            </strong>
-                        </div>
-                    </div>
-                </div>
-            `
-        )
-        .join("");
-}
-
-// ============================================================
-// SECURITY EVENTS
-// ============================================================
-
-function addLocalEvent(event) {
-    events.unshift(event);
-
-    events = events.slice(0, 50);
-
-    localStorage.setItem(
-        "nexusai_events",
-        JSON.stringify(events)
-    );
-}
-
-function renderEvents() {
-    const list = $("eventList");
-
-    if (!list) return;
-
-    if (events.length === 0) {
-        list.innerHTML = `
-            <div class="empty-state">
-                <p>No security events yet.</p>
-            </div>
-        `;
-
-        return;
-    }
-
-    list.innerHTML = events
-        .map((event) => {
-            const date =
-                new Date(event.timestamp);
-
-            return `
-                <div class="event-row">
-                    <div class="event-icon">
-                        🚨
-                    </div>
-
-                    <div class="event-information">
-                        <strong>
-                            ${escapeHTML(event.type)}
-                        </strong>
-
-                        <span>
-                            ${escapeHTML(event.camera)}
-                            •
-                            ${escapeHTML(event.location)}
-                        </span>
-                    </div>
-
-                    <time>
-                        ${date.toLocaleString()}
-                    </time>
-                </div>
-            `;
-        })
-        .join("");
-}
-
-// ============================================================
-// BACKEND HEALTH CHECK
-// ============================================================
-
-async function checkNexusAIBackend() {
-    try {
-        const response = await fetch(
-            `${API_BASE_URL}/health`,
-            {
-                method: "GET",
-                cache: "no-store"
-            }
-        );
-
-        if (!response.ok) {
-            throw new Error(
-                "Backend unavailable"
-            );
-        }
-
-        const result =
-            await response.json();
-
-        console.log(
-            "NexusAI backend:",
-            result
-        );
-
-        return true;
-
-    } catch (error) {
-        console.error(
-            "NexusAI backend health check failed:",
-            error
-        );
-
-        return false;
-    }
-}
-
-// Run health check when portal loads.
-checkNexusAIBackend();
-async function checkEdgeAgent() {
-    try {
-        const response = await fetch(EDGE_AGENT_URL + "/health", {
-            method: "GET",
-            cache: "no-store"
-        });
-        edgeAgentOnline = response.ok;
-    } catch {
-        edgeAgentOnline = false;
-    }
-    updateEdgeStatus();
-}
-
-async function syncRemoteEvents() {
-    try {
-        const response = await fetch(
-            API_BASE_URL + "/api/portal/events?site_id=" +
-            encodeURIComponent(SITE_ID) + "&limit=50",
-            { cache: "no-store" }
-        );
-        if (!response.ok) return;
-
-        const payload = await response.json();
-        const remoteEvents = Array.isArray(payload.events) ? payload.events : [];
-
-        const normalized = remoteEvents.map((event) => ({
-            type: event.event,
-            camera: event.camera_name,
-            location: event.location,
-            severity: event.severity,
-            timestamp: event.timestamp
-        }));
-
-        const localOnly = events.filter(
-            (local) => !normalized.some(
-                (remote) =>
-                    remote.timestamp === local.timestamp &&
-                    remote.camera === local.camera
-            )
-        );
-
-        events = [...normalized, ...localOnly].slice(0, 50);
-        localStorage.setItem("nexusai_events", JSON.stringify(events));
-        renderEvents();
-        updateStats();
-    } catch (error) {
-        console.warn("NexusAI remote event sync unavailable:", error);
-    }
-}
-
-function updateEdgeStatus() {
-    const status = document.querySelector(".system-status");
-    if (!status) return;
-
-    status.innerHTML = edgeAgentOnline
-        ? "<span></span> EDGE AGENT ONLINE"
-        : "<span></span> CLOUD ONLINE • EDGE AGENT OFFLINE";
-}
-
-setInterval(() => {
-    if (localStorage.getItem("nexusai_logged_in") === "true") {
-        checkEdgeAgent();
-        syncRemoteEvents();
-    }
-}, 15000);
+function escapeHTML(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
+document.addEventListener("DOMContentLoaded",init);
