@@ -39,6 +39,10 @@ const $ = (id) => document.getElementById(id);
 function show(element) {
     if (!element) return;
 
+    // Many portal components start with the .hidden utility class.
+    // Remove it explicitly so verification/error/success panels can appear.
+    element.classList.remove("hidden");
+
     if (
         element.classList.contains("modal") ||
         element.classList.contains("screen")
@@ -61,6 +65,7 @@ function hide(element) {
         return;
     }
 
+    element.classList.add("hidden");
     element.style.display = "none";
 }
 
