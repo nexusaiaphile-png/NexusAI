@@ -4,7 +4,7 @@
 // ============================================================
 
 const API_BASE_URL = window.location.origin;
-const EDGE_AGENT_URL = "http://127.0.0.1:8787";
+const EDGE_AGENT_URL = window.location.origin;
 
 // ============================================================
 // STATE
@@ -24,11 +24,21 @@ let verificationData = null;
 const $ = (id) => document.getElementById(id);
 
 function show(element) {
-    if (element) element.style.display = "";
+    if (!element) return;
+    if (element.classList.contains("modal")) {
+        element.classList.add("active");
+        return;
+    }
+    element.style.display = "";
 }
 
 function hide(element) {
-    if (element) element.style.display = "none";
+    if (!element) return;
+    if (element.classList.contains("modal")) {
+        element.classList.remove("active");
+        return;
+    }
+    element.style.display = "none";
 }
 
 function escapeHTML(value) {
@@ -339,7 +349,7 @@ async function handleCameraVerification(event) {
 
     try {
         const response = await fetch(
-            `${EDGE_AGENT_URL}/verify`,
+            `${EDGE_AGENT_URL}/api/cameras/verify`,
             {
                 method: "POST",
 
@@ -550,7 +560,7 @@ async function activateVerifiedCamera(event) {
     }
 
     try {
-        const response = await fetch(EDGE_AGENT_URL + "/activate", {
+        const response = await fetch(`${EDGE_AGENT_URL}/api/cameras/verify`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -566,7 +576,10 @@ async function activateVerifiedCamera(event) {
 
         const activation = await response.json();
         if (!response.ok || activation.verified !== true) {
-            throw new Error(activation.error || "NexusAI could not activate the device.");
+            throw new Error(
+                activation.error ||
+                "NexusAI Edge Agent is required before this camera can be activated."
+            );
         }
 
         const channels = Array.isArray(activation.channels) ? activation.channels : [];
