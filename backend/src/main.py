@@ -1,4 +1,5 @@
 import os
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
@@ -156,6 +157,16 @@ async def edge_heartbeat(
     x_nexusai_edge_token: str | None = Header(default=None),
 ):
     require_edge_token(x_nexusai_edge_token)
+
+    EDGE_SITES[heartbeat.site_id] = {
+        "site_id": heartbeat.site_id,
+        "status": heartbeat.status,
+        "agent_version": heartbeat.agent_version,
+        "timestamp": heartbeat.timestamp,
+        "received_at": time.time(),
+        "cameras": [camera.model_dump() for camera in heartbeat.cameras],
+    }
+
     return {
         "accepted": True,
         "service": "NexusAI Edge Agent",
@@ -192,6 +203,18 @@ async def edge_event(
     x_nexusai_edge_token: str | None = Header(default=None),
 ):
     require_edge_token(x_nexusai_edge_token)
+
+    EDGE_EVENTS.insert(0, event.model_dump())
+    del EDGE_EVENTS[200:]
+
+    site = EDGE_SITES.setdefault(event.site_id, {
+        "site_id": event.site_id,
+        "status": "ONLINE",
+        "received_at": time.time(),
+        "cameras": [],
+    })
+    site["received_at"] = time.time()
+
     return {
         "accepted": True,
         "site_id": event.site_id,
@@ -200,6 +223,29 @@ async def edge_event(
         "severity": event.severity,
         "timestamp": event.timestamp,
     }
+
+
+@app.get("/api/portal/status")
+async def portal_status(site_id: str = "site-demo"):
+    site = EDGE_SITES.get(site_id)
+    if not site:
+        return {"site_id": site_id, "edge_agent": "OFFLINE", "status": "WAITING", "cameras": []}
+
+    age = time.time() - float(site.get("received_at", 0))
+    return {
+        "site_id": site_id,
+        "edge_agent": "ONLINE" if age <= 90 else "OFFLINE",
+        "status": site.get("status", "UNKNOWN"),
+        "agent_version": site.get("agent_version"),
+        "cameras": site.get("cameras", []),
+    }
+
+
+@app.get("/api/portal/events")
+async def portal_events(site_id: str = "site-demo", limit: int = 50):
+    safe_limit = max(1, min(limit, 100))
+    events = [item for item in EDGE_EVENTS if item.get("site_id") == site_id]
+    return {"site_id": site_id, "events": events[:safe_limit]}
 
 
 # Serve the client portal files (index.html, CSS and JavaScript) under /portal/.
