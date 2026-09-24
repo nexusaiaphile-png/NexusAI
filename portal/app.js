@@ -109,14 +109,14 @@ async function checkBackend() {
 }
 async function pairEdgeAgent() {
   try {
-    const r=await fetch(EDGE_AGENT_URL+"/configure",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({site_id:SITE_ID})});
+    const r=await fetch(EDGE_AGENT_URL+"/configure",{method:"POST",targetAddressSpace:"loopback",headers:{"Content-Type":"application/json"},body:JSON.stringify({site_id:SITE_ID})});
     return r.ok;
   } catch(e) { return false; }
 }
 async function checkEdgeAgent() {
   try {
     const paired = await pairEdgeAgent();
-    const r=await fetch(EDGE_AGENT_URL+"/health",{cache:"no-store"});
+    const r=await fetch(EDGE_AGENT_URL+"/health",{cache:"no-store",targetAddressSpace:"loopback"});
     edgeOnline=r.ok;
     updateEdgeUI();
     if(edgeOnline) { show($("discoveryPanel")); updateSteps(2); }
@@ -143,7 +143,7 @@ async function scanNetwork() {
   if(!edgeOnline) { $("scanStatus").textContent="EDGE AGENT REQUIRED"; $("scanTitle").textContent="Connect the Edge Agent first"; $("scanText").textContent="Install and start the NexusAI Edge Agent on a computer at this site."; return; }
   $("scanBtn").disabled=true; $("scanBtn").textContent="SCANNING…"; $("scanStatus").textContent="SCANNING"; $("scanTitle").textContent="Searching local network…";
   try {
-    const r=await fetch(EDGE_AGENT_URL+"/discover",{cache:"no-store"});
+    const r=await fetch(EDGE_AGENT_URL+"/discover",{cache:"no-store",targetAddressSpace:"loopback"});
     if(!r.ok) throw new Error("Discovery HTTP "+r.status);
     const d=await r.json();
     discoveredDevices=Array.isArray(d.devices)?d.devices:[];
@@ -174,7 +174,7 @@ async function verifyDevice() {
   if(!selectedDevice || !password) { $("verifyResult").textContent="Select a device and enter the Hikvision password."; show($("verifyResult")); return; }
   $("verifyDeviceBtn").disabled=true; $("verifyDeviceBtn").textContent="VERIFYING…";
   try {
-    const r=await fetch(EDGE_AGENT_URL+"/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:SITE_ID+"-"+(selectedDevice.ip||Date.now()),camera_name:selectedDevice.name||"Hikvision device",camera_ip:selectedDevice.ip,camera_port:selectedDevice.port||80,username,password,location:"Client site"})});
+    const r=await fetch(EDGE_AGENT_URL+"/verify",{method:"POST",targetAddressSpace:"loopback",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:SITE_ID+"-"+(selectedDevice.ip||Date.now()),camera_name:selectedDevice.name||"Hikvision device",camera_ip:selectedDevice.ip,camera_port:selectedDevice.port||80,username,password,location:"Client site"})});
     const d=await r.json();
     if(!r.ok || !d.verified) throw new Error(d.error||"Device verification failed.");
     verifiedChannels=Array.isArray(d.channels)?d.channels:[];
@@ -193,7 +193,7 @@ async function protectSelected() {
   const chosen=[...selectedChannels].map(i=>verifiedChannels[i]);
   $("protectBtn").disabled=true; $("protectBtn").textContent="ACTIVATING…";
   try {
-    const r=await fetch(EDGE_AGENT_URL+"/activate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:SITE_ID+"-"+(selectedDevice.ip||Date.now()),camera_name:selectedDevice.name||"Hikvision NVR",camera_ip:selectedDevice.ip,camera_port:selectedDevice.port||80,username:$("hikUsername").value.trim(),password:$("hikPassword").value,location:"Client site"})});
+    const r=await fetch(EDGE_AGENT_URL+"/activate",{method:"POST",targetAddressSpace:"loopback",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:SITE_ID+"-"+(selectedDevice.ip||Date.now()),camera_name:selectedDevice.name||"Hikvision NVR",camera_ip:selectedDevice.ip,camera_port:selectedDevice.port||80,username:$("hikUsername").value.trim(),password:$("hikPassword").value,location:"Client site"})});
     const d=await r.json();
     if(!r.ok || !d.verified) throw new Error(d.error||"NexusAI activation failed.");
     chosen.forEach(c=>protectedCameras.push({id:SITE_ID+"-"+(c.channel_id||Date.now()),name:c.channel_name||c.name||"Camera",location:c.location||"Client site",status:"ONLINE",protection:"NEXUSAI PROTECTED",addedAt:new Date().toISOString()}));
