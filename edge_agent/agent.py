@@ -330,7 +330,7 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path, _, query = self.path.partition("?")
         if path == "/health":
-            self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","version":"1.5.0","site_id":SITE_ID}); return
+            self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","version":"1.6.0","site_id":SITE_ID}); return
         if path == "/pair/qr":
             if not local_access_allowed(self):
                 self._send_json(403, {"error":"QR generation is only allowed from the Edge Agent computer"}); return
