@@ -139,9 +139,10 @@ def load_events(site_id,limit):
 def dispatch_alert(event):
     webhook = os.getenv("NEXUSAI_ALERT_WEBHOOK_URL", "").strip()
     if not webhook: return
-    import requests
+    import json, urllib.request
     try:
-        requests.post(webhook, json={"type":"nexusai_security_event","event":event}, timeout=8).raise_for_status()
+        req=urllib.request.Request(webhook, data=json.dumps({"type":"nexusai_security_event","event":event}).encode(), headers={"Content-Type":"application/json"})
+        urllib.request.urlopen(req, timeout=8).read()
     except Exception as exc:
         import logging; logging.warning("Alert webhook failed: %s", exc)
 
@@ -150,13 +151,13 @@ def send_whatsapp_alert(event):
     token=os.getenv("WHATSAPP_ACCESS_TOKEN","").strip()
     recipient=os.getenv("WHATSAPP_ALERT_RECIPIENT","").strip()
     if not (phone_id and token and recipient): return False
-    import requests
+    import json, urllib.request
     text=f"NexusAI SECURITY ALERT\\n{event['event']}\\nCamera: {event['camera_name']}\\nLocation: {event['location']}\\nSeverity: {event['severity']}\\nTime: {event['timestamp']}"
     url=f"https://graph.facebook.com/v23.0/{phone_id}/messages"
     payload={"messaging_product":"whatsapp","to":recipient,"type":"text","text":{"body":text}}
     try:
-        r=requests.post(url,headers={"Authorization":f"Bearer {token}","Content-Type":"application/json"},json=payload,timeout=10)
-        r.raise_for_status(); return True
+        req=urllib.request.Request(url,data=json.dumps(payload).encode(),headers={"Authorization":f"Bearer {token}","Content-Type":"application/json"})
+        urllib.request.urlopen(req, timeout=10).read(); return True
     except Exception as exc:
         import logging; logging.warning("WhatsApp alert failed: %s", exc); return False
 
