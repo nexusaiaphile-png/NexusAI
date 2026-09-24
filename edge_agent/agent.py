@@ -289,7 +289,7 @@ def send_event(cfg, raw_event, channel=None):
                                       "snapshot_available": bool(snapshot)})
 
 def heartbeat(cfg, verification=None):
-    post_backend("/api/edge/heartbeat", {"site_id": SITE_ID, "agent_version": "1.5.0",
+    post_backend("/api/edge/heartbeat", {"site_id": SITE_ID, "agent_version": "1.6.0",
                                           "timestamp": datetime.now(timezone.utc).isoformat(), "status": "ONLINE",
                                           "cameras": [{"camera_id": cfg["camera_id"], "camera_name": cfg["camera_name"],
                                                        "location": cfg["location"], "verified": bool(verification and verification.get("verified"))}]})
@@ -372,6 +372,9 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
             self.wfile.write(body); return
         if path == "/pair/status":
             self._send_json(200, {"service":"NexusAI Edge Agent","site_id":SITE_ID,"status":"ONLINE"}); return
+        if path == "/inventory":
+            if not local_access_allowed(self) and not require_mobile_session(self): return
+            self._send_json(200, local_inventory()); return
         if path == "/discover":
             if not local_access_allowed(self) and not require_mobile_session(self): return
             self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","network":"LOCAL_ONLY","devices":discover_local_devices()}); return
@@ -436,6 +439,12 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
         except Exception:
             logging.exception("Local verification API error"); self._send_json(500,{"error":"Edge Agent verification failed"})
     def log_message(self,format,*args): logging.info("Local API: "+format,*args)
+
+def local_inventory():
+    """Return real, authorized local security-service state for the portal/diagnostics."""
+    with ACTIVE_SESSIONS_LOCK:
+        active = list(ACTIVE_SESSIONS.keys())
+    return {"service":"NexusAI Local Security Service","version":"1.6.0","site_id":SITE_ID,"status":"ONLINE","active_monitors":len(active),"monitors":active}
 
 def start_local_api():
     server=ThreadingHTTPServer((LOCAL_AGENT_HOST,LOCAL_AGENT_PORT),LocalAgentHandler)
