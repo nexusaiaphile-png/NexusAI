@@ -1,5 +1,6 @@
 import os
 import time
+import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
@@ -17,6 +18,8 @@ MOBILE_DIR = BASE_DIR / "mobile"
 # Production persistence can be moved to Postgres without changing the API contract.
 EDGE_SITES: dict[str, dict] = {}
 EDGE_EVENTS: list[dict] = []
+DB_PATH = Path(os.getenv("NEXUSAI_DB_PATH", str(BASE_DIR / "nexusai.db")))
+DB_LOCK = __import__("threading").Lock()
 
 app = FastAPI(
     title="NexusAI API",
@@ -83,6 +86,79 @@ class EdgeEvent(BaseModel):
     source: str
     snapshot_available: bool = False
 
+
+def db_conn():
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("""CREATE TABLE IF NOT EXISTS sites (
+        site_id TEXT PRIMARY KEY, status TEXT, agent_version TEXT, timestamp TEXT,
+        received_at REAL, cameras_json TEXT
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT, camera_id TEXT,
+        camera_name TEXT, location TEXT, event TEXT, severity TEXT, timestamp TEXT,
+        source TEXT, snapshot_available INTEGER
+    )""")
+    conn.commit()
+    return conn
+
+def persist_site(site):
+    import json
+    with DB_LOCK:
+        conn=db_conn()
+        conn.execute("""INSERT INTO sites(site_id,status,agent_version,timestamp,received_at,cameras_json)
+                       VALUES(?,?,?,?,?,?) ON CONFLICT(site_id) DO UPDATE SET
+                       status=excluded.status,agent_version=excluded.agent_version,timestamp=excluded.timestamp,
+                       received_at=excluded.received_at,cameras_json=excluded.cameras_json""",
+                     (site["site_id"],site.get("status"),site.get("agent_version"),site.get("timestamp"),
+                      site.get("received_at",time.time()),json.dumps(site.get("cameras",[]))))
+        conn.commit(); conn.close()
+
+def persist_event(event):
+    with DB_LOCK:
+        conn=db_conn()
+        conn.execute("""INSERT INTO events(site_id,camera_id,camera_name,location,event,severity,timestamp,source,snapshot_available)
+                       VALUES(?,?,?,?,?,?,?,?,?)""",
+                     (event["site_id"],event["camera_id"],event["camera_name"],event["location"],event["event"],
+                      event["severity"],event["timestamp"],event["source"],int(bool(event.get("snapshot_available")))))
+        conn.commit(); conn.close()
+
+def load_site(site_id):
+    import json
+    with DB_LOCK:
+        conn=db_conn(); row=conn.execute("SELECT * FROM sites WHERE site_id=?",(site_id,)).fetchone(); conn.close()
+    if not row: return None
+    return {"site_id":row["site_id"],"status":row["status"],"agent_version":row["agent_version"],
+            "timestamp":row["timestamp"],"received_at":row["received_at"],"cameras":json.loads(row["cameras_json"] or "[]")}
+
+def load_events(site_id,limit):
+    with DB_LOCK:
+        conn=db_conn(); rows=conn.execute("SELECT site_id,camera_id,camera_name,location,event,severity,timestamp,source,snapshot_available FROM events WHERE site_id=? ORDER BY id DESC LIMIT ?",(site_id,limit)).fetchall(); conn.close()
+    return [dict(r, snapshot_available=bool(r["snapshot_available"])) for r in rows]
+
+def dispatch_alert(event):
+    webhook = os.getenv("NEXUSAI_ALERT_WEBHOOK_URL", "").strip()
+    if not webhook: return
+    import requests
+    try:
+        requests.post(webhook, json={"type":"nexusai_security_event","event":event}, timeout=8).raise_for_status()
+    except Exception as exc:
+        import logging; logging.warning("Alert webhook failed: %s", exc)
+
+def send_whatsapp_alert(event):
+    phone_id=os.getenv("WHATSAPP_PHONE_NUMBER_ID","").strip()
+    token=os.getenv("WHATSAPP_ACCESS_TOKEN","").strip()
+    recipient=os.getenv("WHATSAPP_ALERT_RECIPIENT","").strip()
+    if not (phone_id and token and recipient): return False
+    import requests
+    text=f"NexusAI SECURITY ALERT\\n{event['event']}\\nCamera: {event['camera_name']}\\nLocation: {event['location']}\\nSeverity: {event['severity']}\\nTime: {event['timestamp']}"
+    url=f"https://graph.facebook.com/v23.0/{phone_id}/messages"
+    payload={"messaging_product":"whatsapp","to":recipient,"type":"text","text":{"body":text}}
+    try:
+        r=requests.post(url,headers={"Authorization":f"Bearer {token}","Content-Type":"application/json"},json=payload,timeout=10)
+        r.raise_for_status(); return True
+    except Exception as exc:
+        import logging; logging.warning("WhatsApp alert failed: %s", exc); return False
 
 def require_edge_token(token: str | None):
     expected = os.getenv("NEXUSAI_EDGE_TOKEN")
@@ -204,6 +280,8 @@ async def edge_heartbeat(
         "cameras": [camera.model_dump() for camera in heartbeat.cameras],
     }
 
+    persist_site(EDGE_SITES[heartbeat.site_id])
+
     return {
         "accepted": True,
         "service": "NexusAI Edge Agent",
@@ -262,7 +340,7 @@ async def edge_event(
 
 @app.get("/api/portal/status")
 async def portal_status(site_id: str = "site-demo"):
-    site = EDGE_SITES.get(site_id)
+    site = EDGE_SITES.get(site_id) or load_site(site_id)
     if not site:
         return {"site_id": site_id, "edge_agent": "OFFLINE", "status": "WAITING", "cameras": []}
 
@@ -279,8 +357,8 @@ async def portal_status(site_id: str = "site-demo"):
 @app.get("/api/portal/events")
 async def portal_events(site_id: str = "site-demo", limit: int = 50):
     safe_limit = max(1, min(limit, 100))
-    events = [item for item in EDGE_EVENTS if item.get("site_id") == site_id]
-    return {"site_id": site_id, "events": events[:safe_limit]}
+    events = load_events(site_id, safe_limit)
+    return {"site_id": site_id, "events": events}
 
 
 # Serve the client portal files (index.html, CSS and JavaScript) under /portal/.
