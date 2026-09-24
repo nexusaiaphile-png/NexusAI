@@ -202,7 +202,7 @@ async function protectSelected() {
   const chosen=[...selectedChannels].map(i=>verifiedChannels[i]);
   $("protectBtn").disabled=true; $("protectBtn").textContent="ACTIVATING…";
   try {
-    const r=await fetch(EDGE_AGENT_URL+"/activate",{method:"POST",targetAddressSpace:"loopback",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:SITE_ID+"-"+(selectedDevice.ip||Date.now()),camera_name:selectedDevice.name||"Hikvision NVR",camera_ip:selectedDevice.ip,camera_port:selectedDevice.port||80,username:$("hikUsername").value.trim(),password:$("hikPassword").value,location:"Client site"})});
+    const r=await fetch(EDGE_AGENT_URL+"/activate",{method:"POST",targetAddressSpace:"loopback",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:SITE_ID+"-"+(selectedDevice.ip||Date.now()),camera_name:selectedDevice.name||"Hikvision NVR",camera_ip:selectedDevice.ip,camera_port:selectedDevice.port||80,username:$("hikUsername").value.trim(),password:$("hikPassword").value,location:"Client site",channels:chosen})});
     const d=await r.json();
     if(!r.ok || !d.verified) throw new Error(d.error||"NexusAI activation failed.");
     chosen.forEach(c=>protectedCameras.push({id:SITE_ID+"-"+(c.channel_id||Date.now()),name:c.channel_name||c.name||"Camera",location:c.location||"Client site",status:"ONLINE",protection:"NEXUSAI PROTECTED",addedAt:new Date().toISOString()}));
