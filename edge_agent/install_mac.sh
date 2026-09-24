@@ -8,5 +8,11 @@ curl -fsSL "https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edg
 curl -fsSL "https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/requirements.txt" -o "$DIR/requirements.txt"
 python3 -m pip install --upgrade pip
 python3 -m pip install -r "$DIR/requirements.txt"
-echo "NexusAI Edge Agent installed."
-echo "Start it with: python3 $DIR/agent.py"
+cat > "$DIR/.env" <<EOF
+NEXUSAI_API_URL=https://nexusai-worker.onrender.com
+NEXUSAI_EDGE_TOKEN=
+EOF
+chmod 700 "$DIR"
+nohup env $(cat "$DIR/.env" | xargs) python3 "$DIR/agent.py" > "$DIR/agent.out.log" 2>&1 &
+echo "NexusAI Edge Agent installed and started."
+echo "Local health: http://127.0.0.1:8787/health"
