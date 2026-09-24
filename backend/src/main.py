@@ -139,6 +139,24 @@ async def sitemap_xml():
     return FileResponse(PORTAL_DIR / "sitemap.xml", media_type="application/xml")
 
 
+@app.get("/downloads/install_mac.sh", include_in_schema=False)
+async def download_mac_installer():
+    return FileResponse(
+        BASE_DIR / "edge_agent" / "install_mac.sh",
+        media_type="application/x-sh",
+        filename="NexusAI-Edge-Agent-macOS.sh",
+    )
+
+
+@app.get("/downloads/install_windows.ps1", include_in_schema=False)
+async def download_windows_installer():
+    return FileResponse(
+        BASE_DIR / "edge_agent" / "install_windows.ps1",
+        media_type="text/plain",
+        filename="NexusAI-Edge-Agent-Windows.ps1",
+    )
+
+
 @app.get("/health")
 async def health():
     return {"status": "healthy", "service": "NexusAI Backend", "version": "2.0.0"}
