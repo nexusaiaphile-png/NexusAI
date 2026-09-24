@@ -1,0 +1,53 @@
+name: NexusAI macOS Edge Agent
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "edge_agent/**"
+      - "macos/**"
+      - ".github/workflows/macos-edge-agent.yml"
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build package
+        run: |
+          chmod +x macos/build_pkg.sh
+          ./macos/build_pkg.sh
+      - name: Import Developer ID certificate
+        if: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "" "$RUNNER_TEMP/build.keychain-db"
+          security default-keychain -s "$RUNNER_TEMP/build.keychain-db"
+          security unlock-keychain -p "" "$RUNNER_TEMP/build.keychain-db"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$RUNNER_TEMP/build.keychain-db" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$RUNNER_TEMP/build.keychain-db"
+      - name: Sign package
+        if: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}
+        env:
+          APPLE_INSTALLER_IDENTITY: ${{ secrets.APPLE_INSTALLER_IDENTITY }}
+        run: |
+          productsign --sign "$APPLE_INSTALLER_IDENTITY" dist/NexusAI-Edge-Agent-macOS-unsigned.pkg dist/NexusAI-Edge-Agent-macOS.pkg
+          rm dist/NexusAI-Edge-Agent-macOS-unsigned.pkg
+      - name: Notarize package
+        if: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          xcrun notarytool submit dist/NexusAI-Edge-Agent-macOS.pkg --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple dist/NexusAI-Edge-Agent-macOS.pkg
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexusAI-Edge-Agent-macOS
+          path: dist/*.pkg
