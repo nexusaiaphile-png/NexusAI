@@ -8,6 +8,8 @@ import concurrent.futures
 
 import threading
 import re
+import secrets
+import ssl
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timezone
@@ -26,7 +28,7 @@ HEARTBEAT_SECONDS = int(os.getenv("HEARTBEAT_SECONDS", "30"))
 RECONNECT_SECONDS = int(os.getenv("RECONNECT_SECONDS", "10"))
 SNAPSHOT_DIR = Path(os.getenv("SNAPSHOT_DIR", "snapshots"))
 LOG_FILE = os.getenv("LOG_FILE", "nexusai_edge.log")
-LOCAL_AGENT_HOST = os.getenv("LOCAL_AGENT_HOST", "127.0.0.1")
+LOCAL_AGENT_HOST = os.getenv("LOCAL_AGENT_HOST", "0.0.0.0")
 LOCAL_AGENT_PORT = int(os.getenv("LOCAL_AGENT_PORT", "8787"))
 SITE_CONFIG_PATH = Path(os.getenv("SITE_CONFIG_PATH", str(Path.home() / ".nexusai_site.json")))
 
@@ -43,6 +45,76 @@ except (OSError, json.JSONDecodeError):
 ACTIVE_SESSIONS = {}
 ACTIVE_SESSIONS_LOCK = threading.Lock()
 HEARTBEAT_THREADS = {}
+PAIR_TOKENS = {}
+PAIR_SESSIONS = {}
+PAIR_LOCK = threading.Lock()
+PAIR_TTL_SECONDS = int(os.getenv("PAIR_TTL_SECONDS", "300"))
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1800"))
+LOCAL_AGENT_TLS_CERT = os.getenv("LOCAL_AGENT_TLS_CERT", "").strip()
+LOCAL_AGENT_TLS_KEY = os.getenv("LOCAL_AGENT_TLS_KEY", "").strip()
+
+def _now():
+    return time.time()
+
+def _new_token():
+    return secrets.token_urlsafe(32)
+
+def _cleanup_pairing():
+    now = _now()
+    with PAIR_LOCK:
+        for store in (PAIR_TOKENS, PAIR_SESSIONS):
+            expired = [key for key, item in store.items() if float(item.get("expires_at", 0)) <= now]
+            for key in expired:
+                store.pop(key, None)
+
+def create_pair_token():
+    _cleanup_pairing()
+    token = _new_token()
+    with PAIR_LOCK:
+        PAIR_TOKENS[token] = {"site_id": SITE_ID, "expires_at": _now() + PAIR_TTL_SECONDS}
+    return token
+
+def claim_pair_token(token):
+    _cleanup_pairing()
+    with PAIR_LOCK:
+        item = PAIR_TOKENS.pop(token, None)
+        if not item or item.get("site_id") != SITE_ID:
+            return None
+        session = _new_token()
+        PAIR_SESSIONS[session] = {"site_id": SITE_ID, "expires_at": _now() + SESSION_TTL_SECONDS}
+        return session
+
+def valid_session(token):
+    _cleanup_pairing()
+    with PAIR_LOCK:
+        item = PAIR_SESSIONS.get(token or "")
+        return bool(item and item.get("site_id") == SITE_ID and float(item.get("expires_at", 0)) > _now())
+
+def local_access_allowed(handler):
+    return handler.client_address[0] in {"127.0.0.1", "::1"}
+
+def require_mobile_session(handler):
+    auth_header = handler.headers.get("Authorization", "")
+    token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+    if not valid_session(token):
+        handler._send_json(401, {"error": "Pair this phone with the NexusAI site first."})
+        return False
+    return True
+
+def local_access_urls():
+    try:
+        ip = str(local_network().network_address)
+        # Use the actual interface address rather than the subnet address.
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.connect(("8.8.8.8", 80))
+            ip = sock.getsockname()[0]
+        finally:
+            sock.close()
+    except OSError:
+        ip = "127.0.0.1"
+    scheme = "https" if LOCAL_AGENT_TLS_CERT and LOCAL_AGENT_TLS_KEY else "http"
+    return [f"{scheme}://{ip}:{LOCAL_AGENT_PORT}"]
 
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
@@ -243,16 +315,41 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
         self.end_headers(); self.wfile.write(body)
     def do_OPTIONS(self): self._send_json(204, {})
     def do_GET(self):
-        if self.path == "/health":
-            self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","version":"1.4.0","site_id":SITE_ID}); return
-        if self.path == "/discover":
+        path, _, query = self.path.partition("?")
+        if path == "/health":
+            self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","version":"1.5.0","site_id":SITE_ID}); return
+        if path == "/pair/start":
+            token = create_pair_token()
+            urls = local_access_urls()
+            self._send_json(200, {"service":"NexusAI Edge Agent","site_id":SITE_ID,"expires_in":PAIR_TTL_SECONDS,
+                                  "agent_urls":urls,"mobile_url":urls[0]+"/mobile?token="+token}); return
+        if path == "/mobile":
+            mobile_path = Path(__file__).resolve().parent / "mobile.html"
+            if not mobile_path.exists():
+                self._send_json(404, {"error":"Mobile activation page is not installed"}); return
+            body = mobile_path.read_bytes()
+            self.send_response(200); self.send_header("Content-Type","text/html; charset=utf-8")
+            self.send_header("Cache-Control","no-store"); self.send_header("Content-Length",str(len(body))); self.end_headers()
+            self.wfile.write(body); return
+        if path == "/pair/status":
+            self._send_json(200, {"service":"NexusAI Edge Agent","site_id":SITE_ID,"status":"ONLINE"}); return
+        if path == "/discover":
+            if not local_access_allowed(self) and not require_mobile_session(self): return
             self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","network":"LOCAL_ONLY","devices":discover_local_devices()}); return
         self._send_json(404, {"error":"Not found"})
     def do_POST(self):
         global SITE_ID
         try:
             length = int(self.headers.get("Content-Length","0")); payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if self.path == "/pair/claim":
+                token = str(payload.get("token","")).strip()
+                session = claim_pair_token(token)
+                if not session:
+                    self._send_json(401, {"error":"Pairing code is invalid or expired"}); return
+                self._send_json(200, {"paired":True,"site_id":SITE_ID,"session_token":session,"expires_in":SESSION_TTL_SECONDS}); return
             if self.path == "/configure":
+                if not local_access_allowed(self):
+                    self._send_json(403, {"error":"Site configuration is only allowed from the Edge Agent computer"}); return
                 site_id = str(payload.get("site_id","")).strip()
                 if not site_id or len(site_id) > 100: self._send_json(400, {"error":"Valid site ID required"}); return
                 SITE_ID = site_id
@@ -268,6 +365,8 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {"configured":True,"site_id":SITE_ID}); return
             if self.path not in ("/verify","/activate"):
                 self._send_json(404, {"error":"Not found"}); return
+            if not local_access_allowed(self) and not require_mobile_session(self):
+                return
             required = ["camera_name","camera_ip","camera_port","username","password","location"]
             if any(not payload.get(key) for key in required):
                 self._send_json(400, {"error":"All camera/NVR details are required"}); return
@@ -294,8 +393,15 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
 
 def start_local_api():
     server=ThreadingHTTPServer((LOCAL_AGENT_HOST,LOCAL_AGENT_PORT),LocalAgentHandler)
+    if LOCAL_AGENT_TLS_CERT and LOCAL_AGENT_TLS_KEY:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(LOCAL_AGENT_TLS_CERT, LOCAL_AGENT_TLS_KEY)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        print(f"LAN pairing API: https://0.0.0.0:{LOCAL_AGENT_PORT}")
+    else:
+        print(f"LAN pairing API: http://0.0.0.0:{LOCAL_AGENT_PORT} (short-lived pairing tokens required)")
     threading.Thread(target=server.serve_forever,daemon=True,name="nexusai-local-api").start()
-    print(f"Local verification API: http://{LOCAL_AGENT_HOST}:{LOCAL_AGENT_PORT}")
     return server
 
 def heartbeat_loop(cfg,verification):
