@@ -233,6 +233,18 @@ async function protectSelected() {
   } catch(e) { alert(e.message||"NexusAI activation failed."); }
   finally { $("protectBtn").disabled=false; $("protectBtn").textContent="PROTECT SELECTED CAMERAS"; }
 }
+async function refreshCloudEvents() {
+  try {
+    const r=await fetch(API_BASE_URL+"/api/portal/events?site_id="+encodeURIComponent(SITE_ID)+"&limit=50",{cache:"no-store"});
+    if(!r.ok)return;
+    const d=await r.json();
+    if(Array.isArray(d.events)) {
+      events=d.events.map(e=>({type:e.event,camera:e.camera_name,timestamp:e.timestamp,severity:e.severity,source:e.source,snapshot_available:e.snapshot_available}));
+      safeStorageSet("nexusai_events",JSON.stringify(events));
+      renderDashboard();
+    }
+  } catch(e) {}
+}
 async function refreshCloudStatus() {
   try {
     const r=await fetch(API_BASE_URL+"/api/portal/status?site_id="+encodeURIComponent(SITE_ID),{cache:"no-store"});
@@ -248,4 +260,4 @@ function renderDashboard() {
   $("eventList").innerHTML=events.length?events.slice(0,20).map(e=>`<div class="event-row"><span>◉</span><div><strong>${escapeHTML(e.type||"Security event")}</strong><small>${escapeHTML(e.camera||"NexusAI")}</small></div><time>${new Date(e.timestamp||Date.now()).toLocaleString()}</time></div>`).join(""):'<div class="empty-state">No security events yet.</div>';
 }
 function escapeHTML(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
-document.addEventListener("DOMContentLoaded",()=>{ try { init(); setInterval(refreshCloudStatus,10000); } catch(e) { console.error("NexusAI portal initialization failed",e); document.body.innerHTML='<div style="min-height:100vh;background:#04080d;color:#f2f8fb;font-family:Arial,sans-serif;display:grid;place-items:center;padding:30px;text-align:center"><div><h1>NexusAI Portal</h1><p style="color:#9aabb8;margin-top:10px">The portal could not initialize. Refresh the page and try again.</p><p style="color:#ff7b88;margin-top:10px">Please do not enter your Hikvision password until the portal is working.</p></div></div>'; } });
+document.addEventListener("DOMContentLoaded",()=>{ try { init(); setInterval(refreshCloudStatus,10000); setInterval(refreshCloudEvents,5000); refreshCloudEvents(); } catch(e) { console.error("NexusAI portal initialization failed",e); document.body.innerHTML='<div style="min-height:100vh;background:#04080d;color:#f2f8fb;font-family:Arial,sans-serif;display:grid;place-items:center;padding:30px;text-align:center"><div><h1>NexusAI Portal</h1><p style="color:#9aabb8;margin-top:10px">The portal could not initialize. Refresh the page and try again.</p><p style="color:#ff7b88;margin-top:10px">Please do not enter your Hikvision password until the portal is working.</p></div></div>'; } });
