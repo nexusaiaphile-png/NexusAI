@@ -59,7 +59,7 @@ async function createMobilePairing(){
   if(!box)return;
   box.textContent="CONNECTING TO EDGE AGENT…";
   try{
-    const r=await fetch(EDGE_AGENT_URL+"/pair/start",{cache:"no-store"});
+    const r=await fetch(EDGE_AGENT_URL+"/pair/start",{cache:"no-store",targetAddressSpace:"loopback"});
     const d=await r.json();
     if(!r.ok) throw new Error(d.error||"Edge Agent pairing is unavailable");
     const url=d.mobile_url;
@@ -68,8 +68,8 @@ async function createMobilePairing(){
     img.alt="NexusAI mobile activation QR code";
     img.width=156; img.height=156;
     img.style.background="#fff"; img.style.padding="8px"; img.style.borderRadius="10px";
-    img.src=EDGE_AGENT_URL+"/pair/qr?token="+encodeURIComponent(url.split("token=")[1]||"");
-    img.onerror=()=>{ img.remove(); const a=document.createElement("a"); a.href=url; a.textContent="OPEN MOBILE ACTIVATION"; a.target="_blank"; a.rel="noopener"; a.style.color="#061018"; a.style.fontWeight="800"; box.appendChild(a); };
+    img.src=d.qr_data_url||"";
+    if(!d.qr_data_url) throw new Error("Edge Agent did not return a QR image");
     box.appendChild(img);
     $("scanText").textContent="Scan the QR code with a phone connected to the same local network. The phone will pair directly with this Edge Agent.";
   }catch(e){
