@@ -241,9 +241,7 @@ async def edge_event(
 ):
     require_edge_token(x_nexusai_edge_token)
 
-    EDGE_EVENTS.insert(0, event.model_dump())
-    del EDGE_EVENTS[200:]
-
+    event_data = event.model_dump()\n    EDGE_EVENTS.insert(0, event_data)\n    del EDGE_EVENTS[200:]\n    dispatch_alert(event_data)\n
     site = EDGE_SITES.setdefault(event.site_id, {
         "site_id": event.site_id,
         "status": "ONLINE",
