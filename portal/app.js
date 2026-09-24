@@ -54,7 +54,29 @@ function init() {
   checkBackend();
   if (safeStorageGet("nexusai_logged_in") === "true") showDashboard(); else showLogin();
 }
-async function createMobilePairing(){const box=$("mobileQr");if(!box)return;box.textContent="GENERATING QR…";try{const r=await fetch(API_BASE_URL+"/api/mobile/pair",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({site_code:makeSiteCode(),site_id:SITE_ID})});const d=await r.json();if(!r.ok)throw new Error(d.detail||"Could not create mobile pairing");const url=API_BASE_URL+"/mobile/?site="+encodeURIComponent(makeSiteCode())+"&token="+encodeURIComponent(d.token);box.innerHTML="";if(window.QRCode)new QRCode(box,{text:url,width:104,height:104,colorDark:"#061018",colorLight:"#ffffff"});else{const a=document.createElement("a");a.href=url;a.textContent="OPEN MOBILE PORTAL";a.target="_blank";a.style.color="#061018";box.appendChild(a)}}catch(e){box.textContent="QR unavailable";console.error(e)}}
+async function createMobilePairing(){
+  const box=$("mobileQr");
+  if(!box)return;
+  box.textContent="CONNECTING TO EDGE AGENT…";
+  try{
+    const r=await fetch(EDGE_AGENT_URL+"/pair/start",{cache:"no-store"});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||"Edge Agent pairing is unavailable");
+    const url=d.mobile_url;
+    box.innerHTML="";
+    if(window.QRCode){
+      new QRCode(box,{text:url,width:104,height:104,colorDark:"#061018",colorLight:"#ffffff"});
+    }else{
+      const a=document.createElement("a");
+      a.href=url;a.textContent="OPEN MOBILE ACTIVATION";a.target="_blank";a.rel="noopener";
+      a.style.color="#061018";box.appendChild(a);
+    }
+    $("scanText").textContent="Scan the QR code with a phone connected to the same local network. The phone will pair directly with this Edge Agent.";
+  }catch(e){
+    box.textContent="START EDGE AGENT TO GENERATE QR";
+    console.warn("NexusAI mobile pairing unavailable",e);
+  }
+}
 function bind() {
   $("loginForm").addEventListener("submit", e => { e.preventDefault(); safeStorageSet("nexusai_logged_in","true"); showDashboard(); });
   $("logoutBtn").onclick = () => { safeStorageSet("nexusai_logged_in",""); showLogin(); };
