@@ -331,6 +331,24 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
         path, _, query = self.path.partition("?")
         if path == "/health":
             self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","version":"1.5.0","site_id":SITE_ID}); return
+        if path == "/pair/qr":
+            if not local_access_allowed(self):
+                self._send_json(403, {"error":"QR generation is only allowed from the Edge Agent computer"}); return
+            token = query.split("token=", 1)[1] if "token=" in query else ""
+            if not valid_pair_token(token):
+                self._send_json(400, {"error":"Pairing code is invalid or expired"}); return
+            mobile_url = local_access_urls()[0] + "/mobile?token=" + token
+            image = qrcode.make(mobile_url)
+            buf = io.BytesIO()
+            image.save(buf, format="PNG")
+            body = buf.getvalue()
+            self.send_response(200)
+            self.send_header("Content-Type","image/png")
+            self.send_header("Cache-Control","no-store")
+            self.send_header("Content-Length",str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path == "/pair/start":
             if not local_access_allowed(self):
                 self._send_json(403, {"error":"Pairing QR generation is only allowed from the Edge Agent computer"}); return
