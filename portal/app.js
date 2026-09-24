@@ -99,7 +99,16 @@ function downloadInstructions(os) {
   const url = os === "Windows"
     ? "https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/install_windows.ps1"
     : "https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/install_mac.sh";
-  window.open(url, "_blank", "noopener");
+  fetch(url, {cache:"no-store"}).then(r => {
+    if(!r.ok) throw new Error("Installer download failed");
+    return r.blob();
+  }).then(blob => {
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download=os==="Windows" ? "NexusAI-Edge-Agent-Windows.ps1" : "NexusAI-Edge-Agent-macOS.sh";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  }).catch(() => window.open(url, "_blank", "noopener"));
   $("setupTitle").textContent = os + " Edge Agent installer";
   $("scanText").textContent = "Run the installer on a computer connected to the same local network as your Hikvision system. Then return here and check the connection.";
 }
