@@ -54,6 +54,7 @@ function init() {
   checkBackend();
   if (safeStorageGet("nexusai_logged_in") === "true") showDashboard(); else showLogin();
 }
+async function createMobilePairing(){const box=$("mobileQr");if(!box)return;box.textContent="GENERATING QR…";try{const r=await fetch(API_BASE_URL+"/api/mobile/pair",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({site_code:makeSiteCode()})});const d=await r.json();if(!r.ok)throw new Error(d.detail||"Could not create mobile pairing");const url=API_BASE_URL+"/mobile/?site="+encodeURIComponent(makeSiteCode())+"&token="+encodeURIComponent(d.token);box.innerHTML="";if(window.QRCode)new QRCode(box,{text:url,width:104,height:104,colorDark:"#061018",colorLight:"#ffffff"});else{const a=document.createElement("a");a.href=url;a.textContent="OPEN MOBILE PORTAL";a.target="_blank";a.style.color="#061018";box.appendChild(a)}}catch(e){box.textContent="QR unavailable";console.error(e)}}
 function bind() {
   $("loginForm").addEventListener("submit", e => { e.preventDefault(); safeStorageSet("nexusai_logged_in","true"); showDashboard(); });
   $("logoutBtn").onclick = () => { safeStorageSet("nexusai_logged_in",""); showLogin(); };
@@ -71,7 +72,7 @@ function bind() {
 }
 function showLogin(){ $("loginScreen").classList.add("active"); $("dashboardScreen").classList.remove("active"); }
 function showDashboard(){ $("loginScreen").classList.remove("active"); $("dashboardScreen").classList.add("active"); renderDashboard(); checkEdgeAgent(); }
-function startInstall(){ show($("installPanel")); $("installPanel").scrollIntoView({behavior:"smooth",block:"center"}); updateSteps(1); }
+function startInstall(){ show($("installPanel")); createMobilePairing(); $("installPanel").scrollIntoView({behavior:"smooth",block:"center"}); updateSteps(1); }
 function downloadInstructions(os) {
   const url = os === "Windows"
     ? "https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/install_windows.ps1"
