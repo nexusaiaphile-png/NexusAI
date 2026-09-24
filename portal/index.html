@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NexusAI | Client Installation & Security Command Center</title>
+<title>NexusAI | Security Command Center</title>
 <link rel="stylesheet" href="style.css?v=20260923-6">
 </head>
 <body>
@@ -12,7 +12,7 @@
     <div class="brand"><div class="logo">N</div><div><strong>NexusAI</strong><span>AI SECURITY TECHNOLOGY</span></div></div>
     <div class="status-pill"><i></i> NEXUSAI CLOUD ONLINE</div>
     <h1>Client Security Portal</h1>
-    <p>Connect your existing Hikvision system and protect your cameras with NexusAI.</p>
+    <p>Connect your existing Hikvision system, choose the cameras you want protected, and activate NexusAI security.</p>
     <form id="loginForm">
       <label>Email address</label><input id="email" type="email" placeholder="you@company.co.za" required>
       <label>Password</label><input id="password" type="password" placeholder="Your password" required>
@@ -30,14 +30,14 @@
 
 <main class="dashboard">
   <section class="hero">
-    <div><p class="eyebrow">CLIENT SECURITY COMMAND CENTER</p><h1>Your security. Connected.</h1><p>Install NexusAI yourself, discover your Hikvision system, select the cameras you want protected and activate AI security.</p></div>
-    <button id="startInstallBtn" class="primary-btn hero-btn">START SELF-INSTALLATION</button>
+    <div><p class="eyebrow">CLIENT SECURITY COMMAND CENTER</p><h1>Your security. Connected.</h1><p>NexusAI connects your local Hikvision system to the NexusAI security cloud. The local security service runs quietly in the background.</p></div>
+    <button id="startInstallBtn" class="primary-btn hero-btn">CONNECT MY SITE</button>
   </section>
 
   <section class="setup-progress panel">
-    <div class="progress-head"><div><p class="eyebrow">SELF-INSTALLATION</p><h2 id="setupTitle">Ready to connect your site</h2></div><span id="setupBadge" class="badge">STEP 1 OF 5</span></div>
+    <div class="progress-head"><div><p class="eyebrow">NEXUSAI CONNECTION</p><h2 id="setupTitle">Ready to connect your site</h2></div><span id="setupBadge" class="badge">CONNECT</span></div>
     <div class="steps">
-      <div class="step active" data-step="1"><b>1</b><span>Install</span></div>
+      <div class="step active" data-step="1"><b>1</b><span>Connect</span></div>
       <div class="line"></div><div class="step" data-step="2"><b>2</b><span>Discover</span></div>
       <div class="line"></div><div class="step" data-step="3"><b>3</b><span>Verify</span></div>
       <div class="line"></div><div class="step" data-step="4"><b>4</b><span>Select</span></div>
@@ -47,24 +47,21 @@
 
   <section id="installPanel" class="panel install-panel">
     <div class="install-icon">N</div>
-    <div><p class="eyebrow">STEP 1 • NEXUSAI EDGE AGENT</p><h2>Connect this site</h2><p>Install the NexusAI Edge Agent on a computer connected to the same local network as your Hikvision NVR or cameras.</p></div>
-    <div class="install-code"><span>YOUR SITE CODE</span><strong id="siteCode">GENERATING…</strong><button id="copySiteCode" class="secondary-btn">COPY</button></div>
-    <div class="download-grid">
-      <button id="windowsInstallBtn" class="download-card"><strong>WINDOWS</strong><span>Install NexusAI Edge Agent</span><em>DOUBLE-CLICK TO INSTALL</em></button>
-      <button id="macInstallBtn" class="download-card"><strong>macOS</strong><span>Install NexusAI Edge Agent</span><em>READY FOR CLIENT INSTALL</em></button>
-    </div>
-    <div class="notice"><strong>Why an Edge Agent?</strong><span>Your cameras stay on your private local network. The Edge Agent connects locally to your Hikvision equipment and securely communicates with NexusAI Cloud.</span></div><div class="mobile-pair"><div><strong>📱 MOBILE ACTIVATION</strong><span>Pair a client phone with this site using a short-lived NexusAI QR code.</span></div><div id="mobileQr" class="qr-box">GENERATING QR…</div></div>
-    <button id="checkAgentBtn" class="secondary-btn wide-btn">CHECK EDGE AGENT CONNECTION</button>
+    <div><p class="eyebrow">NEXUSAI LOCAL SECURITY SERVICE</p><h2>Connect your site</h2><p>The local NexusAI service is the hidden network bridge between your Hikvision system and NexusAI Cloud. You do not need to configure network addresses or camera software.</p></div>
+    <div class="install-code"><span>SITE CODE</span><strong id="siteCode">GENERATING…</strong><button id="copySiteCode" class="secondary-btn">COPY</button></div>
+    <div class="notice"><strong id="connectionTitle">Checking local connection…</strong><span id="connectionText">NexusAI is checking whether the local security service is available on this network.</span></div>
+    <button id="checkAgentBtn" class="primary-btn wide-btn">CONNECT TO LOCAL SECURITY SERVICE</button>
+    <div class="mobile-pair hidden"><div><strong>📱 MOBILE CONTROL</strong><span>Use a phone on the same network to control this site after the local service is connected.</span></div><div id="mobileQr" class="qr-box">GENERATING QR…</div></div>
   </section>
 
   <section id="discoveryPanel" class="panel hidden">
-    <div class="panel-header"><div><p class="eyebrow">STEP 2 • LOCAL DISCOVERY</p><h2>Find your Hikvision system</h2><p class="muted">NexusAI scans only the network available to the installed Edge Agent. Discovery does not authorize any device.</p></div><span id="scanStatus" class="badge">WAITING</span></div>
+    <div class="panel-header"><div><p class="eyebrow">STEP 2 • LOCAL DISCOVERY</p><h2>Find your Hikvision system</h2><p class="muted">NexusAI scans the local network through its background security service and shows compatible Hikvision equipment found there.</p></div><span id="scanStatus" class="badge">WAITING</span></div>
     <div class="scan-box"><div id="scanRing">N</div><h3 id="scanTitle">Ready to scan</h3><p id="scanText">The Edge Agent will discover compatible Hikvision devices on this site.</p><button id="scanBtn" class="primary-btn">SCAN MY NETWORK</button></div>
     <div id="deviceList" class="device-list"></div>
   </section>
 
   <section id="verificationPanel" class="panel hidden">
-    <div class="panel-header"><div><p class="eyebrow">STEP 3 • DEVICE VERIFICATION</p><h2 id="selectedDeviceTitle">Verify your Hikvision device</h2><p class="muted">Discovery only identifies a reachable device. You must authenticate before NexusAI can use it.</p></div><span class="badge">AUTHORIZATION REQUIRED</span></div>
+    <div class="panel-header"><div><p class="eyebrow">STEP 3 • DEVICE VERIFICATION</p><h2 id="selectedDeviceTitle">Verify your Hikvision device</h2><p class="muted">The device has been found. Enter the Hikvision account used to authorize NexusAI access.</p></div><span class="badge">AUTHORIZATION REQUIRED</span></div>
     <div class="device-summary"><span>SELECTED DEVICE</span><strong id="selectedDeviceAddress">—</strong><small id="selectedDeviceType">—</small></div>
     <label>Hikvision username</label><input id="hikUsername" value="admin" autocomplete="off">
     <label>Hikvision password</label><input id="hikPassword" type="password" placeholder="Enter your Hikvision password" autocomplete="off">
@@ -73,7 +70,7 @@
   </section>
 
   <section id="cameraPanel" class="panel hidden">
-    <div class="panel-header"><div><p class="eyebrow">STEP 4 • CAMERA SELECTION</p><h2>Select cameras to protect</h2><p class="muted">These channels belong to the verified NVR. NexusAI will only activate the cameras you choose.</p></div><span id="selectedCount" class="badge">0 SELECTED</span></div>
+    <div class="panel-header"><div><p class="eyebrow">STEP 4 • CAMERA SELECTION</p><h2>Select cameras to protect</h2><p class="muted">Choose cameras by the names you recognize from your physical site. NexusAI only activates the channels you select.</p></div><span id="selectedCount" class="badge">0 SELECTED</span></div>
     <div id="cameraSelection" class="camera-selection"></div>
     <button id="protectBtn" class="primary-btn">PROTECT SELECTED CAMERAS</button>
   </section>
@@ -93,6 +90,6 @@
   <section class="panel"><div class="panel-header"><div><p class="eyebrow">SECURITY MONITORING</p><h2>Recent Events</h2></div><span class="live">● LIVE</span></div><div id="eventList" class="event-list"><div class="empty-state">No security events yet.</div></div></section>
 </main>
 </section>
-<script src="app.js?v=20260924-7"></script>
+<script src="app.js?v=20260924-8"></script>
 </body>
 </html>
