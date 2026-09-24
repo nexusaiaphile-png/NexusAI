@@ -94,7 +94,7 @@ function bind() {
 }
 function showLogin(){ $("loginScreen").classList.add("active"); $("dashboardScreen").classList.remove("active"); }
 function showDashboard(){ $("loginScreen").classList.remove("active"); $("dashboardScreen").classList.add("active"); renderDashboard(); checkEdgeAgent(); }
-function startInstall(){ show($("installPanel")); createMobilePairing(); $("installPanel").scrollIntoView({behavior:"smooth",block:"center"}); updateSteps(1); }
+function startInstall(){ show($("installPanel")); checkEdgeAgent(); $("installPanel").scrollIntoView({behavior:"smooth",block:"center"}); updateSteps(1); }
 const MAC_INSTALLER = "#!/bin/bash\nset -euo pipefail\necho \"NexusAI Edge Agent installer\"\n\nif ! command -v python3 >/dev/null 2>&1; then\n  echo \"Python 3.11+ is required. Install Python from python.org, then run this installer again.\"\n  exit 1\nfi\n\nDIR=\"$HOME/Library/Application Support/NexusAI/EdgeAgent\"\nmkdir -p \"$DIR\"\ncd \"$DIR\"\n\ncurl -fsSL \"https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/agent.py\" -o \"$DIR/agent.py\"\ncurl -fsSL \"https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/requirements.txt\" -o \"$DIR/requirements.txt\"\n\nif [ ! -x \"$DIR/.venv/bin/python\" ]; then\n  python3 -m venv \"$DIR/.venv\"\nfi\n\n\"$DIR/.venv/bin/python\" -m pip install --upgrade pip\n\"$DIR/.venv/bin/python\" -m pip install -r \"$DIR/requirements.txt\"\n\ncat > \"$DIR/.env\" <<EOF\nNEXUSAI_API_URL=https://nexusai-worker.onrender.com\nNEXUSAI_EDGE_TOKEN=\nLOCAL_AGENT_HOST=0.0.0.0\nLOCAL_AGENT_PORT=8787\nEOF\n\nchmod 700 \"$DIR\"\nchmod 600 \"$DIR/.env\"\n\npkill -f \"$DIR/agent.py\" >/dev/null 2>&1 || true\nnohup \"$DIR/.venv/bin/python\" \"$DIR/agent.py\" > \"$DIR/agent.out.log\" 2>&1 < /dev/null &\n\nsleep 2\nif curl -fsS \"http://127.0.0.1:8787/health\" >/dev/null 2>&1; then\n  echo \"NexusAI Edge Agent installed and running.\"\nelse\n  echo \"NexusAI Edge Agent started, but health check did not respond yet.\"\n  echo \"Log: $DIR/agent.out.log\"\nfi\necho \"Local health: http://127.0.0.1:8787/health\"\n";
 const WINDOWS_INSTALLER = "$ErrorActionPreference = \"Stop\"\nWrite-Host \"NexusAI Edge Agent installer\"\nif (-not (Get-Command python -ErrorAction SilentlyContinue)) { throw \"Python 3 is required. Install Python 3.11+ and run this installer again.\" }\n$dir = \"$env:LOCALAPPDATA\\NexusAI\\EdgeAgent\"\nNew-Item -ItemType Directory -Force -Path $dir | Out-Null\nInvoke-WebRequest -Uri \"https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/agent.py\" -OutFile \"$dir\\agent.py\"\nInvoke-WebRequest -Uri \"https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/requirements.txt\" -OutFile \"$dir\\requirements.txt\"\npython -m pip install --upgrade pip\n$env:NEXUSAI_API_URL = \"https://nexusai-worker.onrender.com\"\n$env:NEXUSAI_EDGE_TOKEN = \"\"\n[Environment]::SetEnvironmentVariable(\"NEXUSAI_API_URL\", \"https://nexusai-worker.onrender.com\", \"User\")\n[Environment]::SetEnvironmentVariable(\"NEXUSAI_EDGE_TOKEN\", \"\", \"User\")\nStart-Process python -ArgumentList \"$dir\\agent.py\" -WindowStyle Minimized\nWrite-Host \"NexusAI Edge Agent installed and started.\"\nWrite-Host \"Local health: http://127.0.0.1:8787/health\"\n";
 
@@ -148,7 +148,7 @@ async function checkEdgeAgent() {
     edgeOnline=r.ok;
     updateEdgeUI();
     if(edgeOnline) { show($("discoveryPanel")); updateSteps(2); }
-    if(!paired && !edgeOnline) setInstallState("Edge Agent not detected","Install and start the NexusAI Edge Agent on a computer at this site, then check the connection again.");
+    if(!paired && !edgeOnline) setInstallState("Local service not detected","The NexusAI local security service is not currently reachable. Start the service for this site, then connect again.");
   } catch(e) {
     edgeOnline=false;
     updateEdgeUI();
@@ -159,16 +159,18 @@ function setInstallState(title,text) {
   if ($("scanText")) $("scanText").textContent=text;
 }
 function updateEdgeUI() {
-  if ($("edgeStatus")) $("edgeStatus").innerHTML=edgeOnline ? "<i></i> EDGE AGENT ONLINE" : "<i></i> EDGE AGENT WAITING";
+  if ($("edgeStatus")) $("edgeStatus").innerHTML=edgeOnline ? "<i></i> LOCAL SECURITY SERVICE ONLINE" : "<i></i> CONNECTING";
   if ($("edgeStat")) $("edgeStat").textContent=edgeOnline ? "ONLINE" : "WAITING";
+  if ($("connectionTitle")) $("connectionTitle").textContent=edgeOnline ? "NexusAI local service connected" : "Waiting for NexusAI local service";
+  if ($("connectionText")) $("connectionText").textContent=edgeOnline ? "Your local security service is connected. NexusAI can now discover the Hikvision equipment on this network." : "The local NexusAI security service must be running on this network before the portal can discover private Hikvision equipment.";
   if(edgeOnline) {
     $("scanStatus").textContent="READY";
-    $("scanTitle").textContent="Edge Agent connected";
-    $("scanText").textContent="Your local NexusAI Edge Agent is connected. You can now discover your Hikvision system.";
+    $("scanTitle").textContent="Ready to discover your cameras";
+    $("scanText").textContent="NexusAI will search the local network for compatible Hikvision devices.";
   }
 }
 async function scanNetwork() {
-  if(!edgeOnline) { $("scanStatus").textContent="EDGE AGENT REQUIRED"; $("scanTitle").textContent="Connect the Edge Agent first"; $("scanText").textContent="Install and start the NexusAI Edge Agent on a computer at this site."; return; }
+  if(!edgeOnline) { $("scanStatus").textContent="CONNECTING"; $("scanTitle").textContent="Local security service required"; $("scanText").textContent="NexusAI cannot safely scan a private camera network directly from the browser."; return; }
   $("scanBtn").disabled=true; $("scanBtn").textContent="SCANNING…"; $("scanStatus").textContent="SCANNING"; $("scanTitle").textContent="Searching local network…";
   try {
     const r=await fetch(EDGE_AGENT_URL+"/discover",{cache:"no-store",targetAddressSpace:"loopback"});
