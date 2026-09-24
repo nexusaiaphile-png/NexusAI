@@ -28,6 +28,17 @@ SNAPSHOT_DIR = Path(os.getenv("SNAPSHOT_DIR", "snapshots"))
 LOG_FILE = os.getenv("LOG_FILE", "nexusai_edge.log")
 LOCAL_AGENT_HOST = os.getenv("LOCAL_AGENT_HOST", "127.0.0.1")
 LOCAL_AGENT_PORT = int(os.getenv("LOCAL_AGENT_PORT", "8787"))
+SITE_CONFIG_PATH = Path(os.getenv("SITE_CONFIG_PATH", str(Path.home() / ".nexusai_site.json")))
+
+# Load a locally persisted site pairing so an Edge Agent restart does not reset the site.
+try:
+    if SITE_CONFIG_PATH.exists():
+        saved_site = json.loads(SITE_CONFIG_PATH.read_text(encoding="utf-8"))
+        persisted_site_id = str(saved_site.get("site_id", "")).strip()
+        if persisted_site_id:
+            SITE_ID = persisted_site_id
+except (OSError, json.JSONDecodeError):
+    logging.warning("Could not load persisted NexusAI site configuration")
 
 ACTIVE_SESSIONS = {}
 ACTIVE_SESSIONS_LOCK = threading.Lock()
@@ -245,6 +256,15 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
                 site_id = str(payload.get("site_id","")).strip()
                 if not site_id or len(site_id) > 100: self._send_json(400, {"error":"Valid site ID required"}); return
                 SITE_ID = site_id
+                try:
+                    SITE_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+                    temp_path = SITE_CONFIG_PATH.with_suffix(".tmp")
+                    temp_path.write_text(json.dumps({"site_id": SITE_ID}), encoding="utf-8")
+                    temp_path.replace(SITE_CONFIG_PATH)
+                except OSError as exc:
+                    logging.exception("Could not persist site configuration: %s", exc)
+                    self._send_json(500, {"error":"Site pairing could not be saved locally"})
+                    return
                 self._send_json(200, {"configured":True,"site_id":SITE_ID}); return
             if self.path not in ("/verify","/activate"):
                 self._send_json(404, {"error":"Not found"}); return
