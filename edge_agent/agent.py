@@ -175,22 +175,27 @@ def local_network():
     return ipaddress.ip_network(f"{local_ip}/24", strict=False)
 
 def probe_hikvision(ip):
-    try:
-        response = requests.get(f"http://{ip}/ISAPI/System/deviceInfo", timeout=1.8, allow_redirects=False)
-        server = (response.headers.get("Server") or "").lower(); body = response.text[:2000].lower()
-        if response.status_code == 401 or "hikvision" in server or "hikvision" in body:
-            return {"name": "Hikvision device", "ip": ip, "port": 80, "type": "Hikvision", "discovery": "LOCAL_NETWORK"}
-    except requests.RequestException: pass
+    for port in (80, 443, 8000):
+        try:
+            with socket.create_connection((ip, port), timeout=0.35):
+                scheme = "https" if port == 443 else "http"
+                response = requests.get(f"{scheme}://{ip}/ISAPI/System/deviceInfo", timeout=0.8, allow_redirects=False, verify=False)
+                server = (response.headers.get("Server") or "").lower(); body = response.text[:2000].lower()
+                if response.status_code == 401 or "hikvision" in server or "hikvision" in body:
+                    return {"name":"Hikvision device","ip":ip,"port":443 if scheme=="https" else 80,"type":"Hikvision","discovery":"LOCAL_NETWORK"}
+        except (OSError, requests.RequestException):
+            continue
     return None
 
 def discover_local_devices():
     try:
-        hosts = [str(ip) for ip in local_network().hosts()]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=32) as pool: results = list(pool.map(probe_hikvision, hosts))
-        unique = {d["ip"]: d for d in results if d}
+        hosts=[str(ip) for ip in local_network().hosts()]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=128) as pool:
+            results=list(pool.map(probe_hikvision,hosts))
+        unique={d["ip"]:d for d in results if d}
         return list(unique.values())
     except Exception as exc:
-        logging.exception("Local network discovery failed: %s", exc); return []
+        logging.exception("Local network discovery failed: %s",exc); return []
 
 def discover_channels(cfg):
     urls = [f"http://{cfg['camera_ip']}:{cfg['camera_port']}/ISAPI/Streaming/channels",
