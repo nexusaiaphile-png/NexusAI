@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
+import qrcode
+import io
 from requests.auth import HTTPDigestAuth
 from dotenv import load_dotenv
 
@@ -73,6 +75,12 @@ def create_pair_token():
     with PAIR_LOCK:
         PAIR_TOKENS[token] = {"site_id": SITE_ID, "expires_at": _now() + PAIR_TTL_SECONDS}
     return token
+
+def valid_pair_token(token):
+    _cleanup_pairing()
+    with PAIR_LOCK:
+        item = PAIR_TOKENS.get(token or "")
+        return bool(item and item.get("site_id") == SITE_ID and float(item.get("expires_at", 0)) > _now())
 
 def claim_pair_token(token):
     _cleanup_pairing()
