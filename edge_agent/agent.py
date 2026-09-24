@@ -319,6 +319,8 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
         if path == "/health":
             self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","version":"1.5.0","site_id":SITE_ID}); return
         if path == "/pair/start":
+            if not local_access_allowed(self):
+                self._send_json(403, {"error":"Pairing QR generation is only allowed from the Edge Agent computer"}); return
             token = create_pair_token()
             urls = local_access_urls()
             self._send_json(200, {"service":"NexusAI Edge Agent","site_id":SITE_ID,"expires_in":PAIR_TTL_SECONDS,
