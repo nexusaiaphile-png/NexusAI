@@ -354,8 +354,14 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
                 self._send_json(403, {"error":"Pairing QR generation is only allowed from the Edge Agent computer"}); return
             token = create_pair_token()
             urls = local_access_urls()
+            mobile_url = urls[0] + "/mobile?token=" + token
+            image = qrcode.make(mobile_url)
+            buf = io.BytesIO()
+            image.save(buf, format="PNG")
+            import base64
+            qr_data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
             self._send_json(200, {"service":"NexusAI Edge Agent","site_id":SITE_ID,"expires_in":PAIR_TTL_SECONDS,
-                                  "agent_urls":urls,"mobile_url":urls[0]+"/mobile?token="+token}); return
+                                  "agent_urls":urls,"mobile_url":mobile_url,"qr_data_url":qr_data_url}); return
         if path == "/mobile":
             mobile_path = Path(__file__).resolve().parent / "mobile.html"
             if not mobile_path.exists():
