@@ -95,24 +95,27 @@ function bind() {
 function showLogin(){ $("loginScreen").classList.add("active"); $("dashboardScreen").classList.remove("active"); }
 function showDashboard(){ $("loginScreen").classList.remove("active"); $("dashboardScreen").classList.add("active"); renderDashboard(); checkEdgeAgent(); }
 function startInstall(){ show($("installPanel")); createMobilePairing(); $("installPanel").scrollIntoView({behavior:"smooth",block:"center"}); updateSteps(1); }
+const MAC_INSTALLER = "#!/bin/bash\nset -euo pipefail\necho \"NexusAI Edge Agent installer\"\n\nif ! command -v python3 >/dev/null 2>&1; then\n  echo \"Python 3.11+ is required. Install Python from python.org, then run this installer again.\"\n  exit 1\nfi\n\nDIR=\"$HOME/Library/Application Support/NexusAI/EdgeAgent\"\nmkdir -p \"$DIR\"\ncd \"$DIR\"\n\ncurl -fsSL \"https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/agent.py\" -o \"$DIR/agent.py\"\ncurl -fsSL \"https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/requirements.txt\" -o \"$DIR/requirements.txt\"\n\nif [ ! -x \"$DIR/.venv/bin/python\" ]; then\n  python3 -m venv \"$DIR/.venv\"\nfi\n\n\"$DIR/.venv/bin/python\" -m pip install --upgrade pip\n\"$DIR/.venv/bin/python\" -m pip install -r \"$DIR/requirements.txt\"\n\ncat > \"$DIR/.env\" <<EOF\nNEXUSAI_API_URL=https://nexusai-worker.onrender.com\nNEXUSAI_EDGE_TOKEN=\nLOCAL_AGENT_HOST=0.0.0.0\nLOCAL_AGENT_PORT=8787\nEOF\n\nchmod 700 \"$DIR\"\nchmod 600 \"$DIR/.env\"\n\npkill -f \"$DIR/agent.py\" >/dev/null 2>&1 || true\nnohup \"$DIR/.venv/bin/python\" \"$DIR/agent.py\" > \"$DIR/agent.out.log\" 2>&1 < /dev/null &\n\nsleep 2\nif curl -fsS \"http://127.0.0.1:8787/health\" >/dev/null 2>&1; then\n  echo \"NexusAI Edge Agent installed and running.\"\nelse\n  echo \"NexusAI Edge Agent started, but health check did not respond yet.\"\n  echo \"Log: $DIR/agent.out.log\"\nfi\necho \"Local health: http://127.0.0.1:8787/health\"\n";
+const WINDOWS_INSTALLER = "$ErrorActionPreference = \"Stop\"\nWrite-Host \"NexusAI Edge Agent installer\"\nif (-not (Get-Command python -ErrorAction SilentlyContinue)) { throw \"Python 3 is required. Install Python 3.11+ and run this installer again.\" }\n$dir = \"$env:LOCALAPPDATA\\NexusAI\\EdgeAgent\"\nNew-Item -ItemType Directory -Force -Path $dir | Out-Null\nInvoke-WebRequest -Uri \"https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/agent.py\" -OutFile \"$dir\\agent.py\"\nInvoke-WebRequest -Uri \"https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/requirements.txt\" -OutFile \"$dir\\requirements.txt\"\npython -m pip install --upgrade pip\n$env:NEXUSAI_API_URL = \"https://nexusai-worker.onrender.com\"\n$env:NEXUSAI_EDGE_TOKEN = \"\"\n[Environment]::SetEnvironmentVariable(\"NEXUSAI_API_URL\", \"https://nexusai-worker.onrender.com\", \"User\")\n[Environment]::SetEnvironmentVariable(\"NEXUSAI_EDGE_TOKEN\", \"\", \"User\")\nStart-Process python -ArgumentList \"$dir\\agent.py\" -WindowStyle Minimized\nWrite-Host \"NexusAI Edge Agent installed and started.\"\nWrite-Host \"Local health: http://127.0.0.1:8787/health\"\n";
+
 function downloadInstructions(os) {
-  const path = os === "Windows"
-    ? "/downloads/install_windows.ps1"
-    : "/downloads/install_mac.sh";
+  const content = os === "Windows" ? WINDOWS_INSTALLER : MAC_INSTALLER;
   const filename = os === "Windows"
     ? "NexusAI-Edge-Agent-Windows.ps1"
     : "NexusAI-Edge-Agent-macOS.sh";
-
-  const a=document.createElement("a");
-  a.href=path;
-  a.download=filename;
-  a.style.display="none";
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.style.display = "none";
   document.body.appendChild(a);
   a.click();
   a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 
   $("setupTitle").textContent = os + " Edge Agent installer";
-  $("scanText").textContent = "The installer has been downloaded. Run it on a computer connected to the same local network as your Hikvision system, then return here and check the connection.";
+  $("scanText").textContent = "Installer downloaded. Run it on a computer connected to the same local network as your Hikvision system, then return here and check the connection.";
 }
 async function checkBackend() {
   try { const r=await fetch(API_BASE_URL+"/health",{cache:"no-store"}); if(!r.ok) throw new Error("Cloud returned HTTP "+r.status); }
