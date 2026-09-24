@@ -25,6 +25,9 @@ main{max-width:620px;margin:auto;padding:24px 18px 44px}.brand{display:flex;alig
 <div class="eyebrow">STEP 1</div><h2>Find your Hikvision system</h2>
 <p class="muted">Scan the local network from the Edge Agent computer.</p>
 <button id="discoverBtn" class="btn">SCAN LOCAL NETWORK</button>
+<div style="margin-top:14px;color:#8da0ab;font-size:12px">If your NVR is on another VLAN or discovery is blocked, enter its local IP directly.</div>
+<input id="manualIp" class="input" inputmode="decimal" placeholder="Hikvision NVR IP e.g. 192.168.1.100">
+<button id="manualBtn" class="btn secondary">USE IP ADDRESS</button>
 <div id="devices"></div>
 </section>
 
