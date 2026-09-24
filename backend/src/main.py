@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, SecretStr
 BASE_DIR = Path(__file__).resolve().parents[2]
 PORTAL_DIR = BASE_DIR / "portal"
 ROOT_INDEX = BASE_DIR / "index.html"
+MOBILE_DIR = BASE_DIR / "mobile"
 
 # In-memory edge state for the current NexusAI service instance.
 # Production persistence can be moved to Postgres without changing the API contract.
@@ -108,6 +109,19 @@ async def public_founder():
 @app.get("/portal/", include_in_schema=False)
 async def client_portal():
     return FileResponse(PORTAL_DIR / "index.html")
+
+@app.get("/mobile", include_in_schema=False)
+@app.get("/mobile/", include_in_schema=False)
+async def mobile_portal():
+    return FileResponse(MOBILE_DIR / "index.html")
+
+@app.get("/mobile/app.js", include_in_schema=False)
+async def mobile_app_js():
+    return FileResponse(MOBILE_DIR / "app.js", media_type="application/javascript")
+
+@app.get("/mobile/style.css", include_in_schema=False)
+async def mobile_style_css():
+    return FileResponse(MOBILE_DIR / "style.css", media_type="text/css")
 
 
 @app.get("/story.css", include_in_schema=False)
