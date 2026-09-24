@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#04080d">
+<title>NexusAI | Mobile Site Activation</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#04080d;color:#eef7fb;font-family:Inter,Arial,sans-serif;min-height:100vh}
+main{max-width:620px;margin:auto;padding:24px 18px 44px}.brand{display:flex;align-items:center;gap:12px;margin:8px 0 30px}.logo{width:42px;height:42px;border:1px solid #21e6a0;border-radius:12px;display:grid;place-items:center;color:#21e6a0;font-weight:900}.brand b{display:block}.brand span{display:block;font-size:10px;letter-spacing:1.5px;color:#71818c;margin-top:3px}
+.hero,.panel{border:1px solid #1b2a34;background:#081119;border-radius:20px;padding:20px;box-shadow:0 14px 40px #0008}.hero{margin-bottom:14px}.eyebrow{font-size:10px;letter-spacing:1.8px;color:#20e69a;font-weight:800}.hero h1{font-size:28px;line-height:1.05;margin:8px 0}.muted{color:#8da0ab;line-height:1.55}.status{display:flex;align-items:center;justify-content:space-between;margin-top:18px;padding:13px;border-radius:12px;background:#050b10}.dot{width:9px;height:9px;border-radius:50%;display:inline-block;background:#ff7180;margin-right:7px}.online .dot{background:#20e69a;box-shadow:0 0 12px #20e69a}.btn{width:100%;border:0;border-radius:12px;padding:15px;margin-top:12px;font-weight:900;letter-spacing:.6px;background:#20e69a;color:#04100b}.btn.secondary{background:#0d1a22;color:#d8e6eb;border:1px solid #243743}.btn:disabled{opacity:.5}.hidden{display:none}.device{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px;margin-top:10px;border:1px solid #21343e;border-radius:12px;background:#071018}.device small{display:block;color:#82939d;margin-top:4px}.camera{display:flex;align-items:center;gap:10px;padding:13px;border:1px solid #21343e;border-radius:12px;margin-top:8px}.camera input{width:20px;height:20px}.msg{margin-top:12px;color:#ff8794;line-height:1.4}.success{color:#20e69a}.warning{font-size:12px;color:#8da0ab;line-height:1.5;margin-top:14px}.input{width:100%;background:#050b10;border:1px solid #263a45;color:#fff;border-radius:11px;padding:13px;margin-top:8px;outline:none}.step{display:flex;align-items:center;gap:10px;margin:8px 0;color:#9badb7;font-size:13px}.step b{width:25px;height:25px;border-radius:50%;display:grid;place-items:center;background:#0d1b23;color:#20e69a}
+</style>
+</head>
+<body><main>
+<div class="brand"><div class="logo">N</div><div><b>NexusAI</b><span>MOBILE SITE ACTIVATION</span></div></div>
+<section class="hero">
+<div class="eyebrow">SECURE LOCAL PAIRING</div>
+<h1>Activate your Hikvision cameras</h1>
+<p class="muted">This phone is connecting directly to the NexusAI Edge Agent on the same local network. Your Hikvision username and password are sent to the Edge Agent, not to the NexusAI cloud.</p>
+<div id="status" class="status"><span><i class="dot"></i><b id="statusText">PAIRING…</b></span><span id="siteText">—</span></div>
+<div id="message" class="msg"></div>
+</section>
+
+<section id="discoverPanel" class="panel hidden">
+<div class="eyebrow">STEP 1</div><h2>Find your Hikvision system</h2>
+<p class="muted">Scan the local network from the Edge Agent computer.</p>
+<button id="discoverBtn" class="btn">SCAN LOCAL NETWORK</button>
+<div id="devices"></div>
+</section>
+
+<section id="verifyPanel" class="panel hidden">
+<div class="eyebrow">STEP 2</div><h2>Verify device</h2><p class="muted" id="selectedDevice">—</p>
+<label>Hikvision username<input id="user" class="input" value="admin" autocomplete="off"></label>
+<label>Hikvision password<input id="pass" class="input" type="password" autocomplete="off"></label>
+<button id="verifyBtn" class="btn">VERIFY DEVICE</button>
+</section>
+
+<section id="cameraPanel" class="panel hidden">
+<div class="eyebrow">STEP 3</div><h2>Select cameras</h2><p class="muted">Choose only the channels you want NexusAI to protect.</p>
+<div id="cameras"></div>
+<button id="activateBtn" class="btn">ACTIVATE SELECTED CAMERAS</button>
+</section>
+
+<section id="donePanel" class="panel hidden">
+<div class="eyebrow">ACTIVATION COMPLETE</div><h2>Your site is connected.</h2>
+<p class="muted" id="doneText">NexusAI is now monitoring the selected Hikvision system through the Edge Agent.</p>
+<div class="status online"><span><i class="dot"></i><b>NEXUSAI PROTECTED</b></span><span id="count">0 CAMERAS</span></div>
+<button id="refreshBtn" class="btn secondary">CHECK STATUS</button>
+</section>
+
+<p class="warning">Security: the pairing link is short-lived and single-use. Mobile control requires a valid pairing session. The Edge Agent must remain on a computer connected to the same local network as the Hikvision system.</p>
+</main>
+<script>
+const qs=new URLSearchParams(location.search);
+const pairingToken=qs.get("token")||"";
+let session="",siteId="",devices=[],selected=null,channels=[];
+const $=id=>document.getElementById(id);
+function msg(t,ok=false){$("message").textContent=t;$("message").className="msg"+(ok?" success":"")}
+async function api(path,opts={}){const h=Object.assign({"Content-Type":"application/json"},opts.headers||{});if(session)h.Authorization="Bearer "+session;const r=await fetch(path,Object.assign({},opts,{headers:h,cache:"no-store"}));let d={};try{d=await r.json()}catch(_){}if(!r.ok)throw new Error(d.error||"Edge Agent request failed ("+r.status+")");return d}
+async function pair(){
+ if(!pairingToken){throw new Error("This mobile activation link is missing its pairing code.")} 
+ const d=await api("/pair/claim",{method:"POST",body:JSON.stringify({token:pairingToken})});
+ session=d.session_token;siteId=d.site_id;$("siteText").textContent=siteId;$("statusText").textContent="PAIRED";$("status").classList.add("online");
+ $("discoverPanel").classList.remove("hidden");msg("Phone securely paired with this site.",true);
+}
+$("discoverBtn").onclick=async()=>{try{$("discoverBtn").disabled=true;$("discoverBtn").textContent="SCANNING…";const d=await api("/discover");devices=d.devices||[];$("devices").innerHTML=devices.length?devices.map((x,i)=>'<button class="device" data-i="'+i+'"><span><b>'+escapeHtml(x.name||"Hikvision device")+'</b><small>'+escapeHtml(x.ip||"")+" • "+escapeHtml(x.type||"Hikvision")+'</small></span><strong>SELECT</strong></button>').join(""):'<p class="muted">No Hikvision devices found on the local network.</p>';document.querySelectorAll(".device").forEach(b=>b.onclick=()=>selectDevice(+b.dataset.i));msg(devices.length?devices.length+" compatible device(s) found.":"No compatible devices found.");}catch(e){msg(e.message)}finally{$("discoverBtn").disabled=false;$("discoverBtn").textContent="SCAN LOCAL NETWORK"}};
+function selectDevice(i){selected=devices[i];$("selectedDevice").textContent=(selected.name||"Hikvision device")+" • "+selected.ip;$("verifyPanel").classList.remove("hidden");window.scrollTo({top:$("verifyPanel").offsetTop-12,behavior:"smooth"})}
+$("verifyBtn").onclick=async()=>{if(!selected)return;try{$("verifyBtn").disabled=true;$("verifyBtn").textContent="VERIFYING…";const d=await api("/verify",{method:"POST",body:JSON.stringify({camera_id:siteId+"-"+selected.ip,camera_name:selected.name||"Hikvision device",camera_ip:selected.ip,camera_port:selected.port||80,username:$("user").value.trim(),password:$("pass").value,location:"Client site"})});if(!d.verified)throw new Error(d.error||"Device verification failed.");channels=d.channels||[];if(!channels.length)throw new Error("Device verified, but no camera channels were returned.");$("cameras").innerHTML=channels.map((c,i)=>'<label class="camera"><input type="checkbox" data-i="'+i+'"><span><b>'+escapeHtml(c.channel_name||("Camera "+(i+1)))+'</b><small>Channel '+escapeHtml(c.channel_id||String(i+1))+'</small></span></label>').join("");$("cameraPanel").classList.remove("hidden");msg("Device verified. Select the cameras to protect.",true);window.scrollTo({top:$("cameraPanel").offsetTop-12,behavior:"smooth"})}catch(e){msg(e.message)}finally{$("verifyBtn").disabled=false;$("verifyBtn").textContent="VERIFY DEVICE"}};
+$("activateBtn").onclick=async()=>{const picks=[...document.querySelectorAll("#cameras input:checked")].map(x=>channels[+x.dataset.i]);if(!picks.length){msg("Select at least one camera.");return}try{$("activateBtn").disabled=true;$("activateBtn").textContent="ACTIVATING…";const d=await api("/activate",{method:"POST",body:JSON.stringify({camera_id:siteId+"-"+selected.ip,camera_name:selected.name||"Hikvision NVR",camera_ip:selected.ip,camera_port:selected.port||80,username:$("user").value.trim(),password:$("pass").value,location:"Client site"})});if(!d.verified)throw new Error(d.error||"Activation failed.");$("count").textContent=picks.length+" CAMERA"+(picks.length===1?"":"S")+" PROTECTED";$("donePanel").classList.remove("hidden");$("discoverPanel").classList.add("hidden");$("verifyPanel").classList.add("hidden");$("cameraPanel").classList.add("hidden");msg("Activation completed successfully.",true);window.scrollTo({top:$("donePanel").offsetTop-12,behavior:"smooth"})}catch(e){msg(e.message)}finally{$("activateBtn").disabled=false;$("activateBtn").textContent="ACTIVATE SELECTED CAMERAS"}};
+$("refreshBtn").onclick=async()=>{try{const d=await api("/health");$("statusText").textContent=d.status;$("siteText").textContent=d.site_id;msg("Edge Agent is online.",true)}catch(e){msg(e.message)}};
+function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+pair().catch(e=>{ $("statusText").textContent="PAIRING FAILED";msg(e.message);$("discoverPanel").classList.add("hidden")});
+</script></body></html>
