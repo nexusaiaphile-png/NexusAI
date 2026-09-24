@@ -407,9 +407,16 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
                    "camera_ip":str(payload["camera_ip"]),"camera_port":int(payload["camera_port"]),
                    "username":str(payload["username"]),"password":str(payload["password"]),"location":str(payload["location"]),
                    "snapshot_channel":str(payload.get("snapshot_channel","101"))}
+            requested_channels = payload.get("channels") or []
+            if not isinstance(requested_channels, list):
+                self._send_json(400, {"error":"channels must be a list"}); return
             result = verify_camera(cfg)
             if result.get("verified"):
                 if self.path == "/activate":
+                    available = result.get("channels") or []
+                    if requested_channels:
+                        allowed = {str(x.get("channel_id")) for x in requested_channels if isinstance(x, dict)}
+                        result["channels"] = [x for x in available if str(x.get("channel_id")) in allowed]
                     started, monitor_status = monitor_device(cfg,result.get("channels")); result["monitoring"]=monitor_status; result["monitoring_started"]=started
                     heartbeat(cfg,result)
                     heartbeat_key=f"{cfg['camera_ip']}:{cfg['camera_port']}:{cfg['username']}"
