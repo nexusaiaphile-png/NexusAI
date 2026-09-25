@@ -89,8 +89,8 @@ function bind() {
     try { await navigator.clipboard.writeText($("siteCode").textContent); $("copySiteCode").textContent="COPIED"; setTimeout(()=>$("copySiteCode").textContent="COPY",1200); }
     catch (_) { $("copySiteCode").textContent="SELECT & COPY"; }
   };
-  $("windowsInstallBtn").onclick = () => downloadInstructions("Windows");
-  $("macInstallBtn").onclick = () => downloadInstructions("macOS");
+  if ($("windowsInstallBtn")) $("windowsInstallBtn").onclick = () => downloadInstructions("Windows");
+  if ($("macInstallBtn")) $("macInstallBtn").onclick = () => downloadInstructions("macOS");
 }
 function showLogin(){ $("loginScreen").classList.add("active"); $("dashboardScreen").classList.remove("active"); }
 function showDashboard(){ $("loginScreen").classList.remove("active"); $("dashboardScreen").classList.add("active"); renderDashboard(); checkEdgeAgent(); }
