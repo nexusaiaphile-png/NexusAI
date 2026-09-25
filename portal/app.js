@@ -132,8 +132,14 @@ function downloadInstructions(os) {
   $("scanText").textContent = "Installer downloaded. Run it on a computer connected to the same local network as your Hikvision system, then return here and check the connection.";
 }
 async function checkBackend() {
-  try { const r=await fetch(API_BASE_URL+"/health",{cache:"no-store"}); if(!r.ok) throw new Error("Cloud returned HTTP "+r.status); }
-  catch(e) { console.warn("NexusAI cloud unavailable",e); }
+  try {
+    const r=await fetch(API_BASE_URL+"/health",{cache:"no-store"});
+    if(!r.ok) throw new Error("Cloud returned HTTP "+r.status);
+    return true;
+  } catch(e) {
+    console.warn("NexusAI cloud unavailable",e);
+    return false;
+  }
 }
 async function pairEdgeAgent() {
   try {
@@ -143,14 +149,30 @@ async function pairEdgeAgent() {
 }
 async function checkEdgeAgent() {
   try {
-    const paired = await pairEdgeAgent();
-    const r=await fetch(EDGE_AGENT_URL+"/health",{cache:"no-store",targetAddressSpace:"loopback"});
-    edgeOnline=r.ok;
+    const [cloudOk, localResponse] = await Promise.all([
+      checkBackend(),
+      fetch(EDGE_AGENT_URL+"/health",{cache:"no-store",targetAddressSpace:"loopback"})
+    ]);
+    const localOk = localResponse.ok;
+    edgeOnline = cloudOk && localOk;
     updateEdgeUI();
-    if(edgeOnline) { show($("discoveryPanel")); updateSteps(2); }
-    if(!paired && !edgeOnline) setInstallState("Local service not detected","The NexusAI local security service is not currently reachable. Start the service for this site, then connect again.");
+    if(edgeOnline) {
+      show($("discoveryPanel"));
+      updateSteps(2);
+    } else {
+      hide($("discoveryPanel"));
+      updateSteps(1);
+      setInstallState(
+        localOk ? "Cloud connection unavailable" : "Local security service not detected",
+        localOk
+          ? "The local security service is running, but NexusAI Cloud cannot be reached. Check the internet connection before continuing."
+          : "The NexusAI local security service is not currently reachable. Start the service for this site, then connect again."
+      );
+    }
   } catch(e) {
     edgeOnline=false;
+    hide($("discoveryPanel"));
+    updateSteps(1);
     updateEdgeUI();
   }
 }
@@ -247,11 +269,25 @@ async function refreshCloudEvents() {
 }
 async function refreshCloudStatus() {
   try {
-    const r=await fetch(API_BASE_URL+"/api/portal/status?site_id="+encodeURIComponent(SITE_ID),{cache:"no-store"});
-    if(!r.ok)return;
-    const d=await r.json();
-    if(d.edge_agent==="ONLINE") { edgeOnline=true; updateEdgeUI(); }
-  } catch(e) {}
+    const [cloudResponse, localResponse] = await Promise.all([
+      fetch(API_BASE_URL+"/health",{cache:"no-store"}),
+      fetch(EDGE_AGENT_URL+"/health",{cache:"no-store",targetAddressSpace:"loopback"})
+    ]);
+    edgeOnline = cloudResponse.ok && localResponse.ok;
+    updateEdgeUI();
+    if(!edgeOnline) {
+      hide($("discoveryPanel"));
+      updateSteps(1);
+    } else {
+      show($("discoveryPanel"));
+      updateSteps(2);
+    }
+  } catch(e) {
+    edgeOnline=false;
+    hide($("discoveryPanel"));
+    updateSteps(1);
+    updateEdgeUI();
+  }
 }
 function renderDashboard() {
   $("activeCameras").textContent=protectedCameras.length;
