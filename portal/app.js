@@ -78,7 +78,27 @@ async function createMobilePairing(){
   }
 }
 function bind() {
-  $("loginForm").addEventListener("submit", e => { e.preventDefault(); safeStorageSet("nexusai_logged_in","true"); showDashboard(); });
+  $("loginForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const form = $("loginForm");
+    if (!form || !form.checkValidity()) {
+      form?.reportValidity();
+      return;
+    }
+    safeStorageSet("nexusai_logged_in", "true");
+    const button = form.querySelector('button[type="submit"]');
+    if (button) {
+      button.disabled = true;
+      button.textContent = "SIGNING IN…";
+    }
+    showDashboard();
+    setTimeout(() => {
+      if (button) {
+        button.disabled = false;
+        button.textContent = "SIGN IN";
+      }
+    }, 500);
+  });
   $("logoutBtn").onclick = () => { safeStorageSet("nexusai_logged_in",""); showLogin(); };
   $("startInstallBtn").onclick = startInstall;
   $("checkAgentBtn").onclick = checkEdgeAgent;
