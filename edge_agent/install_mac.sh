@@ -21,12 +21,15 @@ fi
 "$DIR/.venv/bin/python" -m pip install --upgrade pip
 "$DIR/.venv/bin/python" -m pip install -r "$DIR/requirements.txt"
 
+EXISTING_TOKEN=""
+if [ -f "$DIR/.env" ]; then EXISTING_TOKEN=$(grep "^NEXUSAI_EDGE_TOKEN=" "$DIR/.env" | head -1 | cut -d= -f2- || true); fi
 cat > "$DIR/.env" <<EOF
 NEXUSAI_API_URL=https://nexusai-worker.onrender.com
-NEXUSAI_EDGE_TOKEN=
+NEXUSAI_EDGE_TOKEN=$EXISTING_TOKEN
 LOCAL_AGENT_HOST=0.0.0.0
 LOCAL_AGENT_PORT=8787
 EOF
+if [ -z "$EXISTING_TOKEN" ]; then echo "WARNING: Edge Agent cloud token is not configured; cloud authentication will remain OFFLINE until provisioned."; fi
 
 chmod 700 "$DIR"
 chmod 600 "$DIR/.env"
