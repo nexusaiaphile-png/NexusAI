@@ -98,38 +98,30 @@ function startInstall(){ show($("installPanel")); checkEdgeAgent(); $("installPa
 const MAC_INSTALLER = "#!/bin/bash\nset -euo pipefail\necho \"NexusAI Edge Agent installer\"\n\nif ! command -v python3 >/dev/null 2>&1; then\n  echo \"Python 3.11+ is required. Install Python from python.org, then run this installer again.\"\n  exit 1\nfi\n\nDIR=\"$HOME/Library/Application Support/NexusAI/EdgeAgent\"\nmkdir -p \"$DIR\"\ncd \"$DIR\"\n\ncurl -fsSL \"https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/agent.py\" -o \"$DIR/agent.py\"\ncurl -fsSL \"https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/requirements.txt\" -o \"$DIR/requirements.txt\"\n\nif [ ! -x \"$DIR/.venv/bin/python\" ]; then\n  python3 -m venv \"$DIR/.venv\"\nfi\n\n\"$DIR/.venv/bin/python\" -m pip install --upgrade pip\n\"$DIR/.venv/bin/python\" -m pip install -r \"$DIR/requirements.txt\"\n\ncat > \"$DIR/.env\" <<EOF\nNEXUSAI_API_URL=https://nexusai-worker.onrender.com\nEXISTING_TOKEN=""\nif [ -f "$DIR/.env" ]; then EXISTING_TOKEN=$(grep "^NEXUSAI_EDGE_TOKEN=" "$DIR/.env" | head -1 | cut -d= -f2- || true); fi\nNEXUSAI_EDGE_TOKEN=$EXISTING_TOKEN\nLOCAL_AGENT_HOST=0.0.0.0\nLOCAL_AGENT_PORT=8787\nEOF\n\nchmod 700 \"$DIR\"\nchmod 600 \"$DIR/.env\"\n\npkill -f \"$DIR/agent.py\" >/dev/null 2>&1 || true\nnohup \"$DIR/.venv/bin/python\" \"$DIR/agent.py\" > \"$DIR/agent.out.log\" 2>&1 < /dev/null &\n\nsleep 2\nif curl -fsS \"http://127.0.0.1:8787/health\" >/dev/null 2>&1; then\n  echo \"NexusAI Edge Agent installed and running.\"\nelse\n  echo \"NexusAI Edge Agent started, but health check did not respond yet.\"\n  echo \"Log: $DIR/agent.out.log\"\nfi\necho \"Local health: http://127.0.0.1:8787/health\"\n";
 const WINDOWS_INSTALLER = "$ErrorActionPreference = \"Stop\"\nWrite-Host \"NexusAI Edge Agent installer\"\nif (-not (Get-Command python -ErrorAction SilentlyContinue)) { throw \"Python 3 is required. Install Python 3.11+ and run this installer again.\" }\n$dir = \"$env:LOCALAPPDATA\\NexusAI\\EdgeAgent\"\nNew-Item -ItemType Directory -Force -Path $dir | Out-Null\nInvoke-WebRequest -Uri \"https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/agent.py\" -OutFile \"$dir\\agent.py\"\nInvoke-WebRequest -Uri \"https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/requirements.txt\" -OutFile \"$dir\\requirements.txt\"\npython -m pip install --upgrade pip\n$env:NEXUSAI_API_URL = \"https://nexusai-worker.onrender.com\"\n$env:NEXUSAI_EDGE_TOKEN = \"\"\n[Environment]::SetEnvironmentVariable(\"NEXUSAI_API_URL\", \"https://nexusai-worker.onrender.com\", \"User\")\n[Environment]::SetEnvironmentVariable(\"NEXUSAI_EDGE_TOKEN\", \"\", \"User\")\nStart-Process python -ArgumentList \"$dir\\agent.py\" -WindowStyle Minimized\nWrite-Host \"NexusAI Edge Agent installed and started.\"\nWrite-Host \"Local health: http://127.0.0.1:8787/health\"\n";
 
-function downloadInstructions(os) {
-  if (os === "macOS") {
-    const content = "#!/bin/bash\nset -euo pipefail\necho \"NexusAI Edge Agent installer\"\necho \"Starting automatic installation. Please keep this Terminal window open.\"\n\nif ! command -v python3 >/dev/null 2>&1; then\n  echo \"Python 3.11+ is required. Install Python from python.org, then run this installer again.\"\n  exit 1\nfi\n\nDIR=\"$HOME/Library/Application Support/NexusAI/EdgeAgent\"\nmkdir -p \"$DIR\"\ncd \"$DIR\"\n\ncurl -fsSL \"https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/agent.py\" -o \"$DIR/agent.py\"\ncurl -fsSL \"https://raw.githubusercontent.com/nexusaiaphile-png/NexusAI/main/edge_agent/requirements.txt\" -o \"$DIR/requirements.txt\"\n\nif [ ! -x \"$DIR/.venv/bin/python\" ]; then\n  python3 -m venv \"$DIR/.venv\"\nfi\n\n\"$DIR/.venv/bin/python\" -m pip install --upgrade pip\n\"$DIR/.venv/bin/python\" -m pip install -r \"$DIR/requirements.txt\"\n\ncat > \"$DIR/.env\" <<EOF\nNEXUSAI_API_URL=https://nexusai-worker.onrender.com\nNEXUSAI_EDGE_TOKEN=\nLOCAL_AGENT_HOST=0.0.0.0\nLOCAL_AGENT_PORT=8787\nEOF\n\nchmod 700 \"$DIR\"\nchmod 600 \"$DIR/.env\"\n\npkill -f \"$DIR/agent.py\" >/dev/null 2>&1 || true\nnohup \"$DIR/.venv/bin/python\" \"$DIR/agent.py\" > \"$DIR/agent.out.log\" 2>&1 < /dev/null &\n\nsleep 2\nif curl -fsS \"http://127.0.0.1:8787/health\" >/dev/null 2>&1; then\n  echo \"NexusAI Edge Agent installed and running.\"\nelse\n  echo \"NexusAI Edge Agent started, but health check did not respond yet.\"\n  echo \"Log: $DIR/agent.out.log\"\nfi\necho \"Local health: http://127.0.0.1:8787/health\"\necho\necho \"Installation complete. Return to the NexusAI portal and click CHECK EDGE AGENT CONNECTION.\"\necho \"You can close this Terminal window now.\"\nread -n 1 -s -r -p \"Press any key to close...\" || true\necho\n";
-    const filename = "NexusAI-Edge-Agent-Mac.command";
-    const blob = new Blob([content], { type: "application/x-sh; charset=utf-8" });
+async function downloadInstructions(os) {
+  const endpoint = os === "macOS" ? "/downloads/install_mac.sh" : "/downloads/install_windows.ps1";
+  const filename = os === "macOS" ? "NexusAI-Edge-Agent-Mac.sh" : "NexusAI-Edge-Agent-Windows.ps1";
+  try {
+    const r = await fetch(endpoint, {cache:"no-store"});
+    if (!r.ok) throw new Error("Installer download failed: HTTP " + r.status);
+    const content = await r.text();
+    const blob = new Blob([content], {type:"text/plain;charset=utf-8"});
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    $("setupTitle").textContent = "macOS Edge Agent";
-    $("scanText").textContent = "Download complete. Double-click NexusAI-Edge-Agent-Mac.command in Downloads. Terminal will open and install the Edge Agent automatically. You do not need to type commands.";
-    return;
+    if ($("setupTitle")) $("setupTitle").textContent = os + " Edge Agent installer";
+    if ($("scanText")) $("scanText").textContent = "Installer downloaded. Run it on a computer connected to the same local network as your Hikvision system, then return here and check the connection.";
+  } catch (e) {
+    if ($("setupTitle")) $("setupTitle").textContent = "Installer unavailable";
+    if ($("scanText")) $("scanText").textContent = "NexusAI could not download the current Edge Agent installer. Please try again.";
+    console.error("NexusAI installer download failed", e);
   }
-  const content = WINDOWS_INSTALLER;
-  const filename = "NexusAI-Edge-Agent-Windows.ps1";
-  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  $("setupTitle").textContent = "Windows Edge Agent installer";
-  $("scanText").textContent = "Installer downloaded. Run it on a computer connected to the same local network as your Hikvision system, then return here and check the connection.";
 }
 async function checkBackend() {
   try {
