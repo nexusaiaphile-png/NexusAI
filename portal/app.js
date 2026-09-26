@@ -52,7 +52,7 @@ function init() {
   bind();
   renderDashboard();
   checkBackend();
-  if (safeStorageGet("nexusai_logged_in") === "true") showDashboard(); else showLogin();
+  showDashboard();
 }
 async function createMobilePairing(){
   const box=$("mobileQr");
@@ -78,7 +78,7 @@ async function createMobilePairing(){
   }
 }
 function bind() {
-  $("loginForm").addEventListener("submit", e => {
+  $("loginForm")?.addEventListener("submit", e => {
     e.preventDefault();
     const form = $("loginForm");
     if (!form || !form.checkValidity()) {
@@ -99,7 +99,7 @@ function bind() {
       }
     }, 500);
   });
-  $("logoutBtn").onclick = () => { safeStorageSet("nexusai_logged_in",""); showLogin(); };
+  if ($("logoutBtn")) $("logoutBtn").onclick = () => { showDashboard(); };
   $("startInstallBtn").onclick = startInstall;
   $("checkAgentBtn").onclick = checkEdgeAgent;
   $("scanBtn").onclick = scanNetwork;
