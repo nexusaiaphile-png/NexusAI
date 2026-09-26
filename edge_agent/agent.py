@@ -162,7 +162,7 @@ def post_backend(path, payload):
     return False
 
 def device_info(cfg):
-    response = requests.get(f"http://{cfg['camera_ip']}:{cfg['camera_port']}/ISAPI/System/deviceInfo",
+    response = requests.get(f"{hikvision_base_url(cfg)}/ISAPI/System/deviceInfo",
                             auth=auth(cfg), timeout=8)
     response.raise_for_status()
     return response.text
@@ -175,7 +175,7 @@ def local_network():
     return ipaddress.ip_network(f"{local_ip}/24", strict=False)
 
 def probe_hikvision(ip):
-    for port in (80, 443, 8000):
+    for port in (80, 443):
         try:
             with socket.create_connection((ip, port), timeout=0.35):
                 scheme = "https" if port == 443 else "http"
@@ -197,9 +197,14 @@ def discover_local_devices():
     except Exception as exc:
         logging.exception("Local network discovery failed: %s",exc); return []
 
+def hikvision_base_url(cfg):
+    scheme = "https" if int(cfg["camera_port"]) == 443 else "http"
+    return f"{scheme}://{cfg['camera_ip']}:{cfg['camera_port']}"
+
 def discover_channels(cfg):
-    urls = [f"http://{cfg['camera_ip']}:{cfg['camera_port']}/ISAPI/Streaming/channels",
-            f"http://{cfg['camera_ip']}:{cfg['camera_port']}/ISAPI/ContentMgmt/StreamingProxy/channels"]
+    base = hikvision_base_url(cfg)
+    urls = [f"{base}/ISAPI/Streaming/channels",
+            f"{base}/ISAPI/ContentMgmt/StreamingProxy/channels"]
     for url in urls:
         try:
             response = requests.get(url, auth=auth(cfg), timeout=10)
@@ -256,7 +261,7 @@ def verify_camera(cfg):
 def capture_snapshot(cfg):
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
     try:
-        response = requests.get(f"http://{cfg['camera_ip']}:{cfg['camera_port']}/ISAPI/Streaming/channels/{cfg['snapshot_channel']}/picture",
+        response = requests.get(f"{hikvision_base_url(cfg)}/ISAPI/Streaming/channels/{cfg['snapshot_channel']}/picture",
                                 auth=auth(cfg), timeout=8)
         if response.status_code != 200: return None
         filename = SNAPSHOT_DIR / f"{cfg['camera_id']}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.jpg"
@@ -301,7 +306,7 @@ def monitor_device(cfg, channels=None):
         ACTIVE_SESSIONS[session_key] = True
     channel_map = {str(c["channel_id"]): c for c in (channels or [])}
     def worker():
-        url = f"http://{cfg['camera_ip']}:{cfg['camera_port']}/ISAPI/Event/notification/alertStream"
+        url = f"{hikvision_base_url(cfg)}/ISAPI/Event/notification/alertStream"
         try:
             while True:
                 try:
