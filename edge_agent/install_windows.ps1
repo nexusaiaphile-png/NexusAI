@@ -8,12 +8,18 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/nexusaiaphile-png/Nexu
 if (-not (Test-Path "$dir\.venv\Scripts\python.exe")) { python -m venv "$dir\.venv" }
 & "$dir\.venv\Scripts\python.exe" -m pip install --upgrade pip
 & "$dir\.venv\Scripts\python.exe" -m pip install -r "$dir\requirements.txt"
+$existingToken = ""
+if (Test-Path "$dir\.env") {
+  $line = Get-Content "$dir\.env" | Where-Object { $_ -like "NEXUSAI_EDGE_TOKEN=*" } | Select-Object -First 1
+  if ($line) { $existingToken = $line.Substring("NEXUSAI_EDGE_TOKEN=".Length) }
+}
 @"
 NEXUSAI_API_URL=https://nexusai-worker.onrender.com
-NEXUSAI_EDGE_TOKEN=
+NEXUSAI_EDGE_TOKEN=$existingToken
 LOCAL_AGENT_HOST=0.0.0.0
 LOCAL_AGENT_PORT=8787
 "@ | Set-Content -Encoding UTF8 "$dir\.env"
+if ([string]::IsNullOrWhiteSpace($existingToken)) { Write-Warning "Edge Agent cloud token is not configured; cloud authentication will remain OFFLINE until provisioned." }
 $startup = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 $shortcut = "$startup\NexusAI Local Security Service.lnk"
 $ws = New-Object -ComObject WScript.Shell
