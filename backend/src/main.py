@@ -323,6 +323,7 @@ async def edge_event(
     event_data = event.model_dump()
     EDGE_EVENTS.insert(0, event_data)
     del EDGE_EVENTS[200:]
+    persist_event(event_data)
     dispatch_alert(event_data)
     site = EDGE_SITES.setdefault(event.site_id, {
         "site_id": event.site_id,
