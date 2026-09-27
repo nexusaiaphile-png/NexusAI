@@ -1,5 +1,5 @@
 const API_BASE_URL = window.location.origin;
-const EDGE_AGENT_URL = "http://localhost:8787";
+const EDGE_AGENT_URLS = ["http://127.0.0.1:8787", "http://localhost:8787"];
 
 function safeStorageGet(key, fallback = null) {
   try { return localStorage.getItem(key) ?? fallback; } catch (_) { return fallback; }
@@ -152,51 +152,59 @@ async function checkBackend() {
     return false;
   }
 }
+async function edgeFetch(path, options = {}) {
+  let lastError = null;
+  for (const base of EDGE_AGENT_URLS) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), options.timeout || 5000);
+      try {
+        const response = await fetch(base + path, {
+          ...options,
+          cache: "no-store",
+          mode: "cors",
+          targetAddressSpace: "loopback",
+          signal: controller.signal
+        });
+        return { response, base };
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (error) {
+      lastError = error;
+      console.warn("NexusAI Edge Agent request failed:", base + path, error);
+    }
+  }
+  throw lastError || new Error("Edge Agent is unavailable");
+}
+
 async function pairEdgeAgent() {
   try {
-    const r=await fetch(EDGE_AGENT_URL+"/configure",{method:"POST",targetAddressSpace:"loopback",headers:{"Content-Type":"application/json"},body:JSON.stringify({site_id:SITE_ID})});
-    return r.ok;
+    const result = await edgeFetch("/configure", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({site_id:SITE_ID})
+    });
+    return result.response.ok;
   } catch(e) { return false; }
 }
+
 async function checkEdgeAgent() {
   const cloudOk = await checkBackend();
   let localOk = false;
   let localError = "";
 
   try {
-    if (navigator.permissions?.query) {
-      try {
-        const permission = await navigator.permissions.query({ name: "loopback-network" });
-        if (permission.state === "denied") {
-          localError = "Chrome has blocked loopback access for this site.";
-        }
-      } catch (_) {
-        // Older Chrome builds may not expose the permission name; the fetch below is authoritative.
-      }
-    }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3500);
-    try {
-      const r = await fetch(EDGE_AGENT_URL + "/health", {
-        cache: "no-store",
-        mode: "cors",
-        targetAddressSpace: "loopback",
-        signal: controller.signal
-      });
-      localOk = r.ok;
-      if (!localOk) localError = "Edge Agent returned HTTP " + r.status + ".";
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch (e) {
+    const result = await edgeFetch("/health");
+    localOk = result.response.ok;
+    if (!localOk) localError = "Edge Agent returned HTTP " + result.response.status + ".";
+  } catch(e) {
     localError = e?.name === "AbortError"
-      ? "Chrome could not reach localhost:8787 within 3.5 seconds."
-      : (e?.message || "Browser blocked the localhost connection.");
-    console.warn("NexusAI Edge Agent browser connection failed:", e);
+      ? "Browser timed out connecting to the local Edge Agent."
+      : (e?.message || "Browser could not connect to the local Edge Agent.");
   }
 
-  edgeOnline = cloudOk && localOk;
+  edgeOnline = Boolean(cloudOk && localOk);
   updateEdgeUI();
 
   if (edgeOnline) {
@@ -209,20 +217,21 @@ async function checkEdgeAgent() {
   } else {
     hide($("discoveryPanel"));
     updateSteps(1);
+
     if (!localOk && cloudOk) {
       setInstallState(
-        "Edge Agent not reachable from browser",
-        localError || "Chrome is blocking access to localhost:8787. Allow Local Network / Loopback access for getnexusai.co.za, then press CHECK CONNECTION again."
+        "Edge Agent connection blocked",
+        localError + " The Edge Agent is confirmed to run at 127.0.0.1:8787. Allow Local Network access for getnexusai.co.za if Chrome asks."
       );
     } else if (localOk && !cloudOk) {
       setInstallState(
         "Cloud connection unavailable",
-        "The Edge Agent is running, but NexusAI Cloud cannot be reached. Check the internet connection."
+        "The local Edge Agent is online, but NexusAI Cloud cannot be reached."
       );
     } else {
       setInstallState(
-        "Connections unavailable",
-        "Neither NexusAI Cloud nor the local Edge Agent could be reached."
+        "NexusAI connection unavailable",
+        "The cloud and local security service could not both be reached."
       );
     }
   }
@@ -246,7 +255,7 @@ async function scanNetwork() {
   if(!edgeOnline) { $("scanStatus").textContent="CONNECTING"; $("scanTitle").textContent="Local security service required"; $("scanText").textContent="NexusAI cannot safely scan a private camera network directly from the browser."; return; }
   $("scanBtn").disabled=true; $("scanBtn").textContent="SCANNING…"; $("scanStatus").textContent="SCANNING"; $("scanTitle").textContent="Searching local network…";
   try {
-    const r=await fetch(EDGE_AGENT_URL+"/discover",{cache:"no-store",targetAddressSpace:"loopback"});
+    const r=await edgeFetch("/discover").then(x=>x.response);
     if(!r.ok) throw new Error("Discovery HTTP "+r.status);
     const d=await r.json();
     discoveredDevices=Array.isArray(d.devices)?d.devices:[];
@@ -277,7 +286,7 @@ async function verifyDevice() {
   if(!selectedDevice || !password) { $("verifyResult").textContent="Select a device and enter the Hikvision password."; show($("verifyResult")); return; }
   $("verifyDeviceBtn").disabled=true; $("verifyDeviceBtn").textContent="VERIFYING…";
   try {
-    const r=await fetch(EDGE_AGENT_URL+"/verify",{method:"POST",targetAddressSpace:"loopback",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:SITE_ID+"-"+(selectedDevice.ip||Date.now()),camera_name:selectedDevice.name||"Hikvision device",camera_ip:selectedDevice.ip,camera_port:selectedDevice.port||80,username,password,location:"Client site"})});
+    const result=await edgeFetch("/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:SITE_ID+"-"+(selectedDevice.ip||Date.now()),camera_name:selectedDevice.name||"Hikvision device",camera_ip:selectedDevice.ip,camera_port:selectedDevice.port||80,username,password,location:"Client site"})});
     const d=await r.json();
     if(!r.ok || !d.verified) throw new Error(d.error||"Device verification failed.");
     verifiedChannels=Array.isArray(d.channels)?d.channels:[];
@@ -296,7 +305,7 @@ async function protectSelected() {
   const chosen=[...selectedChannels].map(i=>verifiedChannels[i]);
   $("protectBtn").disabled=true; $("protectBtn").textContent="ACTIVATING…";
   try {
-    const r=await fetch(EDGE_AGENT_URL+"/activate",{method:"POST",targetAddressSpace:"loopback",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:SITE_ID+"-"+(selectedDevice.ip||Date.now()),camera_name:selectedDevice.name||"Hikvision NVR",camera_ip:selectedDevice.ip,camera_port:selectedDevice.port||80,username:$("hikUsername").value.trim(),password:$("hikPassword").value,location:"Client site",channels:chosen})});
+    const result=await edgeFetch("/activate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:SITE_ID+"-"+(selectedDevice.ip||Date.now()),camera_name:selectedDevice.name||"Hikvision NVR",camera_ip:selectedDevice.ip,camera_port:selectedDevice.port||80,username:$("hikUsername").value.trim(),password:$("hikPassword").value,location:"Client site",channels:chosen})});
     const d=await r.json();
     if(!r.ok || !d.verified) throw new Error(d.error||"NexusAI activation failed.");
     chosen.forEach(c=>protectedCameras.push({id:SITE_ID+"-"+(c.channel_id||Date.now()),name:c.channel_name||c.name||"Camera",location:c.location||"Client site",status:"ONLINE",protection:"NEXUSAI PROTECTED",addedAt:new Date().toISOString()}));
