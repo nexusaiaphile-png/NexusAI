@@ -148,7 +148,7 @@ def auth(cfg): return HTTPDigestAuth(cfg["username"], cfg["password"])
 
 def headers():
     return {"Authorization": f"Bearer {EDGE_AGENT_TOKEN}", "Content-Type": "application/json",
-            "User-Agent": "NexusAI-Edge-Agent/1.0"}
+            "User-Agent": "NexusAI-Edge-Agent/1.7.0"}
 
 def post_backend(path, payload):
     if not EDGE_AGENT_TOKEN:
@@ -294,7 +294,7 @@ def send_event(cfg, raw_event, channel=None):
                                       "snapshot_available": bool(snapshot)})
 
 def heartbeat(cfg, verification=None):
-    post_backend("/api/edge/heartbeat", {"site_id": SITE_ID, "agent_version": "1.6.0",
+    post_backend("/api/edge/heartbeat", {"site_id": SITE_ID, "agent_version": "1.7.0",
                                           "timestamp": datetime.now(timezone.utc).isoformat(), "status": "ONLINE",
                                           "cameras": [{"camera_id": cfg["camera_id"], "camera_name": cfg["camera_name"],
                                                        "location": cfg["location"], "verified": bool(verification and verification.get("verified"))}]})
@@ -341,7 +341,7 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path, _, query = self.path.partition("?")
         if path == "/health":
-            self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","version":"1.6.0","site_id":SITE_ID}); return
+            self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","version":"1.7.0","site_id":SITE_ID}); return
         if path == "/pair/qr":
             if not local_access_allowed(self):
                 self._send_json(403, {"error":"QR generation is only allowed from the Edge Agent computer"}); return
@@ -479,7 +479,7 @@ def local_inventory():
     """Return real, authorized local security-service state for the portal/diagnostics."""
     with ACTIVE_SESSIONS_LOCK:
         active = list(ACTIVE_SESSIONS.keys())
-    return {"service":"NexusAI Local Security Service","version":"1.6.0","site_id":SITE_ID,"status":"ONLINE","active_monitors":len(active),"monitors":active}
+    return {"service":"NexusAI Local Security Service","version":"1.7.0","site_id":SITE_ID,"status":"ONLINE","active_monitors":len(active),"monitors":active}
 
 def start_local_api():
     server=ThreadingHTTPServer((LOCAL_AGENT_HOST,LOCAL_AGENT_PORT),LocalAgentHandler)
