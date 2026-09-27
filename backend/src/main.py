@@ -87,6 +87,16 @@ class EdgeEvent(BaseModel):
     snapshot_available: bool = False
 
 
+class NotificationSettings(BaseModel):
+    whatsapp_number: str = Field(default="", max_length=30)
+    whatsapp_enabled: bool = True
+    minimum_severity: str = Field(default="LOW", max_length=20)
+
+
+class NotificationTestRequest(BaseModel):
+    whatsapp_number: str = Field(..., max_length=30)
+
+
 def db_conn():
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
@@ -98,6 +108,11 @@ def db_conn():
         id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT, camera_id TEXT,
         camera_name TEXT, location TEXT, event TEXT, severity TEXT, timestamp TEXT,
         source TEXT, snapshot_available INTEGER
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS notification_settings (
+        site_id TEXT PRIMARY KEY, whatsapp_number TEXT NOT NULL DEFAULT "",
+        whatsapp_enabled INTEGER NOT NULL DEFAULT 1, minimum_severity TEXT NOT NULL DEFAULT "LOW",
+        updated_at REAL NOT NULL
     )""")
     conn.commit()
     return conn
@@ -136,30 +151,151 @@ def load_events(site_id,limit):
         conn=db_conn(); rows=conn.execute("SELECT site_id,camera_id,camera_name,location,event,severity,timestamp,source,snapshot_available FROM events WHERE site_id=? ORDER BY id DESC LIMIT ?",(site_id,limit)).fetchall(); conn.close()
     return [dict(r, snapshot_available=bool(r["snapshot_available"])) for r in rows]
 
-def dispatch_alert(event):
-    webhook = os.getenv("NEXUSAI_ALERT_WEBHOOK_URL", "").strip()
-    if not webhook: return
-    import json, urllib.request
-    try:
-        req=urllib.request.Request(webhook, data=json.dumps({"type":"nexusai_security_event","event":event}).encode(), headers={"Content-Type":"application/json"})
-        urllib.request.urlopen(req, timeout=8).read()
-    except Exception as exc:
-        import logging; logging.warning("Alert webhook failed: %s", exc)
+SEVERITY_RANK = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
 
-def send_whatsapp_alert(event):
-    phone_id=os.getenv("WHATSAPP_PHONE_NUMBER_ID","").strip()
-    token=os.getenv("WHATSAPP_ACCESS_TOKEN","").strip()
-    recipient=os.getenv("WHATSAPP_ALERT_RECIPIENT","").strip()
-    if not (phone_id and token and recipient): return False
-    import json, urllib.request
-    text=f"NexusAI SECURITY ALERT\\n{event['event']}\\nCamera: {event['camera_name']}\\nLocation: {event['location']}\\nSeverity: {event['severity']}\\nTime: {event['timestamp']}"
-    url=f"https://graph.facebook.com/v23.0/{phone_id}/messages"
-    payload={"messaging_product":"whatsapp","to":recipient,"type":"text","text":{"body":text}}
+
+def normalize_phone(phone: str) -> str:
+    value = "".join(ch for ch in str(phone or "") if ch.isdigit() or ch == "+")
+    if value.startswith("00"):
+        value = "+" + value[2:]
+    if not value.startswith("+"):
+        raise ValueError("WhatsApp number must use international format, for example +27821234567.")
+    digits = value[1:]
+    if not digits.isdigit() or not 8 <= len(digits) <= 15:
+        raise ValueError("WhatsApp number must be a valid international number.")
+    return value
+
+
+def load_notification_settings(site_id):
+    with DB_LOCK:
+        conn = db_conn()
+        row = conn.execute(
+            "SELECT site_id,whatsapp_number,whatsapp_enabled,minimum_severity,updated_at "
+            "FROM notification_settings WHERE site_id=?",
+            (site_id,),
+        ).fetchone()
+        conn.close()
+    if not row:
+        return {
+            "site_id": site_id,
+            "whatsapp_number": "",
+            "whatsapp_enabled": False,
+            "minimum_severity": "LOW",
+        }
+    return {
+        "site_id": row["site_id"],
+        "whatsapp_number": row["whatsapp_number"],
+        "whatsapp_enabled": bool(row["whatsapp_enabled"]),
+        "minimum_severity": row["minimum_severity"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def persist_notification_settings(site_id, settings):
+    with DB_LOCK:
+        conn = db_conn()
+        conn.execute(
+            """INSERT INTO notification_settings
+               (site_id,whatsapp_number,whatsapp_enabled,minimum_severity,updated_at)
+               VALUES(?,?,?,?,?)
+               ON CONFLICT(site_id) DO UPDATE SET
+               whatsapp_number=excluded.whatsapp_number,
+               whatsapp_enabled=excluded.whatsapp_enabled,
+               minimum_severity=excluded.minimum_severity,
+               updated_at=excluded.updated_at""",
+            (
+                site_id,
+                settings["whatsapp_number"],
+                int(settings["whatsapp_enabled"]),
+                settings["minimum_severity"],
+                time.time(),
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+
+def whatsapp_configuration_status():
+    return {
+        "configured": bool(
+            os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
+            and os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
+            and os.getenv("WHATSAPP_ALERT_TEMPLATE_NAME", "").strip()
+        )
+    }
+
+
+def send_whatsapp_alert(event, settings):
+    phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
+    token = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
+    template_name = os.getenv("WHATSAPP_ALERT_TEMPLATE_NAME", "").strip()
+    language = os.getenv("WHATSAPP_ALERT_TEMPLATE_LANGUAGE", "en_US").strip() or "en_US"
+
+    if not (phone_id and token and template_name):
+        import logging
+        logging.warning("WhatsApp alert skipped: central WhatsApp credentials/template are not configured")
+        return False
+
+    import json
+    import urllib.request
+    body_parameters = [
+        {"type": "text", "text": str(event["event"])},
+        {"type": "text", "text": str(event["camera_name"])},
+        {"type": "text", "text": str(event["location"])},
+        {"type": "text", "text": str(event["severity"])},
+        {"type": "text", "text": str(event["timestamp"])},
+    ]
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": settings["whatsapp_number"],
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": language},
+            "components": [{"type": "body", "parameters": body_parameters}],
+        },
+    }
+    url = f"https://graph.facebook.com/v23.0/{phone_id}/messages"
     try:
-        req=urllib.request.Request(url,data=json.dumps(payload).encode(),headers={"Authorization":f"Bearer {token}","Content-Type":"application/json"})
-        urllib.request.urlopen(req, timeout=10).read(); return True
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode(),
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=10).read()
+        return True
     except Exception as exc:
-        import logging; logging.warning("WhatsApp alert failed: %s", exc); return False
+        import logging
+        logging.warning("WhatsApp alert failed for site %s: %s", event["site_id"], exc)
+        return False
+
+
+def dispatch_alert(event):
+    settings = load_notification_settings(event["site_id"])
+    threshold = SEVERITY_RANK.get(str(settings.get("minimum_severity", "LOW")).upper(), 1)
+    severity = SEVERITY_RANK.get(str(event.get("severity", "LOW")).upper(), 1)
+
+    if settings.get("whatsapp_enabled") and settings.get("whatsapp_number") and severity >= threshold:
+        try:
+            send_whatsapp_alert(event, settings)
+        except Exception as exc:
+            import logging
+            logging.warning("WhatsApp dispatch failed for site %s: %s", event["site_id"], exc)
+
+    webhook = os.getenv("NEXUSAI_ALERT_WEBHOOK_URL", "").strip()
+    if webhook:
+        import json
+        import urllib.request
+        try:
+            req = urllib.request.Request(
+                webhook,
+                data=json.dumps({"type": "nexusai_security_event", "event": event}).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            urllib.request.urlopen(req, timeout=8).read()
+        except Exception as exc:
+            import logging
+            logging.warning("Alert webhook failed: %s", exc)
 
 def require_edge_token(token: str | None):
     expected = os.getenv("NEXUSAI_EDGE_TOKEN")
@@ -341,6 +477,56 @@ async def edge_event(
         "severity": event.severity,
         "timestamp": event.timestamp,
     }
+
+
+@app.get("/api/portal/notifications")
+async def portal_notifications(site_id: str):
+    settings = load_notification_settings(site_id)
+    return {**settings, "whatsapp_configured": whatsapp_configuration_status()["configured"]}
+
+
+@app.post("/api/portal/notifications")
+async def save_portal_notifications(site_id: str, settings: NotificationSettings):
+    try:
+        number = normalize_phone(settings.whatsapp_number) if settings.whatsapp_number.strip() else ""
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    minimum = settings.minimum_severity.upper()
+    if minimum not in SEVERITY_RANK:
+        raise HTTPException(status_code=400, detail="Invalid minimum severity.")
+    saved = {
+        "site_id": site_id,
+        "whatsapp_number": number,
+        "whatsapp_enabled": bool(settings.whatsapp_enabled and number),
+        "minimum_severity": minimum,
+    }
+    persist_notification_settings(site_id, saved)
+    return {**saved, "whatsapp_configured": whatsapp_configuration_status()["configured"]}
+
+
+@app.post("/api/portal/notifications/test")
+async def test_portal_notification(site_id: str, request: NotificationTestRequest):
+    try:
+        number = normalize_phone(request.whatsapp_number)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not whatsapp_configuration_status()["configured"]:
+        raise HTTPException(status_code=503, detail="NexusAI WhatsApp service is not configured yet.")
+    test_event = {
+        "site_id": site_id,
+        "camera_id": "test",
+        "camera_name": "NexusAI Test",
+        "location": "Client site",
+        "event": "TEST SECURITY ALERT",
+        "severity": "HIGH",
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "source": "NexusAI notification test",
+        "snapshot_available": False,
+    }
+    sent = send_whatsapp_alert(test_event, {"whatsapp_number": number})
+    if not sent:
+        raise HTTPException(status_code=502, detail="WhatsApp provider rejected the test alert. Check the NexusAI WhatsApp configuration.")
+    return {"sent": True, "site_id": site_id, "recipient": number}
 
 
 @app.get("/api/portal/status")
