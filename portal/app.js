@@ -1,5 +1,5 @@
 const API_BASE_URL = window.location.origin;
-const EDGE_AGENT_URL = "http://127.0.0.1:8787";
+const EDGE_AGENT_URL = "http://localhost:8787";
 
 function safeStorageGet(key, fallback = null) {
   try { return localStorage.getItem(key) ?? fallback; } catch (_) { return fallback; }
@@ -159,32 +159,34 @@ async function pairEdgeAgent() {
   } catch(e) { return false; }
 }
 async function checkEdgeAgent() {
+  const cloudOk = await checkBackend();
+  let localOk = false;
   try {
-    const [cloudOk, localResponse] = await Promise.all([
-      checkBackend(),
-      fetch(EDGE_AGENT_URL+"/health",{cache:"no-store",targetAddressSpace:"loopback"})
-    ]);
-    const localOk = localResponse.ok;
-    edgeOnline = cloudOk && localOk;
-    updateEdgeUI();
-    if(edgeOnline) {
-      show($("discoveryPanel"));
-      updateSteps(2);
-    } else {
-      hide($("discoveryPanel"));
-      updateSteps(1);
-      setInstallState(
-        localOk ? "Cloud connection unavailable" : "Local security service not detected",
-        localOk
-          ? "The local security service is running, but NexusAI Cloud cannot be reached. Check the internet connection before continuing."
-          : "The NexusAI local security service is not currently reachable. Start the service for this site, then connect again."
-      );
-    }
+    const r = await fetch(EDGE_AGENT_URL+"/health", {
+      cache:"no-store",
+      mode:"cors",
+      targetAddressSpace:"loopback"
+    });
+    localOk = r.ok;
   } catch(e) {
-    edgeOnline=false;
+    console.warn("NexusAI Edge Agent browser connection failed", e);
+  }
+  edgeOnline = cloudOk && localOk;
+  updateEdgeUI();
+  if(edgeOnline) {
+    show($("discoveryPanel"));
+    updateSteps(2);
+    setInstallState("NexusAI local service connected", "Edge Agent is ONLINE on this computer. NexusAI can now discover compatible Hikvision equipment on this network.");
+  } else {
     hide($("discoveryPanel"));
     updateSteps(1);
-    updateEdgeUI();
+    if(!localOk && cloudOk) {
+      setInstallState("Edge Agent not reachable from browser", "The Edge Agent is running, but this browser cannot reach localhost:8787. Check the browser's local-network permission.");
+    } else if(localOk && !cloudOk) {
+      setInstallState("Cloud connection unavailable", "The Edge Agent is running, but NexusAI Cloud cannot be reached. Check the internet connection.");
+    } else {
+      setInstallState("Connections unavailable", "Neither NexusAI Cloud nor the local Edge Agent could be reached.");
+    }
   }
 }
 function setInstallState(title,text) {
