@@ -59,7 +59,7 @@ async function createMobilePairing(){
   if(!box)return;
   box.textContent="CONNECTING TO EDGE AGENT…";
   try{
-    const r=await fetch(EDGE_AGENT_URL+"/pair/start",{cache:"no-store",targetAddressSpace:"loopback"});
+    const r=await edgeFetch("/pair/start").then(x=>x.response);
     const d=await r.json();
     if(!r.ok) throw new Error(d.error||"Edge Agent pairing is unavailable");
     const url=d.mobile_url;
