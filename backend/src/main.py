@@ -297,9 +297,13 @@ def dispatch_alert(event):
             import logging
             logging.warning("Alert webhook failed: %s", exc)
 
-def require_edge_token(token: str | None):
+def require_edge_token(token: str | None, authorization: str | None = None):
     expected = os.getenv("NEXUSAI_EDGE_TOKEN")
-    if expected and token != expected:
+    bearer = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        bearer = authorization[7:].strip()
+    supplied = token or bearer
+    if expected and supplied != expected:
         raise HTTPException(status_code=401, detail="Invalid NexusAI Edge Agent token")
 
 
@@ -405,8 +409,9 @@ async def verify_camera(request: CameraVerificationRequest):
 async def edge_heartbeat(
     heartbeat: EdgeHeartbeat,
     x_nexusai_edge_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ):
-    require_edge_token(x_nexusai_edge_token)
+    require_edge_token(x_nexusai_edge_token, authorization)
 
     EDGE_SITES[heartbeat.site_id] = {
         "site_id": heartbeat.site_id,
@@ -432,8 +437,9 @@ async def edge_heartbeat(
 async def edge_verify(
     verification: EdgeVerification,
     x_nexusai_edge_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ):
-    require_edge_token(x_nexusai_edge_token)
+    require_edge_token(x_nexusai_edge_token, authorization)
     return {
         "accepted": True,
         "verified": verification.verified,
@@ -453,8 +459,9 @@ async def edge_verify(
 async def edge_event(
     event: EdgeEvent,
     x_nexusai_edge_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ):
-    require_edge_token(x_nexusai_edge_token)
+    require_edge_token(x_nexusai_edge_token, authorization)
 
     event_data = event.model_dump()
     EDGE_EVENTS.insert(0, event_data)
@@ -486,7 +493,8 @@ async def portal_notifications(site_id: str):
 
 
 @app.post("/api/portal/notifications")
-async def save_portal_notifications(site_id: str, settings: NotificationSettings):
+async def save_portal_notifications(site_id: str, settings: NotificationSettings, x_nexusai_edge_token: str | None = Header(default=None), authorization: str | None = Header(default=None)):
+    require_edge_token(x_nexusai_edge_token, authorization)
     try:
         number = normalize_phone(settings.whatsapp_number) if settings.whatsapp_number.strip() else ""
     except ValueError as exc:
@@ -505,7 +513,8 @@ async def save_portal_notifications(site_id: str, settings: NotificationSettings
 
 
 @app.post("/api/portal/notifications/test")
-async def test_portal_notification(site_id: str, request: NotificationTestRequest):
+async def test_portal_notification(site_id: str, request: NotificationTestRequest, x_nexusai_edge_token: str | None = Header(default=None), authorization: str | None = Header(default=None)):
+    require_edge_token(x_nexusai_edge_token, authorization)
     try:
         number = normalize_phone(request.whatsapp_number)
     except ValueError as exc:
