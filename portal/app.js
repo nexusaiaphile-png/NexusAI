@@ -359,7 +359,7 @@ async function saveNotificationSettings() {
   const button = $("saveNotificationBtn");
   if (button) { button.disabled = true; button.textContent = "SAVING…"; }
   try {
-    const r = await fetch(API_BASE_URL + "/api/portal/notifications?site_id=" + encodeURIComponent(SITE_ID), {
+    const result = await edgeFetch("/notifications/configure", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({
@@ -368,8 +368,9 @@ async function saveNotificationSettings() {
         minimum_severity: "LOW"
       })
     });
+    const r = result.response;
     const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || "Could not save WhatsApp notification settings.");
+    if (!r.ok || !d.saved) throw new Error(d.error || "Could not save WhatsApp notification settings.");
     if ($("notificationPhone")) $("notificationPhone").value = d.whatsapp_number || phone;
     updateNotificationStatus(d);
     showNotificationResult(
@@ -393,14 +394,15 @@ async function testNotification() {
   const button = $("testNotificationBtn");
   if (button) { button.disabled = true; button.textContent = "SENDING…"; }
   try {
-    const r = await fetch(API_BASE_URL + "/api/portal/notifications/test?site_id=" + encodeURIComponent(SITE_ID), {
+    const result = await edgeFetch("/notifications/test", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({whatsapp_number: phone})
     });
+    const r = result.response;
     const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || "WhatsApp test failed.");
-    showNotificationResult("Test alert sent to " + d.recipient + ".");
+    if (!r.ok || !d.sent) throw new Error(d.error || "WhatsApp test failed.");
+    showNotificationResult("Test alert sent to " + phone + ".");
   } catch (e) {
     showNotificationResult(e.message || "WhatsApp test failed.", true);
   } finally {
