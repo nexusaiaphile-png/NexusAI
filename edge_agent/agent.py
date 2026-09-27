@@ -416,6 +416,30 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
                     self._send_json(500, {"error":"Site pairing could not be saved locally"})
                     return
                 self._send_json(200, {"configured":True,"site_id":SITE_ID}); return
+            if self.path == "/notifications/configure":
+                if not local_access_allowed(self):
+                    self._send_json(403, {"error":"Notification settings can only be changed from the Edge Agent computer"}); return
+                number = str(payload.get("whatsapp_number","")).strip()
+                enabled = bool(payload.get("whatsapp_enabled", True))
+                minimum = str(payload.get("minimum_severity","LOW")).upper()
+                if len(number) > 30 or minimum not in ("LOW","MEDIUM","HIGH","CRITICAL"):
+                    self._send_json(400, {"error":"Invalid notification settings"}); return
+                accepted = post_backend(
+                    "/api/portal/notifications?site_id=" + SITE_ID,
+                    {"whatsapp_number":number,"whatsapp_enabled":enabled,"minimum_severity":minimum},
+                )
+                self._send_json(200 if accepted else 502, {"saved":accepted,"site_id":SITE_ID}); return
+            if self.path == "/notifications/test":
+                if not local_access_allowed(self):
+                    self._send_json(403, {"error":"Notification tests can only be run from the Edge Agent computer"}); return
+                number = str(payload.get("whatsapp_number","")).strip()
+                if not number:
+                    self._send_json(400, {"error":"WhatsApp number required"}); return
+                accepted = post_backend(
+                    "/api/portal/notifications/test?site_id=" + SITE_ID,
+                    {"whatsapp_number":number},
+                )
+                self._send_json(200 if accepted else 502, {"sent":accepted,"site_id":SITE_ID}); return
             if self.path not in ("/verify","/activate"):
                 self._send_json(404, {"error":"Not found"}); return
             if not local_access_allowed(self) and not require_mobile_session(self):
