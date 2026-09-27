@@ -281,26 +281,10 @@ async function refreshCloudEvents() {
   } catch(e) {}
 }
 async function refreshCloudStatus() {
-  try {
-    const [cloudResponse, localResponse] = await Promise.all([
-      fetch(API_BASE_URL+"/health",{cache:"no-store"}),
-      fetch(EDGE_AGENT_URL+"/health",{cache:"no-store",targetAddressSpace:"loopback"})
-    ]);
-    edgeOnline = cloudResponse.ok && localResponse.ok;
-    updateEdgeUI();
-    if(!edgeOnline) {
-      hide($("discoveryPanel"));
-      updateSteps(1);
-    } else {
-      show($("discoveryPanel"));
-      updateSteps(2);
-    }
-  } catch(e) {
-    edgeOnline=false;
-    hide($("discoveryPanel"));
-    updateSteps(1);
-    updateEdgeUI();
-  }
+  // Use the same connection test as the main CHECK CONNECTION action.
+  // A background refresh must never use a different path and overwrite
+  // a valid Edge Agent state with a false WAITING state.
+  await checkEdgeAgent();
 }
 function renderDashboard() {
   $("activeCameras").textContent=protectedCameras.length;
