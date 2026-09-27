@@ -64,6 +64,18 @@
     <div class="success-hero"><div class="success-mark">✓</div><p class="eyebrow">NEXUSAI ACTIVATION COMPLETE</p><h2>Your site is protected.</h2><p id="protectedSummary">NexusAI is connected to your verified Hikvision system.</p><div class="live-status"><i></i> NEXUSAI SECURITY ENGINE ONLINE</div></div>
   </section>
 
+  <section class="panel notification-panel">
+    <div class="panel-header"><div><p class="eyebrow">SECURITY ALERTS</p><h2>WhatsApp Notifications</h2><p class="muted">Choose the WhatsApp number that should receive security alerts for this site.</p></div><span id="notificationStatus" class="badge">NOT CONFIGURED</span></div>
+    <label>WhatsApp number</label>
+    <input id="notificationPhone" type="tel" placeholder="+27 82 123 4567" autocomplete="tel">
+    <small class="muted">Use international format, for example +27821234567.</small>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
+      <button id="saveNotificationBtn" class="primary-btn">SAVE ALERT NUMBER</button>
+      <button id="testNotificationBtn" class="secondary-btn">SEND TEST ALERT</button>
+    </div>
+    <div id="notificationResult" class="result-box hidden"></div>
+  </section>
+
   <section class="stats-grid">
     <div class="stat-card"><span>PROTECTED CAMERAS</span><strong id="activeCameras">0</strong><small>Connected to NexusAI</small></div>
     <div class="stat-card"><span>SECURITY EVENTS</span><strong id="eventCount">0</strong><small>Detected activity</small></div>
@@ -75,6 +87,6 @@
   <section class="panel"><div class="panel-header"><div><p class="eyebrow">SECURITY MONITORING</p><h2>Recent Events</h2></div><span class="live">● LIVE</span></div><div id="eventList" class="event-list"><div class="empty-state">No security events yet.</div></div></section>
 </main>
 </section>
-<script src="app.js?v=20260927-19"></script>
+<script src="app.js?v=20260927-20"></script>
 </body>
 </html>
