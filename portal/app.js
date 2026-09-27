@@ -51,6 +51,7 @@ function init() {
   if ($("siteCode")) $("siteCode").textContent = makeSiteCode();
   bind();
   renderDashboard();
+  loadNotificationSettings();
   checkBackend();
   showDashboard();
 }
@@ -105,6 +106,8 @@ function bind() {
   $("scanBtn").onclick = scanNetwork;
   $("verifyDeviceBtn").onclick = verifyDevice;
   $("protectBtn").onclick = protectSelected;
+  if ($("saveNotificationBtn")) $("saveNotificationBtn").onclick = saveNotificationSettings;
+  if ($("testNotificationBtn")) $("testNotificationBtn").onclick = testNotification;
   $("copySiteCode").onclick = async () => {
     try { await navigator.clipboard.writeText($("siteCode").textContent); $("copySiteCode").textContent="COPIED"; setTimeout(()=>$("copySiteCode").textContent="COPY",1200); }
     catch (_) { $("copySiteCode").textContent="SELECT & COPY"; }
@@ -316,6 +319,95 @@ async function protectSelected() {
   } catch(e) { alert(e.message||"NexusAI activation failed."); }
   finally { $("protectBtn").disabled=false; $("protectBtn").textContent="PROTECT SELECTED CAMERAS"; }
 }
+
+async function loadNotificationSettings() {
+  try {
+    const r = await fetch(API_BASE_URL + "/api/portal/notifications?site_id=" + encodeURIComponent(SITE_ID), {cache:"no-store"});
+    if (!r.ok) return;
+    const d = await r.json();
+    if ($("notificationPhone")) $("notificationPhone").value = d.whatsapp_number || "";
+    updateNotificationStatus(d);
+  } catch (e) {
+    console.warn("NexusAI notification settings unavailable", e);
+  }
+}
+
+function updateNotificationStatus(d) {
+  const status = $("notificationStatus");
+  if (!status) return;
+  if (d.whatsapp_enabled && d.whatsapp_number) {
+    status.textContent = d.whatsapp_configured ? "WHATSAPP READY" : "NUMBER SAVED";
+  } else {
+    status.textContent = "NOT CONFIGURED";
+  }
+}
+
+function showNotificationResult(message, error = false) {
+  const box = $("notificationResult");
+  if (!box) return;
+  box.textContent = message;
+  box.className = "result-box " + (error ? "error" : "");
+  show(box);
+}
+
+async function saveNotificationSettings() {
+  const phone = ($("notificationPhone")?.value || "").trim();
+  if (!phone) {
+    showNotificationResult("Enter the client's WhatsApp number first.", true);
+    return;
+  }
+  const button = $("saveNotificationBtn");
+  if (button) { button.disabled = true; button.textContent = "SAVING…"; }
+  try {
+    const r = await fetch(API_BASE_URL + "/api/portal/notifications?site_id=" + encodeURIComponent(SITE_ID), {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        whatsapp_number: phone,
+        whatsapp_enabled: true,
+        minimum_severity: "LOW"
+      })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "Could not save WhatsApp notification settings.");
+    if ($("notificationPhone")) $("notificationPhone").value = d.whatsapp_number || phone;
+    updateNotificationStatus(d);
+    showNotificationResult(
+      d.whatsapp_configured
+        ? "WhatsApp alerts are enabled for this site."
+        : "The number is saved. NexusAI WhatsApp still needs to be configured by the NexusAI administrator."
+    );
+  } catch (e) {
+    showNotificationResult(e.message || "Could not save WhatsApp notification settings.", true);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = "SAVE ALERT NUMBER"; }
+  }
+}
+
+async function testNotification() {
+  const phone = ($("notificationPhone")?.value || "").trim();
+  if (!phone) {
+    showNotificationResult("Enter and save a WhatsApp number first.", true);
+    return;
+  }
+  const button = $("testNotificationBtn");
+  if (button) { button.disabled = true; button.textContent = "SENDING…"; }
+  try {
+    const r = await fetch(API_BASE_URL + "/api/portal/notifications/test?site_id=" + encodeURIComponent(SITE_ID), {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({whatsapp_number: phone})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "WhatsApp test failed.");
+    showNotificationResult("Test alert sent to " + d.recipient + ".");
+  } catch (e) {
+    showNotificationResult(e.message || "WhatsApp test failed.", true);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = "SEND TEST ALERT"; }
+  }
+}
+
 async function refreshCloudEvents() {
   try {
     const r=await fetch(API_BASE_URL+"/api/portal/events?site_id="+encodeURIComponent(SITE_ID)+"&limit=50",{cache:"no-store"});
