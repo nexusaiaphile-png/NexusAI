@@ -201,7 +201,18 @@ async function checkEdgeAgent() {
   try {
     const result = await edgeFetch("/health");
     localOk = result.response.ok;
-    if (!localOk) localError = "Edge Agent returned HTTP " + result.response.status + ".";
+    if (localOk) {
+      try {
+        const health = await result.response.clone().json();
+        const version = health?.version || "UNKNOWN";
+        if ($("edgeVersionBadge")) $("edgeVersionBadge").textContent = version === "1.7.0" ? "UP TO DATE" : "UPDATE REQUIRED";
+        if ($("edgeVersionText")) $("edgeVersionText").textContent = "Version " + version + (version === "1.7.0" ? " is installed. Notifications and the latest portal controls are available." : " is installed. Update to version 1.7.0 before testing notifications.");
+      } catch (_) {}
+    } else if (!localOk) {
+      if ($("edgeVersionBadge")) $("edgeVersionBadge").textContent = "OFFLINE";
+      if ($("edgeVersionText")) $("edgeVersionText").textContent = "The local Edge Agent could not be reached.";
+      localError = "Edge Agent returned HTTP " + result.response.status + ".";
+    }
   } catch(e) {
     localError = e?.name === "AbortError"
       ? "Browser timed out connecting to the local Edge Agent."
