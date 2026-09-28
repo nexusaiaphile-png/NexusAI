@@ -39,6 +39,28 @@
     <div class="mobile-pair hidden"><div><strong>📱 MOBILE CONTROL</strong><span>Use a phone on the same network to control this site after the local service is connected.</span></div><div id="mobileQr" class="qr-box">GENERATING QR…</div></div>
   </section>
 
+  <section class="panel edge-update-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">LOCAL SECURITY SERVICE</p>
+        <h2>Edge Agent</h2>
+        <p class="muted">Your computer runs the NexusAI Edge Agent that connects this portal to your local Hikvision network. Keep it updated before testing cameras or alerts.</p>
+      </div>
+      <span id="edgeVersionBadge" class="badge">CHECKING</span>
+    </div>
+    <div class="notice">
+      <strong>Current Edge Agent</strong>
+      <span id="edgeVersionText">Checking the local agent version…</span>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
+      <button id="macInstallBtn" class="primary-btn">UPDATE MAC EDGE AGENT</button>
+      <button id="windowsInstallBtn" class="secondary-btn">UPDATE WINDOWS EDGE AGENT</button>
+    </div>
+    <div id="edgeUpdateInstructions" class="result-box" style="margin-top:16px">
+      <strong>Mac:</strong> download the installer, open Terminal, then run <code>bash ~/Downloads/NexusAI-Edge-Agent-Mac.sh</code>. After it finishes, return here and reconnect.
+    </div>
+  </section>
+
   <section id="discoveryPanel" class="panel hidden">
     <div class="panel-header"><div><p class="eyebrow">STEP 2 • LOCAL DISCOVERY</p><h2>Find your Hikvision system</h2><p class="muted">NexusAI scans the local network through its background security service and shows compatible Hikvision equipment found there.</p></div><span id="scanStatus" class="badge">WAITING</span></div>
     <div class="scan-box"><div id="scanRing">N</div><h3 id="scanTitle">Ready to scan</h3><p id="scanText">The Edge Agent will discover compatible Hikvision devices on this site.</p><button id="scanBtn" class="primary-btn">SCAN MY NETWORK</button></div>
