@@ -24,7 +24,7 @@ fi
 EXISTING_TOKEN=""
 if [ -f "$DIR/.env" ]; then EXISTING_TOKEN=$(grep "^NEXUSAI_EDGE_TOKEN=" "$DIR/.env" | head -1 | cut -d= -f2- || true); fi
 cat > "$DIR/.env" <<EOF
-NEXUSAI_API_URL=https://nexusai-worker.onrender.com
+NEXUSAI_API_URL=https://getnexusai.co.za
 NEXUSAI_EDGE_TOKEN=$EXISTING_TOKEN
 LOCAL_AGENT_HOST=0.0.0.0
 LOCAL_AGENT_PORT=8787
