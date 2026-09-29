@@ -27,7 +27,7 @@ let protectedCameras = loadArray("nexusai_cameras");
 let events = loadArray("nexusai_events");
 let previousAlertKeys = new Set();
 let panelAlerts = loadArray("nexusai_panel_alerts");
-let browserAlertsEnabled = safeStorageGet("nexusai_browser_alerts", "false") === "true";
+let browserAlertsEnabled = false;
 
 function loadArray(key) {
   try {
@@ -346,38 +346,8 @@ function renderPanelAlerts() {
   if(!list) return;
   list.innerHTML=panelAlerts.length ? panelAlerts.slice(0,30).map(e=>`<div class="event-row"><span>◉</span><div><strong>${escapeHTML(e.event||e.type||"SECURITY EVENT")}</strong><small>${escapeHTML(e.camera_name||e.camera||"NexusAI")} • ${escapeHTML(e.location||"Client site")} • ${escapeHTML(eventSeverityClass(e.severity))}</small></div><time>${new Date(e.timestamp||Date.now()).toLocaleString()}</time></div>`).join("") : '<div class="empty-state">No security alerts yet.</div>';
 }
-function updateBrowserAlertButton() {
-  const button=$("enableBrowserAlertsBtn");
-  if(!button) return;
-  if(!("Notification" in window)) {
-    button.textContent="BROWSER ALERTS UNAVAILABLE";
-    button.disabled=true;
-    return;
-  }
-  if(Notification.permission==="granted" && browserAlertsEnabled) button.textContent="BROWSER ALERTS ENABLED";
-  else if(Notification.permission==="denied") button.textContent="BROWSER ALERTS BLOCKED";
-  else button.textContent="ENABLE BROWSER ALERTS";
-}
-async function enableBrowserAlerts() {
-  if(!("Notification" in window)) {
-    showPanelAlertResult("This browser does not support desktop notifications.",true); return;
-  }
-  try {
-    const permission=await Notification.requestPermission();
-    if(permission!=="granted") {
-      browserAlertsEnabled=false;
-      safeStorageSet("nexusai_browser_alerts","false");
-      showPanelAlertResult("Browser alerts were not enabled. The NexusAI panel will still receive live events.",true);
-    } else {
-      browserAlertsEnabled=true;
-      safeStorageSet("nexusai_browser_alerts","true");
-      showPanelAlertResult("Browser alerts are enabled. NexusAI will notify you when a new security event arrives.");
-    }
-  } catch(e) {
-    showPanelAlertResult("Could not enable browser alerts.",true);
-  }
-  updateBrowserAlertButton();
-}
+function updateBrowserAlertButton() {}
+function enableBrowserAlerts() {}
 function showPanelAlertResult(message,error=false) {
   const box=$("panelAlertResult");
   if(!box)return;
