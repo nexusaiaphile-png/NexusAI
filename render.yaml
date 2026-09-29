@@ -12,3 +12,13 @@ services:
         value: "3.13"
       - key: NEXUSAI_EDGE_TOKEN
         sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: NEXUSAI_VAPID_PUBLIC_KEY
+        sync: false
+      - key: NEXUSAI_VAPID_PRIVATE_KEY
+        sync: false
+      - key: NEXUSAI_VAPID_SUBJECT
+        sync: false
+      - key: NEXUSAI_APP_LINK_SECRET
+        sync: false
