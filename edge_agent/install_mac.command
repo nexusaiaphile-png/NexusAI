@@ -23,7 +23,7 @@ fi
 "$DIR/.venv/bin/python" -m pip install -r "$DIR/requirements.txt"
 
 cat > "$DIR/.env" <<EOF
-NEXUSAI_API_URL=https://nexusai-worker.onrender.com
+NEXUSAI_API_URL=https://getnexusai.co.za
 NEXUSAI_EDGE_TOKEN=
 LOCAL_AGENT_HOST=0.0.0.0
 LOCAL_AGENT_PORT=8787
