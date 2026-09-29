@@ -87,7 +87,18 @@
   </section>
 
   <section class="panel notification-panel">
-    <div class="panel-header"><div><p class="eyebrow">SECURITY ALERTS</p><h2>WhatsApp Notifications</h2><p class="muted">Choose the WhatsApp number that should receive security alerts for this site.</p></div><span id="notificationStatus" class="badge">NOT CONFIGURED</span></div>
+    <div class="panel-header"><div><p class="eyebrow">NEXUSAI NOTIFICATION CENTER</p><h2>Security Alert Panel</h2><p class="muted">Security events detected by your protected cameras appear here automatically. No WhatsApp account is required.</p></div><span id="panelAlertStatus" class="badge">LIVE</span></div>
+    <div class="notice"><strong id="panelAlertHeadline">Monitoring active</strong><span id="panelAlertSummary">NexusAI will show new security events in this panel as they arrive from the Edge Agent.</span></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
+      <button id="enableBrowserAlertsBtn" class="primary-btn">ENABLE BROWSER ALERTS</button>
+      <button id="clearPanelAlertsBtn" class="secondary-btn">CLEAR LOCAL ALERTS</button>
+    </div>
+    <div id="panelAlertResult" class="result-box hidden" style="margin-top:16px"></div>
+    <div id="panelAlertList" class="event-list" style="margin-top:16px"><div class="empty-state">No security alerts yet.</div></div>
+  </section>
+
+  <section class="panel notification-panel">
+    <div class="panel-header"><div><p class="eyebrow">OPTIONAL SECONDARY CHANNEL</p><h2>WhatsApp Notifications</h2><p class="muted">WhatsApp can remain an optional external alert channel. The NexusAI Alert Panel above works independently.</p></div><span id="notificationStatus" class="badge">NOT CONFIGURED</span></div>
     <label>WhatsApp number</label>
     <input id="notificationPhone" type="tel" placeholder="+27 82 123 4567" autocomplete="tel">
     <small class="muted">Use international format, for example +27821234567.</small>
@@ -109,6 +120,6 @@
   <section class="panel"><div class="panel-header"><div><p class="eyebrow">SECURITY MONITORING</p><h2>Recent Events</h2></div><span class="live">● LIVE</span></div><div id="eventList" class="event-list"><div class="empty-state">No security events yet.</div></div></section>
 </main>
 </section>
-<script src="app.js?v=20260928-22"></script>
+<script src="app.js?v=20260929-23"></script>
 </body>
 </html>
