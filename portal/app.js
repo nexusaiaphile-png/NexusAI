@@ -25,6 +25,9 @@ let verifiedChannels = [];
 let selectedChannels = new Set();
 let protectedCameras = loadArray("nexusai_cameras");
 let events = loadArray("nexusai_events");
+let previousAlertKeys = new Set();
+let panelAlerts = loadArray("nexusai_panel_alerts");
+let browserAlertsEnabled = safeStorageGet("nexusai_browser_alerts", "false") === "true";
 
 function loadArray(key) {
   try {
@@ -51,6 +54,8 @@ function init() {
   if ($("siteCode")) $("siteCode").textContent = makeSiteCode();
   bind();
   renderDashboard();
+  renderPanelAlerts();
+  updateBrowserAlertButton();
   loadNotificationSettings();
   checkBackend();
   showDashboard();
@@ -108,6 +113,8 @@ function bind() {
   $("protectBtn").onclick = protectSelected;
   if ($("saveNotificationBtn")) $("saveNotificationBtn").onclick = saveNotificationSettings;
   if ($("testNotificationBtn")) $("testNotificationBtn").onclick = testNotification;
+  if ($("enableBrowserAlertsBtn")) $("enableBrowserAlertsBtn").onclick = enableBrowserAlerts;
+  if ($("clearPanelAlertsBtn")) $("clearPanelAlertsBtn").onclick = clearPanelAlerts;
   $("copySiteCode").onclick = async () => {
     try { await navigator.clipboard.writeText($("siteCode").textContent); $("copySiteCode").textContent="COPIED"; setTimeout(()=>$("copySiteCode").textContent="COPY",1200); }
     catch (_) { $("copySiteCode").textContent="SELECT & COPY"; }
@@ -421,14 +428,90 @@ async function testNotification() {
   }
 }
 
+function alertKey(e) {
+  return [e.timestamp,e.camera_name||e.camera,e.event||e.type,e.severity].map(v=>String(v||"")).join("|");
+}
+function eventSeverityClass(severity) {
+  return String(severity||"LOW").toUpperCase();
+}
+function renderPanelAlerts() {
+  const list=$("panelAlertList");
+  if(!list) return;
+  list.innerHTML=panelAlerts.length ? panelAlerts.slice(0,30).map(e=>`<div class="event-row"><span>◉</span><div><strong>${escapeHTML(e.event||e.type||"SECURITY EVENT")}</strong><small>${escapeHTML(e.camera_name||e.camera||"NexusAI")} • ${escapeHTML(e.location||"Client site")} • ${escapeHTML(eventSeverityClass(e.severity))}</small></div><time>${new Date(e.timestamp||Date.now()).toLocaleString()}</time></div>`).join("") : '<div class="empty-state">No security alerts yet.</div>';
+}
+function updateBrowserAlertButton() {
+  const button=$("enableBrowserAlertsBtn");
+  if(!button) return;
+  if(!("Notification" in window)) {
+    button.textContent="BROWSER ALERTS UNAVAILABLE";
+    button.disabled=true;
+    return;
+  }
+  if(Notification.permission==="granted" && browserAlertsEnabled) button.textContent="BROWSER ALERTS ENABLED";
+  else if(Notification.permission==="denied") button.textContent="BROWSER ALERTS BLOCKED";
+  else button.textContent="ENABLE BROWSER ALERTS";
+}
+async function enableBrowserAlerts() {
+  if(!("Notification" in window)) {
+    showPanelAlertResult("This browser does not support desktop notifications.",true); return;
+  }
+  try {
+    const permission=await Notification.requestPermission();
+    if(permission!=="granted") {
+      browserAlertsEnabled=false;
+      safeStorageSet("nexusai_browser_alerts","false");
+      showPanelAlertResult("Browser alerts were not enabled. The NexusAI panel will still receive live events.",true);
+    } else {
+      browserAlertsEnabled=true;
+      safeStorageSet("nexusai_browser_alerts","true");
+      showPanelAlertResult("Browser alerts are enabled. NexusAI will notify you when a new security event arrives.");
+    }
+  } catch(e) {
+    showPanelAlertResult("Could not enable browser alerts.",true);
+  }
+  updateBrowserAlertButton();
+}
+function showPanelAlertResult(message,error=false) {
+  const box=$("panelAlertResult");
+  if(!box)return;
+  box.textContent=message;
+  box.className="result-box "+(error?"error":"");
+  show(box);
+}
+function notifyNewSecurityEvent(event) {
+  const title="NexusAI Security Alert";
+  const body=(event.event||"Security event detected")+" • "+(event.camera_name||event.camera||"Protected camera")+" • "+(event.severity||"LOW");
+  if(browserAlertsEnabled && "Notification" in window && Notification.permission==="granted") {
+    try { new Notification(title,{body,tag:"nexusai-"+alertKey(event)}); } catch(_) {}
+  }
+  if($("panelAlertHeadline")) $("panelAlertHeadline").textContent=event.event||"Security event detected";
+  if($("panelAlertSummary")) $("panelAlertSummary").textContent=(event.camera_name||event.camera||"Protected camera")+" • "+(event.location||"Client site")+" • Severity "+(event.severity||"LOW");
+}
+function clearPanelAlerts() {
+  panelAlerts=[];
+  safeStorageSet("nexusai_panel_alerts",JSON.stringify(panelAlerts));
+  renderPanelAlerts();
+  showPanelAlertResult("Local alert history cleared. Cloud events remain stored.");
+}
 async function refreshCloudEvents() {
   try {
     const r=await fetch(API_BASE_URL+"/api/portal/events?site_id="+encodeURIComponent(SITE_ID)+"&limit=50",{cache:"no-store"});
     if(!r.ok)return;
     const d=await r.json();
     if(Array.isArray(d.events)) {
-      events=d.events.map(e=>({type:e.event,camera:e.camera_name,timestamp:e.timestamp,severity:e.severity,source:e.source,snapshot_available:e.snapshot_available}));
+      const incoming=d.events.map(e=>({type:e.event,event:e.event,camera:e.camera_name,camera_name:e.camera_name,location:e.location,timestamp:e.timestamp,severity:e.severity,source:e.source,snapshot_available:e.snapshot_available}));
+      const incomingKeys=new Set(incoming.map(alertKey));
+      const newEvents=incoming.filter(e=>!previousAlertKeys.has(alertKey(e)));
+      if(previousAlertKeys.size) newEvents.slice(0,10).forEach(e=>{
+        panelAlerts.unshift(e);
+        notifyNewSecurityEvent(e);
+      });
+      previousAlertKeys=incomingKeys;
+      panelAlerts=panelAlerts.slice(0,50);
+      events=incoming;
       safeStorageSet("nexusai_events",JSON.stringify(events));
+      safeStorageSet("nexusai_panel_alerts",JSON.stringify(panelAlerts));
+      renderPanelAlerts();
       renderDashboard();
     }
   } catch(e) {}
