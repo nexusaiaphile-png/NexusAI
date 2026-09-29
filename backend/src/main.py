@@ -221,21 +221,6 @@ def load_events(site_id,limit):
 SEVERITY_RANK = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
 
 
-def normalize_phone(phone: str) -> str:
-    value = "".join(ch for ch in str(phone or "") if ch.isdigit() or ch == "+")
-    if value.startswith("00"):
-        value = "+" + value[2:]
-    if not value.startswith("+"):
-        raise ValueError("WhatsApp number must use international format, for example +27821234567.")
-    digits = value[1:]
-    if not digits.isdigit() or not 8 <= len(digits) <= 15:
-        raise ValueError("WhatsApp number must be a valid international number.")
-    return value
-
-
-def dispatch_alert(event):
-    dispatch_push_alert(event)
-
 def require_edge_token(token: str | None, authorization: str | None = None):
     expected = os.getenv("NEXUSAI_EDGE_TOKEN")
     bearer = ""
