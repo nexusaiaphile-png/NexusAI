@@ -1,6 +1,9 @@
 import os
 import time
 import sqlite3
+import json
+import logging
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
@@ -13,6 +16,7 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 PORTAL_DIR = BASE_DIR / "portal"
 ROOT_INDEX = BASE_DIR / "index.html"
 MOBILE_DIR = BASE_DIR / "mobile"
+APP_DIR = BASE_DIR / "nexusai-app"
 
 # In-memory edge state for the current NexusAI service instance.
 # Production persistence can be moved to Postgres without changing the API contract.
@@ -109,6 +113,11 @@ def db_conn():
         camera_name TEXT, location TEXT, event TEXT, severity TEXT, timestamp TEXT,
         source TEXT, snapshot_available INTEGER
     )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT NOT NULL,
+        endpoint TEXT NOT NULL UNIQUE, subscription_json TEXT NOT NULL,
+        created_at REAL NOT NULL, updated_at REAL NOT NULL
+    )""")
     conn.execute("""CREATE TABLE IF NOT EXISTS notification_settings (
         site_id TEXT PRIMARY KEY, whatsapp_number TEXT NOT NULL DEFAULT "",
         whatsapp_enabled INTEGER NOT NULL DEFAULT 1, minimum_severity TEXT NOT NULL DEFAULT "LOW",
@@ -116,6 +125,69 @@ def db_conn():
     )""")
     conn.commit()
     return conn
+
+def push_configured():
+    return bool(os.getenv("NEXUSAI_VAPID_PUBLIC_KEY","").strip() and os.getenv("NEXUSAI_VAPID_PRIVATE_KEY","").strip() and os.getenv("NEXUSAI_VAPID_SUBJECT","").strip())
+
+def save_push_subscription(site_id, subscription):
+    endpoint = str(subscription.get("endpoint","")).strip()
+    keys = subscription.get("keys") or {}
+    if not endpoint or len(endpoint) > 2048 or not keys.get("p256dh") or not keys.get("auth"):
+        raise ValueError("Invalid push subscription")
+    now = time.time()
+    with DB_LOCK:
+        conn=db_conn()
+        conn.execute("""INSERT INTO push_subscriptions(site_id,endpoint,subscription_json,created_at,updated_at)
+                       VALUES(?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET
+                       site_id=excluded.site_id,subscription_json=excluded.subscription_json,updated_at=excluded.updated_at""",
+                     (site_id,endpoint,json.dumps(subscription),now,now))
+        conn.commit(); conn.close()
+
+def remove_push_subscription(endpoint):
+    with DB_LOCK:
+        conn=db_conn(); conn.execute("DELETE FROM push_subscriptions WHERE endpoint=?",(endpoint,)); conn.commit(); conn.close()
+
+def load_push_subscriptions(site_id):
+    with DB_LOCK:
+        conn=db_conn(); rows=conn.execute("SELECT endpoint,subscription_json FROM push_subscriptions WHERE site_id=?",(site_id,)).fetchall(); conn.close()
+    result=[]
+    for row in rows:
+        try: result.append((row["endpoint"],json.loads(row["subscription_json"])))
+        except Exception: pass
+    return result
+
+def send_push_alert(event, subscription):
+    try:
+        from pywebpush import webpush
+        payload=json.dumps({
+            "title":"NexusAI Security Alert",
+            "body":f'{event.get("event","SECURITY EVENT")} • {event.get("camera_name","Protected camera")} • {event.get("location","Client site")} • Severity {event.get("severity","LOW")}',
+            "tag":f'nexusai-{event.get("camera_id","camera")}-{event.get("timestamp","")}',
+            "url":"/app/?site_id="+event.get("site_id","")
+        })
+        vapid={"private_key":os.getenv("NEXUSAI_VAPID_PRIVATE_KEY","").strip(),
+               "subject":os.getenv("NEXUSAI_VAPID_SUBJECT","").strip()}
+        for attempt in range(3):
+            try:
+                webpush(subscription_info=subscription,data=payload,vapid_private_key=vapid["private_key"],vapid_claims={"sub":vapid["subject"]},ttl=300)
+                return True
+            except Exception as exc:
+                if attempt==2:
+                    message=str(exc)
+                    logging.warning("NexusAI push failed: %s",message)
+                    if "410" in message or "404" in message:
+                        remove_push_subscription(subscription.get("endpoint",""))
+                else:
+                    time.sleep(1)
+    except Exception as exc:
+        logging.warning("NexusAI push service unavailable: %s",exc)
+    return False
+
+def dispatch_push_alert(event):
+    if not push_configured():
+        return
+    for endpoint, subscription in load_push_subscriptions(event["site_id"]):
+        threading.Thread(target=send_push_alert,args=(event,subscription),daemon=True).start()
 
 def persist_site(site):
     import json
@@ -271,6 +343,7 @@ def send_whatsapp_alert(event, settings):
 
 
 def dispatch_alert(event):
+    dispatch_push_alert(event)
     settings = load_notification_settings(event["site_id"])
     threshold = SEVERITY_RANK.get(str(settings.get("minimum_severity", "LOW")).upper(), 1)
     severity = SEVERITY_RANK.get(str(event.get("severity", "LOW")).upper(), 1)
@@ -326,6 +399,50 @@ async def public_founder():
 @app.get("/portal/", include_in_schema=False)
 async def client_portal():
     return FileResponse(PORTAL_DIR / "index.html")
+
+@app.get("/app", include_in_schema=False)
+@app.get("/app/", include_in_schema=False)
+async def nexusai_app():
+    return FileResponse(APP_DIR / "index.html")
+
+@app.get("/app/app.js", include_in_schema=False)
+async def nexusai_app_js():
+    return FileResponse(APP_DIR / "app.js", media_type="application/javascript")
+
+@app.get("/app/service-worker.js", include_in_schema=False)
+async def nexusai_app_sw():
+    return FileResponse(APP_DIR / "service-worker.js", media_type="application/javascript", headers={"Service-Worker-Allowed": "/app/"})
+
+@app.get("/app/manifest.json", include_in_schema=False)
+async def nexusai_app_manifest():
+    return FileResponse(APP_DIR / "manifest.json", media_type="application/manifest+json")
+
+@app.get("/app/icon.svg", include_in_schema=False)
+async def nexusai_app_icon():
+    return FileResponse(APP_DIR / "icon.svg", media_type="image/svg+xml")
+
+@app.get("/api/push/config")
+async def push_config():
+    return {"configured": push_configured(), "public_key": os.getenv("NEXUSAI_VAPID_PUBLIC_KEY","").strip()}
+
+class PushSubscriptionRequest(BaseModel):
+    site_id: str = Field(..., max_length=100)
+    subscription: dict
+
+@app.post("/api/push/subscribe")
+async def push_subscribe(request: PushSubscriptionRequest):
+    try:
+        save_push_subscription(request.site_id, request.subscription)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"subscribed": True, "site_id": request.site_id}
+
+@app.delete("/api/push/subscribe")
+async def push_unsubscribe(request: PushSubscriptionRequest):
+    endpoint=str(request.subscription.get("endpoint","")).strip()
+    if not endpoint: raise HTTPException(status_code=400, detail="Push endpoint required")
+    remove_push_subscription(endpoint)
+    return {"unsubscribed": True}
 
 @app.get("/mobile", include_in_schema=False)
 @app.get("/mobile/", include_in_schema=False)
