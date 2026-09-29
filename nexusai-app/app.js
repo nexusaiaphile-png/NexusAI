@@ -1,1 +1,64 @@
-const statusEl=document.getElementById("status");const button=document.getElementById("enable");const siteId=new URLSearchParams(location.search).get("site_id")||localStorage.getItem("nexusai_site_id");function setStatus(t,err=false){statusEl.textContent=t;statusEl.className="status"+(err?" error":"")}async function enable(){if(!siteId){setStatus("Open the NexusAI client portal first and use the NexusAI mobile app button so your site can be linked.",true);return}if(!("serviceWorker" in navigator)||!("PushManager" in window)){setStatus("Push notifications are not supported by this browser. On iPhone, add NexusAI to the Home Screen first, then open it again.",true);return}try{const cfg=await fetch("/api/push/config").then(r=>r.json());if(!cfg.public_key){setStatus("NexusAI push service is not configured yet.",true);return}const reg=await navigator.serviceWorker.register("/app/service-worker.js",{scope:"/app/"});const permission=await Notification.requestPermission();if(permission!=="granted"){setStatus("Notification permission was not granted.",true);return}let sub=await reg.pushManager.getSubscription();if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:base64ToUint8(cfg.public_key)});const r=await fetch("/api/push/subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({site_id:siteId,subscription:sub.toJSON()})});const d=await r.json();if(!r.ok)throw new Error(d.detail||"Could not register this phone");setStatus("NexusAI alerts are ENABLED on this phone.");button.textContent="ALERTS ENABLED";button.disabled=true}catch(e){setStatus(e.message||"Could not enable NexusAI alerts.",true)}}function base64ToUint8(s){const p="=".repeat((4-s.length%4)%4),b=atob((s+p).replace(/-/g,"+").replace(/_/g,"/")),a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a}button.onclick=enable;if(siteId)setStatus("Site linked: "+siteId);else setStatus("Open this app from your NexusAI client portal to link your protected site.",true);
+const params=new URLSearchParams(location.search);
+const siteId=params.get("site_id")||"";
+const installToken=params.get("install_token")||"";
+const API=location.origin;
+let deferredInstall=null;
+const $=id=>document.getElementById(id);
+function setStatus(title,text,error=false){$("statusTitle").textContent=title;$("statusText").textContent=text;$("statusText").className="install-help"+(error?" error":"");$("dot").className="dot"+(error?" off":"")}
+function b64ToBytes(value){const pad="=".repeat((4-value.length%4)%4);const raw=atob((value+pad).replace(/-/g,"+").replace(/_/g,"/"));const out=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)out[i]=raw.charCodeAt(i);return out}
+function showInstallHelp(){const el=$("installHelp");if(!el)return;if(deferredInstall){el.textContent="Your phone supports direct installation. Tap INSTALL NEXUSAI APP and confirm the install prompt."}else if(/iphone|ipad|ipod/i.test(navigator.userAgent)){el.textContent="On iPhone/iPad: tap Share in Safari → Add to Home Screen → Add. Then open the NexusAI icon and enable alerts."}else{el.textContent="If your browser does not show an install prompt, use its menu and choose Install app or Add to Home screen."}}
+async function registerPush(){
+  if(!siteId||!installToken)throw new Error("Open NexusAI from the client portal installation button.");
+  if(!window.isSecureContext)throw new Error("NexusAI mobile alerts require a secure HTTPS connection.");
+  if(!("serviceWorker" in navigator)||!("PushManager" in window)||!("Notification" in window))throw new Error("This phone/browser does not support NexusAI push notifications.");
+  const cfg=await fetch(API+"/api/push/config",{cache:"no-store"}).then(r=>r.json());
+  if(!cfg.configured||!cfg.public_key)throw new Error("NexusAI push service is waiting for its secure server keys.");
+  const reg=await navigator.serviceWorker.register("/app/service-worker.js",{scope:"/app/",updateViaCache:"none"});
+  await reg.update();
+  const permission=await Notification.requestPermission();
+  if(permission!=="granted")throw new Error("Notification permission was not granted. Enable notifications for NexusAI in your phone settings.");
+  let sub=await reg.pushManager.getSubscription();
+  if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64ToBytes(cfg.public_key)});
+  const response=await fetch(API+"/api/push/subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({site_id:siteId,install_token:installToken,subscription:sub.toJSON()})});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||"NexusAI could not register this phone.");
+  $("enableBtn").disabled=true;$("enableBtn").textContent="SECURITY ALERTS ENABLED";$("testBtn").disabled=false;
+  setStatus("NEXUSAI ALERTS ENABLED","This phone is registered for real-time NexusAI security notifications.");
+}
+async function sendTest(){
+  $("testBtn").disabled=true;$("testBtn").textContent="SENDING…";
+  try{
+    const r=await fetch(API+"/api/push/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({site_id:siteId,install_token:installToken})});
+    const d=await r.json();if(!r.ok)throw new Error(d.detail||"Test alert failed.");
+    $("testBtn").textContent="TEST ALERT SENT";
+    setTimeout(()=>{$("testBtn").disabled=false;$("testBtn").textContent="SEND TEST ALERT"},2500);
+  }catch(e){$("testBtn").disabled=false;$("testBtn").textContent="SEND TEST ALERT";setStatus("TEST FAILED",e.message,true)}
+}
+function addLocalAlert(data){
+  const box=document.createElement("div");box.className="event";
+  const title=document.createElement("strong");title.textContent=data.title||"NexusAI Security Alert";
+  const small=document.createElement("small");small.textContent=data.body||"Security event detected.";
+  box.append(title,small);$("latest").prepend(box);
+}
+$("installBtn").addEventListener("click",async()=>{
+  if(deferredInstall){deferredInstall.prompt();try{await deferredInstall.userChoice}catch(_){}deferredInstall=null;showInstallHelp();return}
+  showInstallHelp();
+  if(/iphone|ipad|ipod/i.test(navigator.userAgent)) setStatus("INSTALL FROM YOUR PHONE","Use Safari Share → Add to Home Screen. Then open the NexusAI icon and enable alerts.");
+  else setStatus("INSTALL FROM BROWSER MENU","Use your browser menu and choose Install app or Add to Home screen.");
+});
+$("enableBtn").addEventListener("click",async()=>{
+  $("enableBtn").disabled=true;$("enableBtn").textContent="ENABLING…";
+  try{await registerPush()}catch(e){$("enableBtn").disabled=false;$("enableBtn").textContent="ENABLE SECURITY ALERTS";setStatus("NEXUSAI ALERTS NOT ENABLED",e.message,true)}
+});
+$("testBtn").addEventListener("click",sendTest);
+window.addEventListener("beforeinstallprompt",event=>{event.preventDefault();deferredInstall=event;showInstallHelp()});
+window.addEventListener("appinstalled",()=>{setStatus("NEXUSAI INSTALLED","The NexusAI app is installed on this phone. Enable security alerts now.");showInstallHelp()});
+(async()=>{
+  if(!siteId||!installToken){setStatus("OPEN FROM CLIENT PORTAL","This NexusAI app can only be activated from a NexusAI client portal installation link.",true);$("installBtn").disabled=true;return}
+  showInstallHelp();
+  try{
+    const cfg=await fetch(API+"/api/push/config",{cache:"no-store"}).then(r=>r.json());
+    if(!cfg.configured)setStatus("PUSH SERVICE WAITING","The NexusAI app is built, but the secure VAPID keys still need to be configured on Render.");
+    else {setStatus("NEXUSAI READY","This phone is linked to site "+siteId+". Enable security alerts to register this device.");$("enableBtn").disabled=false}
+  }catch(e){setStatus("NEXUSAI CLOUD UNAVAILABLE","Reconnect to the internet and open this app again.",true)}
+})();
