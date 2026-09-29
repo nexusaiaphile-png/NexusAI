@@ -1,1 +1,46 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#06131d"><link rel="manifest" href="/app/manifest.json"><link rel="icon" href="/app/icon.svg"><title>NexusAI</title><style>body{margin:0;background:#050b12;color:#eef7f6;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;min-height:100vh}.wrap{max-width:560px;margin:auto;padding:28px 20px 48px}.logo{width:64px;height:64px;border-radius:18px;background:#06131d;border:1px solid #1d4b4a;display:grid;place-items:center;color:#24f5c5;font-size:34px;font-weight:900}.eyebrow{font-size:12px;letter-spacing:2px;color:#24f5c5;font-weight:800;margin-top:28px}.status{padding:16px;border:1px solid #244047;border-radius:14px;background:#09141c;margin-top:18px}.button{width:100%;padding:15px;border:0;border-radius:10px;background:#24f5c5;color:#04100f;font-weight:900;margin-top:14px}.muted{color:#9bb0b0;line-height:1.5}.alert{margin-top:16px;padding:16px;border-radius:14px;background:#0a171f;border:1px solid #244047}.error{color:#ff9a9a}</style></head><body><main class="wrap"><div class="logo">N</div><p class="eyebrow">NEXUSAI SECURITY</p><h1>Mobile Alert Center</h1><p class="muted">This is the official NexusAI alert app. It receives security push notifications from NexusAI Cloud even when this app is not open.</p><div id="status" class="status">Checking push notification service…</div><button id="enable" class="button">ENABLE NEXUSAI ALERTS</button><div id="alerts"></div></main><script src="/app/app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#06131d">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="NexusAI">
+<link rel="manifest" href="/app/manifest.json">
+<link rel="icon" href="/app/icon.svg">
+<link rel="apple-touch-icon" href="/app/icon.svg">
+<title>NexusAI</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#040a10;color:#eef8f6;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}.wrap{max-width:620px;margin:auto;padding:28px 18px 54px}.brand{display:flex;align-items:center;gap:14px}.logo{width:58px;height:58px;border-radius:17px;display:grid;place-items:center;background:#07151d;border:1px solid #1b4d4a;color:#25f5c5;font-weight:950;font-size:30px;box-shadow:0 0 30px #25f5c51a}.eyebrow{font-size:11px;letter-spacing:2.2px;color:#25f5c5;font-weight:900;margin:0}.brand h1{font-size:21px;margin:2px 0}.hero{padding:34px 0 18px}.hero h2{font-size:34px;line-height:1.02;margin:10px 0 12px}.muted{color:#9eb2b1;line-height:1.55}.card{margin-top:16px;padding:18px;border-radius:18px;background:#08131b;border:1px solid #18353b}.status{display:flex;gap:10px;align-items:flex-start}.dot{width:10px;height:10px;border-radius:50%;background:#25f5c5;margin-top:5px;box-shadow:0 0 12px #25f5c5}.dot.off{background:#ffb347;box-shadow:none}.button{width:100%;border:0;border-radius:13px;padding:16px;margin-top:12px;background:#25f5c5;color:#03110e;font-weight:950;font-size:15px;letter-spacing:.2px}.button.secondary{background:#10222b;color:#eaf6f4;border:1px solid #24434a}.button:disabled{opacity:.5}.event{margin-top:12px;padding:15px;border-left:3px solid #25f5c5;background:#071119;border-radius:10px}.event strong{display:block;font-size:16px}.event small{display:block;color:#9eb2b1;margin-top:5px;line-height:1.4}.error{color:#ff9d9d}.ok{color:#25f5c5}.steps{margin-top:16px;display:grid;gap:8px}.step{padding:11px 12px;border-radius:10px;background:#0b1921;color:#a9bcba;font-size:13px}.hidden{display:none}.install-help{font-size:13px;color:#9eb2b1;line-height:1.55;margin-top:12px}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="brand">
+    <div class="logo">N</div>
+    <div><p class="eyebrow">NEXUSAI SECURITY</p><h1>NexusAI</h1></div>
+  </header>
+
+  <section class="hero">
+    <p class="eyebrow">REAL-TIME MOBILE PROTECTION</p>
+    <h2>Security alerts. Direct to your phone.</h2>
+    <p class="muted">NexusAI receives security events from your protected Hikvision system and delivers push notifications through this installed NexusAI app. The app does not need to stay open.</p>
+  </section>
+
+  <section class="card">
+    <div class="status"><span id="dot" class="dot off"></span><div><strong id="statusTitle">Preparing NexusAI…</strong><div id="statusText" class="install-help">Checking this installation link and the NexusAI push service.</div></div></div>
+    <button id="installBtn" class="button">INSTALL NEXUSAI APP</button>
+    <button id="enableBtn" class="button secondary" disabled>ENABLE SECURITY ALERTS</button>
+    <button id="testBtn" class="button secondary" disabled>SEND TEST ALERT</button>
+    <div id="installHelp" class="install-help"></div>
+  </section>
+
+  <section class="card">
+    <p class="eyebrow">ALERTS</p>
+    <div id="latest"><div class="install-help">No alerts received on this device yet.</div></div>
+  </section>
+</main>
+<script src="/app/app.js"></script>
+</body>
+</html>
