@@ -187,8 +187,8 @@ async function checkEdgeAgent() {
       try {
         const health = await result.response.clone().json();
         const version = health?.version || "UNKNOWN";
-        if ($("edgeVersionBadge")) $("edgeVersionBadge").textContent = version === "1.7.0" ? "UP TO DATE" : "UPDATE REQUIRED";
-        if ($("edgeVersionText")) $("edgeVersionText").textContent = "Version " + version + (version === "1.7.0" ? " is installed. Notifications and the latest portal controls are available." : " is installed. Update to version 1.7.0 before testing notifications.");
+        if ($("edgeVersionBadge")) $("edgeVersionBadge").textContent = version === "1.8.0" ? "UP TO DATE" : "UPDATE REQUIRED";
+        if ($("edgeVersionText")) $("edgeVersionText").textContent = "Version " + version + (version === "1.8.0" ? " is installed. Notifications and the latest portal controls are available." : " is installed. Update to version 1.8.0 before testing notifications.");
       } catch (_) {}
     } else if (!localOk) {
       if ($("edgeVersionBadge")) $("edgeVersionBadge").textContent = "OFFLINE";
