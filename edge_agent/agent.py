@@ -9,7 +9,6 @@ import concurrent.futures
 
 import threading
 import re
-import secrets
 import ssl
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,8 +16,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
-import qrcode
-import io
 from requests.auth import HTTPDigestAuth
 from dotenv import load_dotenv
 
@@ -48,83 +45,6 @@ except (OSError, json.JSONDecodeError):
 ACTIVE_SESSIONS = {}
 ACTIVE_SESSIONS_LOCK = threading.Lock()
 HEARTBEAT_THREADS = {}
-PAIR_TOKENS = {}
-PAIR_SESSIONS = {}
-PAIR_LOCK = threading.Lock()
-PAIR_TTL_SECONDS = int(os.getenv("PAIR_TTL_SECONDS", "300"))
-SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1800"))
-LOCAL_AGENT_TLS_CERT = os.getenv("LOCAL_AGENT_TLS_CERT", "").strip()
-LOCAL_AGENT_TLS_KEY = os.getenv("LOCAL_AGENT_TLS_KEY", "").strip()
-
-def _now():
-    return time.time()
-
-def _new_token():
-    return secrets.token_urlsafe(32)
-
-def _cleanup_pairing():
-    now = _now()
-    with PAIR_LOCK:
-        for store in (PAIR_TOKENS, PAIR_SESSIONS):
-            expired = [key for key, item in store.items() if float(item.get("expires_at", 0)) <= now]
-            for key in expired:
-                store.pop(key, None)
-
-def create_pair_token():
-    _cleanup_pairing()
-    token = _new_token()
-    with PAIR_LOCK:
-        PAIR_TOKENS[token] = {"site_id": SITE_ID, "expires_at": _now() + PAIR_TTL_SECONDS}
-    return token
-
-def valid_pair_token(token):
-    _cleanup_pairing()
-    with PAIR_LOCK:
-        item = PAIR_TOKENS.get(token or "")
-        return bool(item and item.get("site_id") == SITE_ID and float(item.get("expires_at", 0)) > _now())
-
-def claim_pair_token(token):
-    _cleanup_pairing()
-    with PAIR_LOCK:
-        item = PAIR_TOKENS.pop(token, None)
-        if not item or item.get("site_id") != SITE_ID:
-            return None
-        session = _new_token()
-        PAIR_SESSIONS[session] = {"site_id": SITE_ID, "expires_at": _now() + SESSION_TTL_SECONDS}
-        return session
-
-def valid_session(token):
-    _cleanup_pairing()
-    with PAIR_LOCK:
-        item = PAIR_SESSIONS.get(token or "")
-        return bool(item and item.get("site_id") == SITE_ID and float(item.get("expires_at", 0)) > _now())
-
-def local_access_allowed(handler):
-    return handler.client_address[0] in {"127.0.0.1", "::1"}
-
-def require_mobile_session(handler):
-    auth_header = handler.headers.get("Authorization", "")
-    token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
-    if not valid_session(token):
-        handler._send_json(401, {"error": "Pair this phone with the NexusAI site first."})
-        return False
-    return True
-
-def local_access_urls():
-    try:
-        ip = str(local_network().network_address)
-        # Use the actual interface address rather than the subnet address.
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            sock.connect(("8.8.8.8", 80))
-            ip = sock.getsockname()[0]
-        finally:
-            sock.close()
-    except OSError:
-        ip = "127.0.0.1"
-    scheme = "https" if LOCAL_AGENT_TLS_CERT and LOCAL_AGENT_TLS_KEY else "http"
-    return [f"{scheme}://{ip}:{LOCAL_AGENT_PORT}"]
-
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -404,22 +324,18 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
         if path == "/pair/status":
             self._send_json(200, {"service":"NexusAI Edge Agent","site_id":SITE_ID,"status":"ONLINE"}); return
         if path == "/inventory":
-            if not local_access_allowed(self) and not require_mobile_session(self): return
+            if not local_access_allowed(self):
+                self._send_json(403, {"error":"Local Edge Agent access required"}); return
             self._send_json(200, local_inventory()); return
         if path == "/discover":
-            if not local_access_allowed(self) and not require_mobile_session(self): return
+            if not local_access_allowed(self):
+                self._send_json(403, {"error":"Local Edge Agent access required"}); return
             self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","network":"LOCAL_ONLY","devices":discover_local_devices()}); return
         self._send_json(404, {"error":"Not found"})
     def do_POST(self):
         global SITE_ID
         try:
             length = int(self.headers.get("Content-Length","0")); payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            if self.path == "/pair/claim":
-                token = str(payload.get("token","")).strip()
-                session = claim_pair_token(token)
-                if not session:
-                    self._send_json(401, {"error":"Pairing code is invalid or expired"}); return
-                self._send_json(200, {"paired":True,"site_id":SITE_ID,"session_token":session,"expires_in":SESSION_TTL_SECONDS}); return
             if self.path == "/configure":
                 if not local_access_allowed(self):
                     self._send_json(403, {"error":"Site configuration is only allowed from the Edge Agent computer"}); return
@@ -438,8 +354,8 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {"configured":True,"site_id":SITE_ID}); return
             if self.path not in ("/verify","/activate"):
                 self._send_json(404, {"error":"Not found"}); return
-            if not local_access_allowed(self) and not require_mobile_session(self):
-                return
+            if not local_access_allowed(self):
+                self._send_json(403, {"error":"Camera activation must be performed from the local NexusAI portal computer"}); return
             required = ["camera_name","camera_ip","camera_port","username","password","location"]
             if any(not payload.get(key) for key in required):
                 self._send_json(400, {"error":"All camera/NVR details are required"}); return
