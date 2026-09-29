@@ -59,29 +59,6 @@ function init() {
   checkBackend();
   showDashboard();
 }
-async function createMobilePairing(){
-  const box=$("mobileQr");
-  if(!box)return;
-  box.textContent="CONNECTING TO EDGE AGENT…";
-  try{
-    const r=await edgeFetch("/pair/start").then(x=>x.response);
-    const d=await r.json();
-    if(!r.ok) throw new Error(d.error||"Edge Agent pairing is unavailable");
-    const url=d.mobile_url;
-    box.innerHTML="";
-    const img=document.createElement("img");
-    img.alt="NexusAI mobile activation QR code";
-    img.width=156; img.height=156;
-    img.style.background="#fff"; img.style.padding="8px"; img.style.borderRadius="10px";
-    img.src=d.qr_data_url||"";
-    if(!d.qr_data_url) throw new Error("Edge Agent did not return a QR image");
-    box.appendChild(img);
-    $("scanText").textContent="Scan the QR code with a phone connected to the same local network. The phone will pair directly with this Edge Agent.";
-  }catch(e){
-    box.textContent="START EDGE AGENT TO GENERATE QR";
-    console.warn("NexusAI mobile pairing unavailable",e);
-  }
-}
 function bind() {
   $("loginForm")?.addEventListener("submit", e => {
     e.preventDefault();
