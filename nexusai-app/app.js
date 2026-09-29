@@ -1,6 +1,6 @@
 const params=new URLSearchParams(location.search);
-const siteId=params.get("site_id")||"";
-const installToken=params.get("install_token")||"";
+const siteId=params.get("site_id")||localStorage.getItem("nexusai_site_id")||"";
+const installToken=params.get("install_token")||localStorage.getItem("nexusai_install_token")||"";
 const API=location.origin;
 let deferredInstall=null;
 const $=id=>document.getElementById(id);
@@ -22,6 +22,7 @@ async function registerPush(){
   const response=await fetch(API+"/api/push/subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({site_id:siteId,install_token:installToken,subscription:sub.toJSON()})});
   const data=await response.json();
   if(!response.ok)throw new Error(data.detail||"NexusAI could not register this phone.");
+  localStorage.setItem("nexusai_site_id",siteId);localStorage.setItem("nexusai_install_token",installToken);
   $("enableBtn").disabled=true;$("enableBtn").textContent="SECURITY ALERTS ENABLED";$("testBtn").disabled=false;
   setStatus("NEXUSAI ALERTS ENABLED","This phone is registered for real-time NexusAI security notifications.");
 }
