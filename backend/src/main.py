@@ -93,6 +93,11 @@ class PushSubscriptionRequest(BaseModel):
     install_token: str = Field(..., min_length=20, max_length=500)
 
 
+class PushTestRequest(BaseModel):
+    site_id: str = Field(..., min_length=3, max_length=100)
+    install_token: str = Field(..., min_length=20, max_length=500)
+
+
 def database_url() -> str:
     return os.getenv("DATABASE_URL", "").strip()
 
@@ -552,7 +557,9 @@ async def push_unsubscribe(request: PushSubscriptionRequest):
 
 
 @app.post("/api/push/test")
-async def push_test(site_id: str, install_token: str):
+async def push_test(request: PushTestRequest):
+    site_id = request.site_id
+    install_token = request.install_token
     if not verify_install_token(site_id, install_token):
         raise HTTPException(status_code=403, detail="This NexusAI installation link is invalid or expired.")
     if not push_configured():
