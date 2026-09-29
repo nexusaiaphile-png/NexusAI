@@ -551,6 +551,26 @@ async def push_unsubscribe(request: PushSubscriptionRequest):
     return {"unsubscribed": True}
 
 
+@app.post("/api/push/test")
+async def push_test(site_id: str, install_token: str):
+    if not verify_install_token(site_id, install_token):
+        raise HTTPException(status_code=403, detail="This NexusAI installation link is invalid or expired.")
+    if not push_configured():
+        raise HTTPException(status_code=503, detail="NexusAI push service is not configured yet.")
+    test_event = {
+        "site_id": site_id,
+        "camera_id": "nexusai-test-camera",
+        "camera_name": "NexusAI Test Camera",
+        "location": "NexusAI Test Site",
+        "event": "NEXUSAI TEST ALERT",
+        "severity": "CRITICAL",
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "source": "nexusai-push-test",
+        "snapshot_available": False,
+    }
+    PUSH_EXECUTOR.submit(dispatch_push_alert, test_event)
+    return {"accepted": True, "notification": "NEXUSAI_TEST_PUSH_QUEUED"}
+
 @app.get("/health")
 async def health():
     return {
