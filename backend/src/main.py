@@ -91,16 +91,6 @@ class EdgeEvent(BaseModel):
     snapshot_available: bool = False
 
 
-class NotificationSettings(BaseModel):
-    whatsapp_number: str = Field(default="", max_length=30)
-    whatsapp_enabled: bool = True
-    minimum_severity: str = Field(default="LOW", max_length=20)
-
-
-class NotificationTestRequest(BaseModel):
-    whatsapp_number: str = Field(..., max_length=30)
-
-
 def db_conn():
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
@@ -178,48 +168,8 @@ def send_push_alert(event, subscription):
         logging.warning("NexusAI push service unavailable: %s",exc)
     return False
 
-def dispatch_push_alert(event):
-    if not push_configured():
-        return
-    for endpoint, subscription in load_push_subscriptions(event["site_id"]):
-        threading.Thread(target=send_push_alert,args=(event,subscription),daemon=True).start()
-
-def persist_site(site):
-    import json
-    with DB_LOCK:
-        conn=db_conn()
-        conn.execute("""INSERT INTO sites(site_id,status,agent_version,timestamp,received_at,cameras_json)
-                       VALUES(?,?,?,?,?,?) ON CONFLICT(site_id) DO UPDATE SET
-                       status=excluded.status,agent_version=excluded.agent_version,timestamp=excluded.timestamp,
-                       received_at=excluded.received_at,cameras_json=excluded.cameras_json""",
-                     (site["site_id"],site.get("status"),site.get("agent_version"),site.get("timestamp"),
-                      site.get("received_at",time.time()),json.dumps(site.get("cameras",[]))))
-        conn.commit(); conn.close()
-
-def persist_event(event):
-    with DB_LOCK:
-        conn=db_conn()
-        conn.execute("""INSERT INTO events(site_id,camera_id,camera_name,location,event,severity,timestamp,source,snapshot_available)
-                       VALUES(?,?,?,?,?,?,?,?,?)""",
-                     (event["site_id"],event["camera_id"],event["camera_name"],event["location"],event["event"],
-                      event["severity"],event["timestamp"],event["source"],int(bool(event.get("snapshot_available")))))
-        conn.commit(); conn.close()
-
-def load_site(site_id):
-    import json
-    with DB_LOCK:
-        conn=db_conn(); row=conn.execute("SELECT * FROM sites WHERE site_id=?",(site_id,)).fetchone(); conn.close()
-    if not row: return None
-    return {"site_id":row["site_id"],"status":row["status"],"agent_version":row["agent_version"],
-            "timestamp":row["timestamp"],"received_at":row["received_at"],"cameras":json.loads(row["cameras_json"] or "[]")}
-
-def load_events(site_id,limit):
-    with DB_LOCK:
-        conn=db_conn(); rows=conn.execute("SELECT site_id,camera_id,camera_name,location,event,severity,timestamp,source,snapshot_available FROM events WHERE site_id=? ORDER BY id DESC LIMIT ?",(site_id,limit)).fetchall(); conn.close()
-    return [dict(r, snapshot_available=bool(r["snapshot_available"])) for r in rows]
-
-SEVERITY_RANK = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
-
+def dispatch_alert(event):
+    dispatch_push_alert(event)
 
 def require_edge_token(token: str | None, authorization: str | None = None):
     expected = os.getenv("NEXUSAI_EDGE_TOKEN")
