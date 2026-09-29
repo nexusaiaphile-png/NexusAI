@@ -1,4 +1,5 @@
 import json
+import hashlib
 import logging
 import os
 import socket
@@ -23,7 +24,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-API_BASE_URL = os.getenv("NEXUSAI_API_URL", "https://nexusai-worker.onrender.com").rstrip("/")
+API_BASE_URL = os.getenv("NEXUSAI_API_URL", "https://getnexusai.co.za").rstrip("/")
 EDGE_AGENT_TOKEN = os.getenv("NEXUSAI_EDGE_TOKEN", "")
 SITE_ID = os.getenv("NEXUSAI_SITE_ID", "site-unknown")
 HEARTBEAT_SECONDS = int(os.getenv("HEARTBEAT_SECONDS", "30"))
@@ -148,17 +149,25 @@ def auth(cfg): return HTTPDigestAuth(cfg["username"], cfg["password"])
 
 def headers():
     return {"Authorization": f"Bearer {EDGE_AGENT_TOKEN}", "Content-Type": "application/json",
-            "User-Agent": "NexusAI-Edge-Agent/1.7.0"}
+            "User-Agent": "NexusAI-Edge-Agent/1.8.0"}
 
 def post_backend(path, payload):
     if not EDGE_AGENT_TOKEN:
         logging.error("NEXUSAI_EDGE_TOKEN is missing")
         return False
-    try:
-        response = requests.post(f"{API_BASE_URL}{path}", json=payload, headers=headers(), timeout=10)
-        if 200 <= response.status_code < 300: return True
-        logging.warning("Backend %s returned HTTP %s: %s", path, response.status_code, response.text[:300])
-    except requests.RequestException as exc: logging.warning("Backend connection failed: %s", exc)
+    for attempt in range(5):
+        try:
+            response = requests.post(f"{API_BASE_URL}{path}", json=payload, headers=headers(), timeout=12)
+            if 200 <= response.status_code < 300:
+                return True
+            if response.status_code in (401, 403):
+                logging.error("NexusAI cloud authentication failed: HTTP %s", response.status_code)
+                return False
+            logging.warning("Backend %s returned HTTP %s: %s", path, response.status_code, response.text[:300])
+        except requests.RequestException as exc:
+            logging.warning("Backend connection failed (attempt %s/5): %s", attempt + 1, exc)
+        if attempt < 4:
+            time.sleep(min(8, 2 ** attempt))
     return False
 
 def device_info(cfg):
@@ -294,7 +303,7 @@ def send_event(cfg, raw_event, channel=None):
                                       "snapshot_available": bool(snapshot)})
 
 def heartbeat(cfg, verification=None):
-    post_backend("/api/edge/heartbeat", {"site_id": SITE_ID, "agent_version": "1.7.0",
+    post_backend("/api/edge/heartbeat", {"site_id": SITE_ID, "agent_version": "1.8.0",
                                           "timestamp": datetime.now(timezone.utc).isoformat(), "status": "ONLINE",
                                           "cameras": [{"camera_id": cfg["camera_id"], "camera_name": cfg["camera_name"],
                                                        "location": cfg["location"], "verified": bool(verification and verification.get("verified"))}]})
@@ -316,6 +325,17 @@ def monitor_device(cfg, channels=None):
                             if not line: continue
                             decoded = line.decode("utf-8", errors="ignore")
                             if any(keyword in decoded.lower() for keyword in EVENT_NAMES):
+                                # Hikvision alert streams can emit the same event over several
+                                # XML lines. Only send complete event fragments and suppress
+                                # accidental duplicates for a short window.
+                                event_key = hashlib.sha256(decoded.strip().lower().encode()).hexdigest()
+                                now = time.time()
+                                recent = getattr(worker, "_recent_events", {})
+                                recent = {k: v for k, v in recent.items() if now - v < 5}
+                                if event_key in recent:
+                                    continue
+                                recent[event_key] = now
+                                worker._recent_events = recent
                                 send_event(cfg, decoded, channel_map.get(extract_channel_id(decoded)))
                 except requests.RequestException: pass
                 time.sleep(RECONNECT_SECONDS)
@@ -341,7 +361,7 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path, _, query = self.path.partition("?")
         if path == "/health":
-            self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","version":"1.7.0","site_id":SITE_ID}); return
+            self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","version":"1.8.0","site_id":SITE_ID}); return
         if path == "/pair/qr":
             if not local_access_allowed(self):
                 self._send_json(403, {"error":"QR generation is only allowed from the Edge Agent computer"}); return
@@ -455,7 +475,7 @@ def local_inventory():
     """Return real, authorized local security-service state for the portal/diagnostics."""
     with ACTIVE_SESSIONS_LOCK:
         active = list(ACTIVE_SESSIONS.keys())
-    return {"service":"NexusAI Local Security Service","version":"1.7.0","site_id":SITE_ID,"status":"ONLINE","active_monitors":len(active),"monitors":active}
+    return {"service":"NexusAI Local Security Service","version":"1.8.0","site_id":SITE_ID,"status":"ONLINE","active_monitors":len(active),"monitors":active}
 
 def start_local_api():
     server=ThreadingHTTPServer((LOCAL_AGENT_HOST,LOCAL_AGENT_PORT),LocalAgentHandler)
