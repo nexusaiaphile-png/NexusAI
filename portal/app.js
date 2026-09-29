@@ -307,8 +307,8 @@ async function verifyDevice() {
   $("verifyDeviceBtn").disabled=true; $("verifyDeviceBtn").textContent="VERIFYING…";
   try {
     const result=await edgeFetch("/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:SITE_ID+"-"+(selectedDevice.ip||Date.now()),camera_name:selectedDevice.name||"Hikvision device",camera_ip:selectedDevice.ip,camera_port:selectedDevice.port||80,username,password,location:"Client site"})});
-    const d=await r.json();
-    if(!r.ok || !d.verified) throw new Error(d.error||"Device verification failed.");
+    const d=await result.response.json();
+    if(!result.response.ok || !d.verified) throw new Error(d.error||"Device verification failed.");
     verifiedChannels=Array.isArray(d.channels)?d.channels:[];
     if(!verifiedChannels.length) throw new Error("Hikvision device verified, but no camera channels were returned.");
     renderChannels(); show($("cameraPanel")); hide($("verifyResult")); updateSteps(4); $("cameraPanel").scrollIntoView({behavior:"smooth",block:"center"});
@@ -326,8 +326,8 @@ async function protectSelected() {
   $("protectBtn").disabled=true; $("protectBtn").textContent="ACTIVATING…";
   try {
     const result=await edgeFetch("/activate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({camera_id:SITE_ID+"-"+(selectedDevice.ip||Date.now()),camera_name:selectedDevice.name||"Hikvision NVR",camera_ip:selectedDevice.ip,camera_port:selectedDevice.port||80,username:$("hikUsername").value.trim(),password:$("hikPassword").value,location:"Client site",channels:chosen})});
-    const d=await r.json();
-    if(!r.ok || !d.verified) throw new Error(d.error||"NexusAI activation failed.");
+    const d=await result.response.json();
+    if(!result.response.ok || !d.verified) throw new Error(d.error||"NexusAI activation failed.");
     chosen.forEach(c=>protectedCameras.push({id:SITE_ID+"-"+(c.channel_id||Date.now()),name:c.channel_name||c.name||"Camera",location:c.location||"Client site",status:"ONLINE",protection:"NEXUSAI PROTECTED",addedAt:new Date().toISOString()}));
     safeStorageSet("nexusai_cameras",JSON.stringify(protectedCameras));
     $("protectedSummary").textContent=chosen.length+" camera"+(chosen.length===1?" is":"s are")+" now connected to your NexusAI protection dashboard.";
@@ -336,11 +336,26 @@ async function protectSelected() {
   finally { $("protectBtn").disabled=false; $("protectBtn").textContent="PROTECT SELECTED CAMERAS"; }
 }
 
-function installNexusApp() {
-  const url = "/app/?site_id=" + encodeURIComponent(SITE_ID);
-  const instructions = $("nexusAppInstructions");
-  if (instructions) instructions.innerHTML = "<strong>Open NexusAI on your phone:</strong> scan or send this portal link to the client's phone, then enable notifications. On iPhone use Share → Add to Home Screen; on Android use the browser's Install/Add to Home Screen option.";
-  window.open(url, "_blank", "noopener");
+async function installNexusApp() {
+  const button=$("installNexusAppBtn");
+  const instructions=$("nexusAppInstructions");
+  if(button){button.disabled=true;button.textContent="CREATING SECURE INSTALL LINK…";}
+  try{
+    const r=await fetch(API_BASE_URL+"/api/push/install-link?site_id="+encodeURIComponent(SITE_ID),{cache:"no-store"});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.detail||"Could not create the NexusAI app installation link.");
+    const url=new URL(d.url,API_BASE_URL).toString();
+    if(instructions) instructions.innerHTML="<strong>NexusAI app link ready.</strong> Open this link on the client phone. Install NexusAI, then enable Security Alerts. This link is signed to this protected site and expires in 24 hours.";
+    if(navigator.share){
+      try{await navigator.share({title:"NexusAI",text:"Install the official NexusAI security alert app",url});}catch(_){window.open(url,"_blank","noopener");}
+    }else{
+      window.open(url,"_blank","noopener");
+    }
+  }catch(e){
+    if(instructions) instructions.innerHTML="<strong>Installation link failed.</strong> "+escapeHTML(e.message||"Try again.");
+  }finally{
+    if(button){button.disabled=false;button.textContent="INSTALL NEXUSAI APP";}
+  }
 }
 
 function alertKey(e) {
