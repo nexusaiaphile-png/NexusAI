@@ -300,11 +300,6 @@ def save_push_subscription(site_id: str, subscription: dict):
                           subscription_json=EXCLUDED.subscription_json,
                           updated_at=EXCLUDED.updated_at
                     """, (site_id, endpoint, payload, now, now))
-                        device_ids={str(c.get("device_id")) for c in cameras if c.get("device_id")}
-                    for device_id in device_ids:
-                        incoming_ids={str(c.get("camera_id")) for c in cameras if str(c.get("device_id"))==device_id}
-                        if incoming_ids:
-                            cur.execute("DELETE FROM nexusai_cameras WHERE site_id=%s AND device_id=%s AND camera_id <> ALL(%s)",(site["site_id"],device_id,list(incoming_ids)))
                 conn.commit()
         else:
             with _sqlite() as conn:
