@@ -14,7 +14,7 @@ if (Test-Path "$dir\.env") {
   if ($line) { $existingToken = $line.Substring("NEXUSAI_EDGE_TOKEN=".Length) }
 }
 @"
-NEXUSAI_API_URL=https://nexusai-worker.onrender.com
+NEXUSAI_API_URL=https://getnexusai.co.za
 NEXUSAI_EDGE_TOKEN=$existingToken
 LOCAL_AGENT_HOST=0.0.0.0
 LOCAL_AGENT_PORT=8787

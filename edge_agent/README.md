@@ -34,9 +34,11 @@ Never commit .env or real camera passwords to GitHub.
 
 ## Network model
 
-Customer camera/NVR -> NexusAI Edge Agent -> NexusAI Cloud API -> Client Portal
+Customer camera/NVR -> NexusAI Edge Agent -> NexusAI Cloud API -> NexusAI Push Dispatcher -> NexusAI mobile app -> phone notification
 
-The edge agent must run on a device that can reach the camera/NVR over the customer's local network.
+The Edge Agent does not send WhatsApp messages. It reports security events to NexusAI Cloud; the cloud notification service is responsible for mobile push delivery.
+
+The edge agent must run on a device that can reach the camera/NVR over the customer's local network. Set NEXUSAI_API_URL to https://getnexusai.co.za for production.
 
 
 ## Portal verification API

@@ -1,18 +1,15 @@
 {
-  "name": "NexusAI",
-  "short_name": "NexusAI",
-  "start_url": "/app/",
-  "scope": "/app/",
-  "display": "standalone",
-  "background_color": "#050b12",
-  "theme_color": "#06131d",
-  "description": "NexusAI security alerts for protected sites.",
-  "icons": [
-    {
-      "src": "/app/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
+  "name":"NexusAI",
+  "short_name":"NexusAI",
+  "id":"/app/",
+  "start_url":"/app/",
+  "scope":"/app/",
+  "display":"standalone",
+  "orientation":"portrait",
+  "background_color":"#040a10",
+  "theme_color":"#06131d",
+  "description":"Official NexusAI real-time security alerts.",
+  "icons":[
+    {"src":"/app/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
   ]
 }
