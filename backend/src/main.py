@@ -362,8 +362,8 @@ def load_push_subscriptions(site_id: str) -> list[tuple[str, dict]]:
 
 
 def persist_site(site: dict):
-    cameras = site.get("cameras", [])
-    payload = json.dumps(cameras, separators=(",", ":"))
+    cameras=site.get("cameras",[])
+    payload=json.dumps(cameras,separators=(",",":"))
     with DB_LOCK:
         if database_url():
             import psycopg
@@ -373,9 +373,10 @@ def persist_site(site: dict):
                         INSERT INTO nexusai_sites(site_id,status,agent_version,timestamp,received_at,cameras_json)
                         VALUES(%s,%s,%s,%s,%s,%s)
                         ON CONFLICT(site_id) DO UPDATE SET
-                          status=EXCLUDED.status, agent_version=EXCLUDED.agent_version,
-                          timestamp=EXCLUDED.timestamp, received_at=EXCLUDED.received_at
-                    """, (site["site_id"],site.get("status"),site.get("agent_version"),site.get("timestamp"),site.get("received_at"),payload))
+                          status=EXCLUDED.status,agent_version=EXCLUDED.agent_version,
+                          timestamp=EXCLUDED.timestamp,received_at=EXCLUDED.received_at
+                    """,(site["site_id"],site.get("status"),site.get("agent_version"),site.get("timestamp"),site.get("received_at"),payload))
+                    device_ids={str(c.get("device_id")) for c in cameras if c.get("device_id")}
                     for camera in cameras:
                         cur.execute("""
                             INSERT INTO nexusai_cameras
@@ -388,6 +389,13 @@ def persist_site(site: dict):
                         """,(site["site_id"],str(camera.get("camera_id","")),camera.get("device_id"),camera.get("device_ip"),
                              camera.get("channel_id"),camera.get("camera_name"),camera.get("location"),camera.get("device_type"),
                              bool(camera.get("verified")),camera.get("status","ONLINE"),site.get("received_at"),json.dumps(camera,separators=(",",":"))))
+                    for device_id in device_ids:
+                        incoming_ids={str(c.get("camera_id")) for c in cameras if str(c.get("device_id"))==device_id}
+                        if incoming_ids:
+                            cur.execute(
+                                "DELETE FROM nexusai_cameras WHERE site_id=%s AND device_id=%s AND camera_id <> ALL(%s)",
+                                (site["site_id"],device_id,list(incoming_ids))
+                            )
                 conn.commit()
         else:
             with _sqlite() as conn:
@@ -398,27 +406,27 @@ def persist_site(site: dict):
                       status=excluded.status,agent_version=excluded.agent_version,
                       timestamp=excluded.timestamp,received_at=excluded.received_at
                 """,(site["site_id"],site.get("status"),site.get("agent_version"),site.get("timestamp"),site.get("received_at"),payload))
+                device_ids={str(c.get("device_id")) for c in cameras if c.get("device_id")}
                 for camera in cameras:
                     conn.execute("""
                         INSERT INTO nexusai_cameras
                         (site_id,camera_id,device_id,device_ip,channel_id,camera_name,location,device_type,verified,status,last_seen,metadata_json)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(site_id,camera_id) DO UPDATE SET
                           device_id=excluded.device_id,device_ip=excluded.device_ip,channel_id=excluded.channel_id,
                           camera_name=excluded.camera_name,location=excluded.location,device_type=excluded.device_type,
-                          verified=excluded.verified,status='ONLINE',last_seen=excluded.last_seen,metadata_json=excluded.metadata_json
+                          verified=excluded.verified,status=excluded.status,last_seen=excluded.last_seen,metadata_json=excluded.metadata_json
                     """,(site["site_id"],str(camera.get("camera_id","")),camera.get("device_id"),camera.get("device_ip"),
                          camera.get("channel_id"),camera.get("camera_name"),camera.get("location"),camera.get("device_type"),
                          int(bool(camera.get("verified"))),camera.get("status","ONLINE"),site.get("received_at"),json.dumps(camera,separators=(",",":"))))
-                    device_ids={str(c.get("device_id")) for c in cameras if c.get("device_id")}
-                    for device_id in device_ids:
-                        incoming_ids={str(c.get("camera_id")) for c in cameras if str(c.get("device_id"))==device_id}
-                        if incoming_ids:
-                            placeholders=",".join("?" for _ in incoming_ids)
-                            conn.execute(
-                                f"DELETE FROM nexusai_cameras WHERE site_id=? AND device_id=? AND camera_id NOT IN ({placeholders})",
-                                (site["site_id"],device_id,*incoming_ids)
-                            )
+                for device_id in device_ids:
+                    incoming_ids={str(c.get("camera_id")) for c in cameras if str(c.get("device_id"))==device_id}
+                    if incoming_ids:
+                        placeholders=",".join("?" for _ in incoming_ids)
+                        conn.execute(
+                            f"DELETE FROM nexusai_cameras WHERE site_id=? AND device_id=? AND camera_id NOT IN ({placeholders})",
+                            (site["site_id"],device_id,*incoming_ids)
+                        )
                 conn.commit()
 
 def load_cameras(site_id: str) -> list[dict]:
