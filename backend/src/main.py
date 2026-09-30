@@ -1,3 +1,5 @@
+import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -33,7 +35,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 app = FastAPI(
     title="NexusAI Security Cloud",
     description="NexusAI Hikvision security cloud and native mobile push notification service.",
-    version="3.0.0",
+    version="3.1.0",
 )
 
 app.add_middleware(
@@ -50,6 +52,10 @@ class EdgeCamera(BaseModel):
     camera_name: str
     location: str
     verified: bool = False
+    device_id: str | None = None
+    device_ip: str | None = None
+    channel_id: str | None = None
+    device_type: str | None = None
 
 
 class EdgeHeartbeat(BaseModel):
@@ -85,6 +91,9 @@ class EdgeEvent(BaseModel):
     timestamp: str
     source: str
     snapshot_available: bool = False
+    snapshot_base64: str | None = None
+    snapshot_mime: str | None = None
+    snapshot_filename: str | None = None
 
 
 class PushSubscriptionRequest(BaseModel):
@@ -136,9 +145,33 @@ def init_db():
                         severity TEXT,
                         timestamp TEXT,
                         source TEXT,
-                        snapshot_available BOOLEAN
+                        snapshot_available BOOLEAN,
+                        snapshot_mime TEXT,
+                        snapshot_filename TEXT,
+                        snapshot_data BYTEA
                     )
                 """)
+                cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_mime TEXT")
+                cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_filename TEXT")
+                cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_data BYTEA")
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS nexusai_cameras (
+                        site_id TEXT NOT NULL,
+                        camera_id TEXT NOT NULL,
+                        device_id TEXT,
+                        device_ip TEXT,
+                        channel_id TEXT,
+                        camera_name TEXT,
+                        location TEXT,
+                        device_type TEXT,
+                        verified BOOLEAN NOT NULL DEFAULT FALSE,
+                        status TEXT NOT NULL DEFAULT 'ONLINE',
+                        last_seen DOUBLE PRECISION,
+                        metadata_json TEXT,
+                        PRIMARY KEY(site_id, camera_id)
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_cameras_site ON nexusai_cameras(site_id)")
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS nexusai_push_subscriptions (
                         id BIGSERIAL PRIMARY KEY,
@@ -160,8 +193,18 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS nexusai_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT NOT NULL,
                     camera_id TEXT, camera_name TEXT, location TEXT, event TEXT,
-                    severity TEXT, timestamp TEXT, source TEXT, snapshot_available INTEGER
+                    severity TEXT, timestamp TEXT, source TEXT, snapshot_available INTEGER,
+                    snapshot_mime TEXT, snapshot_filename TEXT, snapshot_data BLOB
                 );
+                CREATE TABLE IF NOT EXISTS nexusai_cameras (
+                    site_id TEXT NOT NULL, camera_id TEXT NOT NULL,
+                    device_id TEXT, device_ip TEXT, channel_id TEXT,
+                    camera_name TEXT, location TEXT, device_type TEXT,
+                    verified INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ONLINE',
+                    last_seen REAL, metadata_json TEXT,
+                    PRIMARY KEY(site_id, camera_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_nexusai_cameras_site ON nexusai_cameras(site_id);
                 CREATE TABLE IF NOT EXISTS nexusai_push_subscriptions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT NOT NULL,
                     endpoint TEXT NOT NULL UNIQUE, subscription_json TEXT NOT NULL,
@@ -174,7 +217,22 @@ def init_db():
 @app.on_event("startup")
 def startup():
     init_db()
-    logging.info("NexusAI Cloud 3.0.0 started; database=%s", "postgres" if database_url() else "sqlite")
+    if database_url():
+        import psycopg
+        with psycopg.connect(database_url()) as conn:
+            with conn.cursor() as cur:
+                cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_mime TEXT")
+                cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_filename TEXT")
+                cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_data BYTEA")
+            conn.commit()
+    else:
+        with _sqlite() as conn:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(nexusai_events)").fetchall()}
+            if "snapshot_mime" not in cols: conn.execute("ALTER TABLE nexusai_events ADD COLUMN snapshot_mime TEXT")
+            if "snapshot_filename" not in cols: conn.execute("ALTER TABLE nexusai_events ADD COLUMN snapshot_filename TEXT")
+            if "snapshot_data" not in cols: conn.execute("ALTER TABLE nexusai_events ADD COLUMN snapshot_data BLOB")
+            conn.commit()
+    logging.info("NexusAI Cloud 3.1.0 started; database=%s", "postgres" if database_url() else "sqlite")
 
 
 def push_configured() -> bool:
@@ -298,7 +356,8 @@ def load_push_subscriptions(site_id: str) -> list[tuple[str, dict]]:
 
 
 def persist_site(site: dict):
-    payload = json.dumps(site.get("cameras", []), separators=(",", ":"))
+    cameras = site.get("cameras", [])
+    payload = json.dumps(cameras, separators=(",", ":"))
     with DB_LOCK:
         if database_url():
             import psycopg
@@ -309,10 +368,20 @@ def persist_site(site: dict):
                         VALUES(%s,%s,%s,%s,%s,%s)
                         ON CONFLICT(site_id) DO UPDATE SET
                           status=EXCLUDED.status, agent_version=EXCLUDED.agent_version,
-                          timestamp=EXCLUDED.timestamp, received_at=EXCLUDED.received_at,
-                          cameras_json=EXCLUDED.cameras_json
-                    """, (site["site_id"], site.get("status"), site.get("agent_version"),
-                          site.get("timestamp"), site.get("received_at"), payload))
+                          timestamp=EXCLUDED.timestamp, received_at=EXCLUDED.received_at
+                    """, (site["site_id"],site.get("status"),site.get("agent_version"),site.get("timestamp"),site.get("received_at"),payload))
+                    for camera in cameras:
+                        cur.execute("""
+                            INSERT INTO nexusai_cameras
+                            (site_id,camera_id,device_id,device_ip,channel_id,camera_name,location,device_type,verified,status,last_seen,metadata_json)
+                            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,'ONLINE',%s,%s)
+                            ON CONFLICT(site_id,camera_id) DO UPDATE SET
+                              device_id=EXCLUDED.device_id,device_ip=EXCLUDED.device_ip,channel_id=EXCLUDED.channel_id,
+                              camera_name=EXCLUDED.camera_name,location=EXCLUDED.location,device_type=EXCLUDED.device_type,
+                              verified=EXCLUDED.verified,status='ONLINE',last_seen=EXCLUDED.last_seen,metadata_json=EXCLUDED.metadata_json
+                        """,(site["site_id"],str(camera.get("camera_id","")),camera.get("device_id"),camera.get("device_ip"),
+                             camera.get("channel_id"),camera.get("camera_name"),camera.get("location"),camera.get("device_type"),
+                             bool(camera.get("verified")),site.get("received_at"),json.dumps(camera,separators=(",",":"))))
                 conn.commit()
         else:
             with _sqlite() as conn:
@@ -320,15 +389,55 @@ def persist_site(site: dict):
                     INSERT INTO nexusai_sites(site_id,status,agent_version,timestamp,received_at,cameras_json)
                     VALUES(?,?,?,?,?,?)
                     ON CONFLICT(site_id) DO UPDATE SET
-                      status=excluded.status, agent_version=excluded.agent_version,
-                      timestamp=excluded.timestamp, received_at=excluded.received_at,
-                      cameras_json=excluded.cameras_json
-                """, (site["site_id"], site.get("status"), site.get("agent_version"),
-                      site.get("timestamp"), site.get("received_at"), payload))
+                      status=excluded.status,agent_version=excluded.agent_version,
+                      timestamp=excluded.timestamp,received_at=excluded.received_at
+                """,(site["site_id"],site.get("status"),site.get("agent_version"),site.get("timestamp"),site.get("received_at"),payload))
+                for camera in cameras:
+                    conn.execute("""
+                        INSERT INTO nexusai_cameras
+                        (site_id,camera_id,device_id,device_ip,channel_id,camera_name,location,device_type,verified,status,last_seen,metadata_json)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                        ON CONFLICT(site_id,camera_id) DO UPDATE SET
+                          device_id=excluded.device_id,device_ip=excluded.device_ip,channel_id=excluded.channel_id,
+                          camera_name=excluded.camera_name,location=excluded.location,device_type=excluded.device_type,
+                          verified=excluded.verified,status='ONLINE',last_seen=excluded.last_seen,metadata_json=excluded.metadata_json
+                    """,(site["site_id"],str(camera.get("camera_id","")),camera.get("device_id"),camera.get("device_ip"),
+                         camera.get("channel_id"),camera.get("camera_name"),camera.get("location"),camera.get("device_type"),
+                         int(bool(camera.get("verified"))),site.get("received_at"),json.dumps(camera,separators=(",",":"))))
                 conn.commit()
 
+def load_cameras(site_id: str) -> list[dict]:
+    cutoff=time.time()-120
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT camera_id,device_id,device_ip,channel_id,camera_name,location,device_type,verified,status,last_seen FROM nexusai_cameras WHERE site_id=%s ORDER BY camera_name",(site_id,))
+                    rows=cur.fetchall()
+        else:
+            with _sqlite() as conn:
+                rows=conn.execute("SELECT camera_id,device_id,device_ip,channel_id,camera_name,location,device_type,verified,status,last_seen FROM nexusai_cameras WHERE site_id=? ORDER BY camera_name",(site_id,)).fetchall()
+    return [{
+        "camera_id":r[0],"device_id":r[1],"device_ip":r[2],"channel_id":r[3],"camera_name":r[4],
+        "location":r[5],"device_type":r[6],"verified":bool(r[7]),
+        "status":"ONLINE" if r[9] and float(r[9])>=cutoff else "OFFLINE","last_seen":r[9]
+    } for r in rows]
+
+def _decode_snapshot(event: dict):
+    raw=event.get("snapshot_base64")
+    if not raw: return None,None,None
+    try: data=base64.b64decode(raw,validate=True)
+    except (binascii.Error,ValueError): return None,None,None
+    if len(data)>2*1024*1024: return None,None,None
+    mime=str(event.get("snapshot_mime") or "image/jpeg").split(";")[0].strip().lower()
+    if mime not in {"image/jpeg","image/png","image/webp"}: mime="image/jpeg"
+    filename=str(event.get("snapshot_filename") or "snapshot.jpg")[:180]
+    return data,mime,filename
 
 def persist_event(event: dict):
+    snapshot_data,snapshot_mime,snapshot_filename=_decode_snapshot(event)
+    snapshot_available=bool(snapshot_data)
     with DB_LOCK:
         if database_url():
             import psycopg
@@ -336,45 +445,46 @@ def persist_event(event: dict):
                 with conn.cursor() as cur:
                     cur.execute("""
                         INSERT INTO nexusai_events
-                        (site_id,camera_id,camera_name,location,event,severity,timestamp,source,snapshot_available)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    """, (event["site_id"], event["camera_id"], event["camera_name"], event["location"],
-                          event["event"], event["severity"], event["timestamp"], event["source"],
-                          event.get("snapshot_available", False)))
+                        (site_id,camera_id,camera_name,location,event,severity,timestamp,source,snapshot_available,snapshot_mime,snapshot_filename,snapshot_data)
+                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                    """,(event["site_id"],event["camera_id"],event["camera_name"],event["location"],event["event"],event["severity"],
+                         event["timestamp"],event["source"],snapshot_available,snapshot_mime,snapshot_filename,snapshot_data))
+                    event_id=cur.fetchone()[0]
                 conn.commit()
         else:
             with _sqlite() as conn:
-                conn.execute("""
+                cur=conn.execute("""
                     INSERT INTO nexusai_events
-                    (site_id,camera_id,camera_name,location,event,severity,timestamp,source,snapshot_available)
-                    VALUES(?,?,?,?,?,?,?,?,?)
-                """, (event["site_id"], event["camera_id"], event["camera_name"], event["location"],
-                      event["event"], event["severity"], event["timestamp"], event["source"],
-                      int(event.get("snapshot_available", False))))
+                    (site_id,camera_id,camera_name,location,event,severity,timestamp,source,snapshot_available,snapshot_mime,snapshot_filename,snapshot_data)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                """,(event["site_id"],event["camera_id"],event["camera_name"],event["location"],event["event"],event["severity"],
+                     event["timestamp"],event["source"],int(snapshot_available),snapshot_mime,snapshot_filename,snapshot_data))
+                event_id=cur.lastrowid
                 conn.commit()
-
+    event["id"]=event_id
+    event["snapshot_available"]=snapshot_available
+    event.pop("snapshot_base64",None)
+    return event_id
 
 def load_events(site_id: str, limit: int = 50) -> list[dict]:
-    limit = max(1, min(limit, 200))
+    limit=max(1,min(limit,200))
     with DB_LOCK:
         if database_url():
             import psycopg
             with psycopg.connect(database_url()) as conn:
                 with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT id,site_id,camera_id,camera_name,location,event,severity,timestamp,source,snapshot_available
-                        FROM nexusai_events WHERE site_id=%s ORDER BY id DESC LIMIT %s
-                    """, (site_id, limit))
-                    rows = cur.fetchall()
+                    cur.execute("SELECT id,site_id,camera_id,camera_name,location,event,severity,timestamp,source,snapshot_available FROM nexusai_events WHERE site_id=%s ORDER BY id DESC LIMIT %s",(site_id,limit))
+                    rows=cur.fetchall()
         else:
             with _sqlite() as conn:
-                rows = conn.execute("""
-                    SELECT id,site_id,camera_id,camera_name,location,event,severity,timestamp,source,snapshot_available
-                    FROM nexusai_events WHERE site_id=? ORDER BY id DESC LIMIT ?
-                """, (site_id, limit)).fetchall()
-    keys = ["id","site_id","camera_id","camera_name","location","event","severity","timestamp","source","snapshot_available"]
-    return [dict(zip(keys, row)) for row in rows]
-
+                rows=conn.execute("SELECT id,site_id,camera_id,camera_name,location,event,severity,timestamp,source,snapshot_available FROM nexusai_events WHERE site_id=? ORDER BY id DESC LIMIT ?",(site_id,limit)).fetchall()
+    keys=["id","site_id","camera_id","camera_name","location","event","severity","timestamp","source","snapshot_available"]
+    result=[]
+    for row in rows:
+        item=dict(zip(keys,row))
+        if item.get("snapshot_available"): item["snapshot_url"]=f"/api/portal/snapshots/{item['id']}?site_id={quote(site_id)}"
+        result.append(item)
+    return result
 
 def push_once(subscription: dict, payload: str) -> tuple[bool, bool]:
     """Return (delivered, expired). Expired means the browser endpoint is no longer valid."""
@@ -435,6 +545,8 @@ def dispatch_push_alert(event: dict):
         "location": event.get("location"),
         "severity": event.get("severity"),
         "timestamp": event.get("timestamp"),
+        "snapshot_available": bool(event.get("snapshot_available")),
+        "snapshot_url": (f"/api/portal/snapshots/{event.get('id')}?site_id={quote(event.get('site_id',''))}" if event.get("id") and event.get("snapshot_available") else None),
         "tag": f'nexusai-{event.get("site_id")}-{event.get("camera_id")}-{time.time_ns()}',
         "url": f"/app/?site_id={quote(event.get('site_id', ''))}",
     }, separators=(",", ":"))
@@ -514,6 +626,26 @@ async def nexusai_app_icon():
     return FileResponse(APP_DIR / "icon.svg", media_type="image/svg+xml")
 
 
+@app.get("/api/portal/snapshots/{event_id}")
+async def portal_snapshot(event_id:int,site_id:str):
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT snapshot_mime,snapshot_filename,snapshot_data FROM nexusai_events WHERE id=%s AND site_id=%s",(event_id,site_id))
+                    row=cur.fetchone()
+        else:
+            with _sqlite() as conn:
+                row=conn.execute("SELECT snapshot_mime,snapshot_filename,snapshot_data FROM nexusai_events WHERE id=? AND site_id=?",(event_id,site_id)).fetchone()
+    if not row or not row[2]: raise HTTPException(status_code=404,detail="Snapshot not found.")
+    from fastapi.responses import Response
+    return Response(content=bytes(row[2]),media_type=row[0] or "image/jpeg",headers={"Cache-Control":"private, max-age=300","Content-Disposition":f'inline; filename="{row[1] or "snapshot.jpg"}"'})
+
+@app.get("/api/portal/cameras")
+async def portal_cameras(site_id:str="site-demo"):
+    return {"site_id":site_id,"cameras":load_cameras(site_id)}
+
 @app.get("/api/push/config")
 async def push_config():
     return {
@@ -583,7 +715,7 @@ async def health():
     return {
         "status": "healthy",
         "service": "NexusAI Cloud",
-        "version": "3.0.0",
+        "version": "3.1.0",
         "push": "configured" if push_configured() else "awaiting-vapid-keys",
     }
 
@@ -596,7 +728,7 @@ async def api_status():
         "camera_verification": "EDGE_AGENT",
         "notification_engine": "NEXUSAI_PUSH",
         "whatsapp": "REMOVED",
-        "api_version": "3.0.0",
+        "api_version": "3.1.0",
     }
 
 
