@@ -848,7 +848,7 @@ def load_site(site_id: str):
         "agent_version": row[2],
         "timestamp": row[3],
         "received_at": row[4],
-        "cameras": json.loads(row[5] or "[]"),
+        "cameras": load_cameras(site_id),
     }
 
 
