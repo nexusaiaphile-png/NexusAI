@@ -356,8 +356,13 @@ def heartbeat(cfg=None, verification=None):
                              "verified":bool(verification and verification.get("verified")),"device_id":f"{cfg['camera_ip']}:{cfg['camera_port']}",
                              "device_ip":cfg["camera_ip"],"channel_id":None,"device_type":verification.get("device_type") if verification else "HIKVISION_DEVICE"})
     else:
-        for item in ACTIVE_CONFIGS.values():
-            cameras.extend(item.get("cameras", []))
+        for session_key,item in ACTIVE_CONFIGS.items():
+            monitor_state = MONITOR_STATUS.get(session_key, {})
+            state = monitor_state.get("status", "ONLINE")
+            for camera in item.get("cameras", []):
+                camera_copy = dict(camera)
+                camera_copy["status"] = "ONLINE" if state == "ONLINE" else "OFFLINE"
+                cameras.append(camera_copy)
     post_backend("/api/edge/heartbeat", {
         "site_id": SITE_ID, "agent_version": EDGE_AGENT_VERSION,
         "timestamp": datetime.now(timezone.utc).isoformat(), "status": "ONLINE", "cameras": cameras
@@ -412,7 +417,10 @@ def monitor_device(cfg, channels=None):
                         for fragment in _event_fragments(response):
                             parsed = parse_hikvision_event(fragment)
                             if not parsed.get("active", True): continue
-                            fingerprint = "|".join([parsed.get("event_type",""),parsed.get("channel_id") or "",
+                            parsed_channel = parsed.get("channel_id")
+                            if channel_map and (not parsed_channel or parsed_channel not in channel_map):
+                                continue
+                            fingerprint = "|".join([parsed.get("event_type",""),parsed_channel or "",
                                                      parsed.get("values",{}).get("dateTime",""),parsed.get("description","")])
                             event_key = hashlib.sha256(fingerprint.lower().encode()).hexdigest()
                             now=time.time()
