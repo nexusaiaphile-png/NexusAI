@@ -84,7 +84,9 @@ function bind() {
   if ($("logoutBtn")) $("logoutBtn").onclick = () => { showDashboard(); };
   $("startInstallBtn").onclick = startInstall;
   $("checkAgentBtn").onclick = checkEdgeAgent;
-  $("scanBtn").onclick = scanNetwork;
+  $("scanBtn").onclick = () => scanNetwork();
+  if ($("scanSubnetBtn")) $("scanSubnetBtn").onclick = () => scanNetwork($("scanSubnet").value.trim());
+  if ($("manualNvrBtn")) $("manualNvrBtn").onclick = discoverManualNvr;
   $("verifyDeviceBtn").onclick = verifyDevice;
   $("protectBtn").onclick = protectSelected;
   if ($("enableBrowserAlertsBtn")) $("enableBrowserAlertsBtn").onclick = enableBrowserAlerts;
@@ -248,24 +250,41 @@ function updateEdgeUI() {
     $("scanText").textContent="NexusAI will search the local network for compatible Hikvision devices.";
   }
 }
-async function scanNetwork() {
+async function scanNetwork(subnet="") {
   if(!edgeOnline) { $("scanStatus").textContent="CONNECTING"; $("scanTitle").textContent="Local security service required"; $("scanText").textContent="NexusAI cannot safely scan a private camera network directly from the browser."; return; }
-  $("scanBtn").disabled=true; $("scanBtn").textContent="SCANNING…"; $("scanStatus").textContent="SCANNING"; $("scanTitle").textContent="Searching local network…";
+  $("scanBtn").disabled=true; if($("scanSubnetBtn")) $("scanSubnetBtn").disabled=true;
+  $("scanStatus").textContent="SCANNING"; $("scanTitle").textContent="Searching local CCTV network…";
   try {
-    const r=await edgeFetch("/discover").then(x=>x.response);
+    const suffix=subnet ? "?subnet="+encodeURIComponent(subnet) : "";
+    const r=await edgeFetch("/discover"+suffix).then(x=>x.response);
     if(!r.ok) throw new Error("Discovery HTTP "+r.status);
     const d=await r.json();
     discoveredDevices=Array.isArray(d.devices)?d.devices:[];
     renderDevices();
     $("scanTitle").textContent=discoveredDevices.length ? discoveredDevices.length+" compatible device(s) found" : "No compatible devices found";
-    $("scanText").textContent=discoveredDevices.length ? "Select your Hikvision device. Discovery does not authorize or activate it." : "Make sure the Edge Agent computer and Hikvision system are connected to the same local network.";
+    $("scanText").textContent=discoveredDevices.length ? "Select a Hikvision NVR/DVR. You can scan another VLAN or add an NVR by IP if it is not discovered automatically." : "No device found on that network. Try the CCTV subnet or enter the NVR IP manually.";
     $("scanStatus").textContent=discoveredDevices.length ? "FOUND" : "NO DEVICES";
   } catch(e) {
-    $("scanTitle").textContent="Discovery unavailable";
-    $("scanText").textContent="The local Edge Agent did not return a valid discovery response.";
-    $("scanStatus").textContent="ERROR";
-    console.error(e);
-  } finally { $("scanBtn").disabled=false; $("scanBtn").textContent="SCAN MY NETWORK"; }
+    $("scanTitle").textContent="Discovery unavailable"; $("scanText").textContent="The local Edge Agent did not return a valid discovery response."; $("scanStatus").textContent="ERROR"; console.error(e);
+  } finally {
+    $("scanBtn").disabled=false; if($("scanSubnetBtn")) $("scanSubnetBtn").disabled=false; $("scanBtn").textContent="SCAN MY NETWORK";
+  }
+}
+
+async function discoverManualNvr() {
+  if(!edgeOnline) { setInstallState("Local security service required","Start the Edge Agent before adding an NVR by IP."); return; }
+  const ip=$("manualNvrIp")?.value.trim();
+  if(!ip) { alert("Enter the Hikvision NVR/DVR IP address."); return; }
+  try {
+    const r=await edgeFetch("/discover?ip="+encodeURIComponent(ip)+"&port=80").then(x=>x.response);
+    if(!r.ok) throw new Error("NVR discovery HTTP "+r.status);
+    const d=await r.json(), device=d.devices?.[0];
+    if(!device) throw new Error("No Hikvision device responded at "+ip+". Check the IP, LAN/VLAN routing and Edge Agent access.");
+    discoveredDevices=[device]; renderDevices();
+    $("scanTitle").textContent="NVR added by IP"; $("scanText").textContent="Select the NVR to verify credentials and discover all camera channels."; $("scanStatus").textContent="FOUND";
+  } catch(e) {
+    $("scanStatus").textContent="ERROR"; $("scanTitle").textContent="NVR not reachable"; $("scanText").textContent=e.message||"Could not reach the Hikvision NVR.";
+  }
 }
 function renderDevices() {
   $("deviceList").innerHTML=discoveredDevices.map((d,i)=>`<button class="device-card" data-device="${i}"><div class="device-icon">N</div><div><strong>${escapeHTML(d.name||"Hikvision device")}</strong><span>${escapeHTML(d.ip||"Local device")} • ${escapeHTML(d.type||"Hikvision")}</span></div><b>SELECT</b></button>`).join("");
@@ -376,7 +395,7 @@ async function refreshCloudEvents() {
     if(!r.ok)return;
     const d=await r.json();
     if(Array.isArray(d.events)) {
-      const incoming=d.events.map(e=>({type:e.event,event:e.event,camera:e.camera_name,camera_name:e.camera_name,location:e.location,timestamp:e.timestamp,severity:e.severity,source:e.source,snapshot_available:e.snapshot_available}));
+      const incoming=d.events.map(e=>({type:e.event,event:e.event,camera:e.camera_name,camera_name:e.camera_name,location:e.location,timestamp:e.timestamp,severity:e.severity,source:e.source,snapshot_available:e.snapshot_available,snapshot_url:e.snapshot_url}));
       const incomingKeys=new Set(incoming.map(alertKey));
       const newEvents=incoming.filter(e=>!previousAlertKeys.has(alertKey(e)));
       if(previousAlertKeys.size) newEvents.slice(0,10).forEach(e=>{
@@ -394,16 +413,27 @@ async function refreshCloudEvents() {
   } catch(e) {}
 }
 async function refreshCloudStatus() {
-  // Use the same connection test as the main CHECK CONNECTION action.
-  // A background refresh must never use a different path and overwrite
-  // a valid Edge Agent state with a false WAITING state.
   await checkEdgeAgent();
+  try {
+    const r=await fetch(API_BASE_URL+"/api/portal/status?site_id="+encodeURIComponent(SITE_ID),{cache:"no-store"});
+    if(r.ok){
+      const d=await r.json();
+      if(Array.isArray(d.cameras) && d.cameras.length){
+        protectedCameras=d.cameras.map(c=>({
+          id:c.camera_id,name:c.camera_name,location:c.location,status:c.status||"ONLINE",
+          protection:"NEXUSAI PROTECTED",deviceId:c.device_id,channelId:c.channel_id
+        }));
+        safeStorageSet("nexusai_cameras",JSON.stringify(protectedCameras));
+        renderDashboard();
+      }
+    }
+  } catch(e) {}
 }
 function renderDashboard() {
   $("activeCameras").textContent=protectedCameras.length;
   $("eventCount").textContent=events.length;
   $("cameraList").innerHTML=protectedCameras.length?protectedCameras.map(c=>`<div class="camera-card"><div class="camera-top"><div class="camera-icon">◉</div><span class="online-badge">● ONLINE</span></div><h3>${escapeHTML(c.name)}</h3><p>${escapeHTML(c.location||"Site camera")}</p><div class="protected">✓ NEXUSAI PROTECTED</div></div>`).join(""):'<div class="empty-state">Complete self-installation to see your protected cameras.</div>';
-  $("eventList").innerHTML=events.length?events.slice(0,20).map(e=>`<div class="event-row"><span>◉</span><div><strong>${escapeHTML(e.type||"Security event")}</strong><small>${escapeHTML(e.camera||"NexusAI")}</small></div><time>${new Date(e.timestamp||Date.now()).toLocaleString()}</time></div>`).join(""):'<div class="empty-state">No security events yet.</div>';
+  $("eventList").innerHTML=events.length?events.slice(0,20).map(e=>`<div class="event-row"><span>◉</span><div><strong>${escapeHTML(e.type||"Security event")}</strong><small>${escapeHTML(e.camera||"NexusAI")} • ${escapeHTML(e.location||"Client site")} • ${escapeHTML(e.severity||"LOW")}</small>${e.snapshot_url?`<div style="margin-top:8px"><img src="${escapeHTML(API_BASE_URL+e.snapshot_url)}" alt="Security event snapshot" loading="lazy" style="width:180px;max-width:100%;border-radius:10px;border:1px solid rgba(111,239,201,.25)"></div>`:""}</div><time>${new Date(e.timestamp||Date.now()).toLocaleString()}</time></div>`).join(""):'<div class="empty-state">No security events yet.</div>';
 }
 function escapeHTML(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
 document.addEventListener("DOMContentLoaded",()=>{ try { init(); setInterval(refreshCloudStatus,10000); setInterval(refreshCloudEvents,5000); refreshCloudEvents(); } catch(e) { console.error("NexusAI portal initialization failed",e); document.body.innerHTML='<div style="min-height:100vh;background:#04080d;color:#f2f8fb;font-family:Arial,sans-serif;display:grid;place-items:center;padding:30px;text-align:center"><div><h1>NexusAI Portal</h1><p style="color:#9aabb8;margin-top:10px">The portal could not initialize. Refresh the page and try again.</p><p style="color:#ff7b88;margin-top:10px">Please do not enter your Hikvision password until the portal is working.</p></div></div>'; } });
