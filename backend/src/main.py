@@ -864,10 +864,22 @@ async def push_subscribe(request: PushSubscriptionRequest):
 
 @app.delete("/api/push/subscribe")
 async def push_unsubscribe(request: PushSubscriptionRequest):
+    if not verify_install_token(request.site_id, request.install_token):
+        raise HTTPException(status_code=403, detail="This NexusAI app installation is invalid or expired.")
     endpoint = str(request.subscription.get("endpoint", "")).strip()
     if not endpoint:
         raise HTTPException(status_code=400, detail="Push endpoint required.")
-    remove_push_subscription(endpoint)
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM nexusai_push_subscriptions WHERE endpoint=%s AND site_id=%s", (endpoint, request.site_id))
+                conn.commit()
+        else:
+            with _sqlite() as conn:
+                conn.execute("DELETE FROM nexusai_push_subscriptions WHERE endpoint=? AND site_id=?", (endpoint, request.site_id))
+                conn.commit()
     return {"unsubscribed": True}
 
 
