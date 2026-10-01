@@ -183,6 +183,14 @@ def init_db():
                         updated_at DOUBLE PRECISION NOT NULL
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS nexusai_site_codes (
+                        activation_code TEXT PRIMARY KEY,
+                        site_id TEXT NOT NULL UNIQUE,
+                        created_at DOUBLE PRECISION NOT NULL,
+                        last_used_at DOUBLE PRECISION
+                    )
+                """)
                 conn.commit()
     else:
         with _sqlite() as conn:
@@ -210,6 +218,12 @@ def init_db():
                     id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT NOT NULL,
                     endpoint TEXT NOT NULL UNIQUE, subscription_json TEXT NOT NULL,
                     created_at REAL NOT NULL, updated_at REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS nexusai_site_codes (
+                    activation_code TEXT PRIMARY KEY,
+                    site_id TEXT NOT NULL UNIQUE,
+                    created_at REAL NOT NULL,
+                    last_used_at REAL
                 );
             """)
             conn.commit()
@@ -644,6 +658,96 @@ async def nexusai_app_icon():
     return FileResponse(APP_DIR / "icon.svg", media_type="image/svg+xml")
 
 
+class SiteActivationRequest(BaseModel):
+    activation_code: str | None = Field(default=None, min_length=6, max_length=32)
+
+
+def _new_site_id() -> str:
+    return "site-" + secrets.token_urlsafe(12).replace("-", "").replace("_", "")
+
+
+def _new_activation_code() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "NEX-" + "".join(secrets.choice(alphabet) for _ in range(8))
+
+
+def create_or_resolve_site(activation_code: str | None = None) -> tuple[str, str]:
+    code = (activation_code or "").strip().upper()
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    if code:
+                        cur.execute("SELECT activation_code,site_id FROM nexusai_site_codes WHERE activation_code=%s", (code,))
+                        row = cur.fetchone()
+                        if not row:
+                            raise HTTPException(status_code=404, detail="Activation code not found.")
+                        cur.execute("UPDATE nexusai_site_codes SET last_used_at=%s WHERE activation_code=%s", (time.time(), code))
+                        conn.commit()
+                        return row[1], row[0]
+                    for _ in range(10):
+                        site_id = _new_site_id()
+                        new_code = _new_activation_code()
+                        try:
+                            cur.execute("INSERT INTO nexusai_site_codes (activation_code,site_id,created_at) VALUES(%s,%s,%s)", (new_code,site_id,time.time()))
+                            cur.execute("INSERT INTO nexusai_sites (site_id,status,agent_version,timestamp,received_at,cameras_json) VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT (site_id) DO NOTHING", (site_id,"WAITING","", "", time.time(), "[]"))
+                            conn.commit()
+                            return site_id, new_code
+                        except Exception:
+                            conn.rollback()
+                    raise HTTPException(status_code=500, detail="Could not create a NexusAI site. Please try again.")
+        else:
+            with _sqlite() as conn:
+                if code:
+                    row=conn.execute("SELECT activation_code,site_id FROM nexusai_site_codes WHERE activation_code=?", (code,)).fetchone()
+                    if not row:
+                        raise HTTPException(status_code=404, detail="Activation code not found.")
+                    conn.execute("UPDATE nexusai_site_codes SET last_used_at=? WHERE activation_code=?", (time.time(),code))
+                    conn.commit()
+                    return row[1], row[0]
+                for _ in range(10):
+                    site_id=_new_site_id()
+                    new_code=_new_activation_code()
+                    try:
+                        conn.execute("INSERT INTO nexusai_site_codes (activation_code,site_id,created_at) VALUES(?,?,?)", (new_code,site_id,time.time()))
+                        conn.execute("INSERT OR IGNORE INTO nexusai_sites (site_id,status,agent_version,timestamp,received_at,cameras_json) VALUES(?,?,?,?,?,?)", (site_id,"WAITING","", "", time.time(), "[]"))
+                        conn.commit()
+                        return site_id,new_code
+                    except sqlite3.IntegrityError:
+                        conn.rollback()
+            raise HTTPException(status_code=500, detail="Could not create a NexusAI site. Please try again.")
+
+
+@app.post("/api/portal/activate")
+async def portal_activate(request: SiteActivationRequest):
+    site_id, activation_code = create_or_resolve_site(request.activation_code)
+    return {"activated": True, "site_id": site_id, "activation_code": activation_code}
+
+
+@app.post("/api/push/activate")
+async def push_activate(request: SiteActivationRequest):
+    site_id, activation_code = create_or_resolve_site(request.activation_code)
+    if not request.activation_code:
+        raise HTTPException(status_code=400, detail="Enter the activation code shown on the NexusAI client portal.")
+    token = create_install_token(site_id)
+    return {"activated": True, "site_id": site_id, "activation_code": activation_code, "install_token": token}
+
+
+@app.get("/api/push/install-link")
+async def push_install_link(site_id: str = "site-demo", activation_code: str = ""):
+    if activation_code.strip():
+        site_id, _ = create_or_resolve_site(activation_code)
+    if not site_id or len(site_id) > 100:
+        raise HTTPException(status_code=400, detail="Invalid site ID.")
+    token = create_install_token(site_id)
+    return {
+        "site_id": site_id,
+        "url": f"/app/?site_id={quote(site_id)}&install_token={quote(token)}",
+        "expires_in": 86400,
+    }
+
+
 @app.get("/api/portal/snapshots/{event_id}")
 async def portal_snapshot(event_id:int,site_id:str):
     with DB_LOCK:
@@ -669,18 +773,6 @@ async def push_config():
     return {
         "configured": push_configured(),
         "public_key": os.getenv("NEXUSAI_VAPID_PUBLIC_KEY", "").strip(),
-    }
-
-
-@app.get("/api/push/install-link")
-async def push_install_link(site_id: str = "site-demo"):
-    if not site_id or len(site_id) > 100:
-        raise HTTPException(status_code=400, detail="Invalid site ID.")
-    token = create_install_token(site_id)
-    return {
-        "site_id": site_id,
-        "url": f"/app/?site_id={quote(site_id)}&install_token={quote(token)}",
-        "expires_in": 86400,
     }
 
 
