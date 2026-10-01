@@ -119,9 +119,7 @@ function bind() {
     catch (_) { $("copySiteCode").textContent="SELECT & COPY"; }
   };
   if ($("joinSiteBtn")) $("joinSiteBtn").onclick = joinExistingSite;
-  if ($("windowsInstallBtn")) $("windowsInstallBtn").onclick = () => downloadInstructions("Windows");
-  if ($("macInstallBtn")) $("macInstallBtn").onclick = () => downloadInstructions("macOS");
-}
+    }
 function showDashboard(){ $("dashboardScreen").classList.add("active"); renderDashboard(); checkEdgeAgent(); }
 function startInstall(){ show($("installPanel")); checkEdgeAgent(); $("installPanel").scrollIntoView({behavior:"smooth",block:"center"}); updateSteps(1); }
 async function downloadInstructions(os) {
@@ -242,8 +240,7 @@ async function checkEdgeAgent() {
       try {
         const health = await result.response.clone().json();
         const version = health?.version || "UNKNOWN";
-        if ($("edgeVersionBadge")) $("edgeVersionBadge").textContent = version === "1.8.0" ? "UP TO DATE" : "UPDATE REQUIRED";
-        if ($("edgeVersionText")) $("edgeVersionText").textContent = "Version " + version + (version === "1.8.0" ? " is installed. Notifications and the latest portal controls are available." : " is installed. Update to version 1.8.0 before testing notifications.");
+                if ($("edgeVersionText")) $("edgeVersionText").textContent = "Version " + version + (version === "1.8.0" ? " is installed. Notifications and the latest portal controls are available." : " is installed. Update to version 1.8.0 before testing notifications.");
       } catch (_) {}
     } else if (!localOk) {
       if ($("edgeVersionBadge")) $("edgeVersionBadge").textContent = "OFFLINE";
@@ -283,7 +280,7 @@ async function checkEdgeAgent() {
     } else {
       setInstallState(
         "NexusAI site is online",
-        "This device is not running the local Edge Agent. Use SHARE SITE to open this same site on another device, or use the site's Edge-Agent computer for Hikvision discovery."
+        "This device is connected to the NexusAI cloud site. The Edge Agent runs automatically on the site computer; this device does not need its own agent."
       );
     }
   }
