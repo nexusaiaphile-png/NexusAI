@@ -7,13 +7,14 @@ import logging
 import os
 import secrets
 import sqlite3
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -29,6 +30,9 @@ PUSH_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="nexusai-pu
 
 EDGE_SITES: dict[str, dict] = {}
 EDGE_EVENTS: list[dict] = []
+ACTIVATION_RATE: dict[str, list[float]] = {}
+ACTIVATION_RATE_LOCK = threading.Lock()
+SITE_ID_RE = re.compile(r"^site-[A-Za-z0-9._-]{6,100}$")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -597,6 +601,44 @@ def dispatch_push_alert(event: dict):
     logging.info("NexusAI push dispatch complete: %s/%s devices delivered.", delivered, len(futures))
 
 
+def validate_site_id(site_id: str) -> str:
+    value = str(site_id or "").strip()
+    if not SITE_ID_RE.fullmatch(value):
+        raise HTTPException(status_code=400, detail="Invalid NexusAI site ID.")
+    return value
+
+
+def require_site_access(site_id: str, activation_code: str | None = None):
+    site_id = validate_site_id(site_id)
+    code = (activation_code or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=401, detail="NexusAI site activation code required.")
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1 FROM nexusai_site_codes WHERE activation_code=%s AND site_id=%s", (code, site_id))
+                    ok = cur.fetchone() is not None
+        else:
+            with _sqlite() as conn:
+                ok = conn.execute("SELECT 1 FROM nexusai_site_codes WHERE activation_code=? AND site_id=?", (code, site_id)).fetchone() is not None
+    if not ok:
+        raise HTTPException(status_code=403, detail="Invalid NexusAI site activation code.")
+    return site_id
+
+
+def allow_activation_attempt(request: Request):
+    host = request.client.host if request.client else "unknown"
+    now = time.time()
+    with ACTIVATION_RATE_LOCK:
+        attempts = [t for t in ACTIVATION_RATE.get(host, []) if now - t < 600]
+        if len(attempts) >= 30:
+            raise HTTPException(status_code=429, detail="Too many activation attempts. Please wait and try again.")
+        attempts.append(now)
+        ACTIVATION_RATE[host] = attempts
+
+
 def require_edge_token(token: str | None, authorization: str | None = None):
     expected = os.getenv("NEXUSAI_EDGE_TOKEN", "").strip()
     if not expected:
@@ -720,24 +762,26 @@ def create_or_resolve_site(activation_code: str | None = None) -> tuple[str, str
 
 
 @app.post("/api/portal/activate")
-async def portal_activate(request: SiteActivationRequest):
+async def portal_activate(request: SiteActivationRequest, http_request: Request):
+    allow_activation_attempt(http_request)
     site_id, activation_code = create_or_resolve_site(request.activation_code)
     return {"activated": True, "site_id": site_id, "activation_code": activation_code}
 
 
 @app.post("/api/push/activate")
-async def push_activate(request: SiteActivationRequest):
-    site_id, activation_code = create_or_resolve_site(request.activation_code)
+async def push_activate(request: SiteActivationRequest, http_request: Request):
+    allow_activation_attempt(http_request)
     if not request.activation_code:
         raise HTTPException(status_code=400, detail="Enter the activation code shown on the NexusAI client portal.")
+    site_id, activation_code = create_or_resolve_site(request.activation_code)
     token = create_install_token(site_id)
     return {"activated": True, "site_id": site_id, "activation_code": activation_code, "install_token": token}
 
 
 @app.get("/api/push/install-link")
-async def push_install_link(site_id: str = "site-demo", activation_code: str = ""):
-    if activation_code.strip():
-        site_id, _ = create_or_resolve_site(activation_code)
+async def push_install_link(site_id: str = "", activation_code: str = "", x_nexusai_site_code: str | None = Header(default=None)):
+    site_id = validate_site_id(site_id)
+    require_site_access(site_id, activation_code or x_nexusai_site_code)
     if not site_id or len(site_id) > 100:
         raise HTTPException(status_code=400, detail="Invalid site ID.")
     token = create_install_token(site_id)
@@ -749,7 +793,8 @@ async def push_install_link(site_id: str = "site-demo", activation_code: str = "
 
 
 @app.get("/api/portal/snapshots/{event_id}")
-async def portal_snapshot(event_id:int,site_id:str):
+async def portal_snapshot(event_id:int,site_id:str,access_code:str=""):
+    require_site_access(site_id, access_code)
     with DB_LOCK:
         if database_url():
             import psycopg
@@ -765,7 +810,8 @@ async def portal_snapshot(event_id:int,site_id:str):
     return Response(content=bytes(row[2]),media_type=row[0] or "image/jpeg",headers={"Cache-Control":"private, max-age=300","Content-Disposition":f'inline; filename="{row[1] or "snapshot.jpg"}"'})
 
 @app.get("/api/portal/cameras")
-async def portal_cameras(site_id:str="site-demo"):
+async def portal_cameras(site_id:str="", x_nexusai_site_code: str | None = Header(default=None)):
+    site_id = require_site_access(site_id, x_nexusai_site_code)
     return {"site_id":site_id,"cameras":load_cameras(site_id)}
 
 @app.get("/api/push/config")
@@ -912,7 +958,8 @@ async def edge_event(
 
 
 @app.get("/api/portal/status")
-async def portal_status(site_id: str = "site-demo"):
+async def portal_status(site_id: str = "", x_nexusai_site_code: str | None = Header(default=None)):
+    site_id = require_site_access(site_id, x_nexusai_site_code)
     site = EDGE_SITES.get(site_id)
     if not site:
         site = load_site(site_id)
@@ -929,7 +976,9 @@ async def portal_status(site_id: str = "site-demo"):
 
 
 @app.get("/api/portal/events")
-async def portal_events(site_id: str = "site-demo", limit: int = 50):
+async def portal_events(site_id: str = "", limit: int = 50, x_nexusai_site_code: str | None = Header(default=None)):
+    site_id = require_site_access(site_id, x_nexusai_site_code)
+    limit = max(1, min(int(limit), 100))
     return {"site_id": site_id, "events": load_events(site_id, limit)}
 
 
