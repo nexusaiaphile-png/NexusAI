@@ -386,25 +386,9 @@ async function protectSelected() {
 }
 
 async function installNexusApp() {
-  const button=$("installNexusAppBtn");
   const instructions=$("nexusAppInstructions");
-  if(button){button.disabled=true;button.textContent="CREATING SECURE INSTALL LINK…";}
-  try{
-    const r=await fetch(API_BASE_URL+"/api/push/install-link?site_id="+encodeURIComponent(SITE_ID),{cache:"no-store"});
-    const d=await r.json();
-    if(!r.ok) throw new Error(d.detail||"Could not create the NexusAI app installation link.");
-    const url=new URL(d.url,API_BASE_URL).toString();
-    if(instructions) instructions.innerHTML="<strong>NexusAI app link ready.</strong> Open this link on the client phone. Install NexusAI, then enable Security Alerts. This link is signed to this protected site and expires in 24 hours.";
-    if(navigator.share){
-      try{await navigator.share({title:"NexusAI",text:"Install the official NexusAI security alert app",url});}catch(_){window.open(url,"_blank","noopener");}
-    }else{
-      window.open(url,"_blank","noopener");
-    }
-  }catch(e){
-    if(instructions) instructions.innerHTML="<strong>Installation link failed.</strong> "+escapeHTML(e.message||"Try again.");
-  }finally{
-    if(button){button.disabled=false;button.textContent="INSTALL NEXUSAI APP";}
-  }
+  if(instructions) instructions.innerHTML="<strong>Mobile activation.</strong> Open getnexusai.co.za on the customer phone, choose MOBILE ACTIVATION, enter site code <b>"+escapeHTML(ACTIVATION_CODE)+"</b>, then enable Security Alerts. No link from NexusAI is required.";
+  window.open(API_BASE_URL+"/app/","_blank","noopener");
 }
 
 function alertKey(e) {
