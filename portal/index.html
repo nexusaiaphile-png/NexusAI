@@ -33,7 +33,7 @@
   <section id="installPanel" class="panel install-panel">
     <div class="install-icon">N</div>
     <div><p class="eyebrow">NEXUSAI LOCAL SECURITY SERVICE</p><h2>Connect your site</h2><p>The local NexusAI service is the hidden network bridge between your Hikvision system and NexusAI Cloud. You do not need to configure network addresses or camera software.</p></div>
-    <div class="install-code"><span>SITE CODE</span><strong id="siteCode">GENERATING…</strong><button id="copySiteCode" class="secondary-btn">COPY</button></div>
+    <div class="install-code"><span>SITE CODE</span><strong id="siteCode">GENERATING…</strong><button id="copySiteCode" class="secondary-btn">COPY</button><button id="shareSiteBtn" class="secondary-btn">SHARE SITE</button></div>
     <div class="notice"><strong id="connectionTitle">Checking local connection…</strong><span id="connectionText">NexusAI is checking whether the local security service is available on this network.</span></div>
     <button id="checkAgentBtn" class="primary-btn wide-btn">CONNECT TO LOCAL SECURITY SERVICE</button>
   </section>
@@ -81,8 +81,8 @@
     </div>
   </section>
 
-  <section id="discoveryPanel" class="panel hidden">
-    <div class="panel-header"><div><p class="eyebrow">STEP 2 • LOCAL DISCOVERY</p><h2>Find your Hikvision system</h2><p class="muted">NexusAI scans the local network through its background security service and shows compatible Hikvision equipment found there.</p></div><span id="scanStatus" class="badge">WAITING</span></div>
+  <section id="discoveryPanel" class="panel">
+    <div class="panel-header"><div><p class="eyebrow">STEP 2 • LOCAL DISCOVERY</p><h2>Find your Hikvision system</h2><p class="muted">NexusAI shows the cameras already connected to this site from the cloud. Local Hikvision discovery requires the Edge Agent on a computer that can reach the CCTV network; other devices can view and manage the same site without installing the agent.</p></div><span id="scanStatus" class="badge">WAITING</span></div>
     <div class="scan-box"><div id="scanRing">N</div><h3 id="scanTitle">Ready to scan</h3><p id="scanText">The Edge Agent can scan the local CCTV network. For VLANs or isolated CCTV networks, enter the subnet or NVR address below.</p><button id="scanBtn" class="primary-btn">SCAN MY NETWORK</button>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px;text-align:left">
         <div><label>CCTV subnet (optional)</label><input id="scanSubnet" placeholder="e.g. 10.20.10.0/24"></div>
