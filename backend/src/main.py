@@ -714,6 +714,19 @@ async def nexusai_app_icon():
     return FileResponse(APP_DIR / "icon.svg", media_type="image/svg+xml")
 
 
+EDGE_AGENT_DIR = BASE_DIR / "edge_agent"
+
+
+@app.get("/downloads/edge-agent/agent.py", include_in_schema=False)
+async def download_edge_agent_source():
+    return FileResponse(EDGE_AGENT_DIR / "agent.py", media_type="text/x-python", headers={"Cache-Control":"no-store"})
+
+
+@app.get("/downloads/edge-agent/requirements.txt", include_in_schema=False)
+async def download_edge_agent_requirements():
+    return FileResponse(EDGE_AGENT_DIR / "requirements.txt", media_type="text/plain", headers={"Cache-Control":"no-store"})
+
+
 class SiteActivationRequest(BaseModel):
     activation_code: str | None = Field(default=None, min_length=6, max_length=32)
 
