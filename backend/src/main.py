@@ -651,14 +651,15 @@ def site_edge_token(site_id: str) -> str:
 def require_edge_token(token: str | None, authorization: str | None = None, site_id: str | None = None):
     bearer = authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else ""
     supplied = token or bearer
-    if site_id and supplied:
-        expected_site = site_edge_token(site_id)
+    secret = os.getenv("NEXUSAI_APP_LINK_SECRET", "").strip()
+    if site_id and secret and supplied:
+        expected_site = hmac.new(secret.encode(), ("nexusai-edge:" + validate_site_id(site_id)).encode(), hashlib.sha256).hexdigest()
         if secrets.compare_digest(supplied, expected_site):
             return
     expected = os.getenv("NEXUSAI_EDGE_TOKEN", "").strip()
     if expected and supplied and secrets.compare_digest(supplied, expected):
         return
-    if not expected and not site_id:
+    if not expected and not secret:
         raise HTTPException(status_code=503, detail="NexusAI Edge Agent authentication is not configured.")
     raise HTTPException(status_code=401, detail="Invalid NexusAI Edge Agent token.")
 
