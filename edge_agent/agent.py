@@ -10,10 +10,12 @@ import concurrent.futures
 import threading
 import re
 import ssl
+import sys
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import parse_qs
 
 import requests
 from requests.auth import HTTPDigestAuth
@@ -23,18 +25,22 @@ load_dotenv()
 
 API_BASE_URL = os.getenv("NEXUSAI_API_URL", "https://getnexusai.co.za").rstrip("/")
 EDGE_AGENT_TOKEN = os.getenv("NEXUSAI_EDGE_TOKEN", "")
-EDGE_AGENT_VERSION = "1.9.0"
+EDGE_AGENT_VERSION = "1.9.1"
 MAX_MONITORS = int(os.getenv("NEXUSAI_MAX_MONITORS", "32"))
 SNAPSHOT_MAX_BYTES = int(os.getenv("NEXUSAI_SNAPSHOT_MAX_BYTES", str(2 * 1024 * 1024)))
 SCAN_SUBNETS = [x.strip() for x in os.getenv("NEXUSAI_SCAN_SUBNETS", "").split(",") if x.strip()]
 SITE_ID = os.getenv("NEXUSAI_SITE_ID", "site-unknown")
 HEARTBEAT_SECONDS = int(os.getenv("HEARTBEAT_SECONDS", "30"))
 RECONNECT_SECONDS = int(os.getenv("RECONNECT_SECONDS", "10"))
+AUTO_UPDATE = os.getenv("NEXUSAI_AUTO_UPDATE", "true").strip().lower() in {"1","true","yes","on"}
+UPDATE_CHECK_SECONDS = max(300, int(os.getenv("NEXUSAI_UPDATE_CHECK_SECONDS", "900")))
+UPDATE_BASE_URL = os.getenv("NEXUSAI_UPDATE_BASE_URL", "https://getnexusai.co.za").rstrip("/")
 SNAPSHOT_DIR = Path(os.getenv("SNAPSHOT_DIR", "snapshots"))
 LOG_FILE = os.getenv("LOG_FILE", "nexusai_edge.log")
-LOCAL_AGENT_HOST = os.getenv("LOCAL_AGENT_HOST", "0.0.0.0")
+LOCAL_AGENT_HOST = os.getenv("LOCAL_AGENT_HOST", "127.0.0.1")
 LOCAL_AGENT_PORT = int(os.getenv("LOCAL_AGENT_PORT", "8787"))
 SITE_CONFIG_PATH = Path(os.getenv("SITE_CONFIG_PATH", str(Path.home() / ".nexusai_site.json")))
+LOCAL_ALLOWED_ORIGINS = {"https://getnexusai.co.za", "https://www.getnexusai.co.za"}
 
 # Load a locally persisted site pairing so an Edge Agent restart does not reset the site.
 try:
@@ -445,128 +451,113 @@ def monitor_device(cfg, channels=None):
     return True,"MONITORING_STARTED"
 
 class LocalAgentHandler(BaseHTTPRequestHandler):
+    MAX_BODY_BYTES = 256 * 1024
+
+    def _origin_allowed(self):
+        origin = self.headers.get("Origin", "")
+        return not origin or origin in LOCAL_ALLOWED_ORIGINS
+
+    def _local_request_allowed(self):
+        host = (self.client_address[0] if self.client_address else "").split("%", 1)[0]
+        return host in {"127.0.0.1", "::1", "localhost"}
+
     def _send_json(self, status, payload):
-        body = json.dumps(payload).encode("utf-8"); self.send_response(status)
-        self.send_header("Content-Type", "application/json"); self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type"); self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Private-Network", "true"); self.send_header("Content-Length", str(len(body)))
-        self.end_headers(); self.wfile.write(body)
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        if self._origin_allowed():
+            self.send_header("Access-Control-Allow-Origin", self.headers.get("Origin") or "https://getnexusai.co.za")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-NexusAI-Local")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Private-Network", "true")
+        self.send_header("Vary", "Origin")
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
+        self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        if not self._local_request_allowed() or not self._origin_allowed():
+            self.send_response(403); self.end_headers(); return
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", self.headers.get("Origin") or "https://getnexusai.co.za")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-NexusAI-Local")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Vary", "Origin")
+        self.end_headers()
+
     def do_GET(self):
+        if not self._local_request_allowed() or not self._origin_allowed():
+            self._send_json(403, {"error":"Local Edge Agent access is restricted to the site computer."}); return
         path, _, query = self.path.partition("?")
         if path == "/health":
-            self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","version":"1.9.0","site_id":SITE_ID}); return
-        if path == "/pair/qr":
-            if not local_access_allowed(self):
-                self._send_json(403, {"error":"QR generation is only allowed from the Edge Agent computer"}); return
-            token = query.split("token=", 1)[1] if "token=" in query else ""
-            if not valid_pair_token(token):
-                self._send_json(400, {"error":"Pairing code is invalid or expired"}); return
-            mobile_url = local_access_urls()[0] + "/mobile?token=" + token
-            image = qrcode.make(mobile_url)
-            buf = io.BytesIO()
-            image.save(buf, format="PNG")
-            body = buf.getvalue()
-            self.send_response(200)
-            self.send_header("Content-Type","image/png")
-            self.send_header("Cache-Control","no-store")
-            self.send_header("Content-Length",str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
-        if path == "/pair/start":
-            if not local_access_allowed(self):
-                self._send_json(403, {"error":"Pairing QR generation is only allowed from the Edge Agent computer"}); return
-            token = create_pair_token()
-            urls = local_access_urls()
-            mobile_url = urls[0] + "/mobile?token=" + token
-            image = qrcode.make(mobile_url)
-            buf = io.BytesIO()
-            image.save(buf, format="PNG")
-            import base64
-            qr_data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
-            self._send_json(200, {"service":"NexusAI Edge Agent","site_id":SITE_ID,"expires_in":PAIR_TTL_SECONDS,
-                                  "agent_urls":urls,"mobile_url":mobile_url,"qr_data_url":qr_data_url}); return
-        if path == "/mobile":
-            mobile_path = Path(__file__).resolve().parent / "mobile.html"
-            if not mobile_path.exists():
-                self._send_json(404, {"error":"Mobile activation page is not installed"}); return
-            body = mobile_path.read_bytes()
-            self.send_response(200); self.send_header("Content-Type","text/html; charset=utf-8")
-            self.send_header("Cache-Control","no-store"); self.send_header("Content-Length",str(len(body))); self.end_headers()
-            self.wfile.write(body); return
+            self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","version":EDGE_AGENT_VERSION,"site_id":SITE_ID}); return
         if path == "/pair/status":
             self._send_json(200, {"service":"NexusAI Edge Agent","site_id":SITE_ID,"status":"ONLINE"}); return
         if path == "/inventory":
-            if not local_access_allowed(self):
-                self._send_json(403, {"error":"Local Edge Agent access required"}); return
             self._send_json(200, local_inventory()); return
         if path == "/discover":
-            if not local_access_allowed(self):
-                self._send_json(403, {"error":"Local Edge Agent access required"}); return
-            params = {}
-            for part in query.split("&"):
-                if "=" in part:
-                    key, value = part.split("=", 1)
-                    params[key] = value
+            params = {k:v[0] for k,v in parse_qs(query, keep_blank_values=True).items()}
             devices = discover_local_devices(params.get("subnet"), params.get("ip"), params.get("port"))
             self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","network":"LOCAL_ONLY","subnets":[str(x) for x in resolve_scan_networks(params.get("subnet"))],"devices":devices}); return
         self._send_json(404, {"error":"Not found"})
+
     def do_POST(self):
         global SITE_ID
         try:
-            length = int(self.headers.get("Content-Length","0")); payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not self._local_request_allowed() or not self._origin_allowed():
+                self._send_json(403, {"error":"Local Edge Agent access is restricted to the site computer."}); return
+            length = int(self.headers.get("Content-Length","0"))
+            if length <= 0 or length > self.MAX_BODY_BYTES:
+                self._send_json(413, {"error":"Request body is missing or too large."}); return
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
             if self.path == "/configure":
-                if not local_access_allowed(self):
-                    self._send_json(403, {"error":"Site configuration is only allowed from the Edge Agent computer"}); return
                 site_id = str(payload.get("site_id","")).strip()
-                if not site_id or len(site_id) > 100: self._send_json(400, {"error":"Valid site ID required"}); return
+                if not re.match(r"^site-[A-Za-z0-9._-]{6,100}$", site_id):
+                    self._send_json(400, {"error":"Valid NexusAI site ID required"}); return
                 SITE_ID = site_id
-                try:
-                    SITE_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-                    temp_path = SITE_CONFIG_PATH.with_suffix(".tmp")
-                    temp_path.write_text(json.dumps({"site_id": SITE_ID}), encoding="utf-8")
-                    temp_path.replace(SITE_CONFIG_PATH)
-                except OSError as exc:
-                    logging.exception("Could not persist site configuration: %s", exc)
-                    self._send_json(500, {"error":"Site pairing could not be saved locally"})
-                    return
+                SITE_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+                temp_path = SITE_CONFIG_PATH.with_suffix(".tmp")
+                temp_path.write_text(json.dumps({"site_id":SITE_ID}), encoding="utf-8")
+                temp_path.replace(SITE_CONFIG_PATH)
                 self._send_json(200, {"configured":True,"site_id":SITE_ID}); return
             if self.path not in ("/verify","/activate"):
                 self._send_json(404, {"error":"Not found"}); return
-            if not local_access_allowed(self):
-                self._send_json(403, {"error":"Camera activation must be performed from the local NexusAI portal computer"}); return
             required = ["camera_name","camera_ip","camera_port","username","password","location"]
             if any(not payload.get(key) for key in required):
                 self._send_json(400, {"error":"All camera/NVR details are required"}); return
-            cfg = {"camera_id":payload.get("camera_id",f"camera-{int(time.time())}"),"camera_name":str(payload["camera_name"]),
-                   "camera_ip":str(payload["camera_ip"]),"camera_port":int(payload["camera_port"]),
-                   "username":str(payload["username"]),"password":str(payload["password"]),"location":str(payload["location"]),
-                   "snapshot_channel":str(payload.get("snapshot_channel","101"))}
-            requested_channels = payload.get("channels") or []
-            if not isinstance(requested_channels, list):
-                self._send_json(400, {"error":"channels must be a list"}); return
-            result = verify_camera(cfg)
+            try:
+                camera_port=int(payload["camera_port"]); ipaddress.ip_address(str(payload["camera_ip"]))
+                if not 1 <= camera_port <= 65535: raise ValueError
+            except ValueError:
+                self._send_json(400, {"error":"Invalid camera IP address or port"}); return
+            cfg={"camera_id":payload.get("camera_id",f"camera-{int(time.time())}"),"camera_name":str(payload["camera_name"])[:200],"camera_ip":str(payload["camera_ip"]),"camera_port":camera_port,"username":str(payload["username"])[:128],"password":str(payload["password"]),"location":str(payload["location"])[:200],"snapshot_channel":str(payload.get("snapshot_channel","101"))[:32]}
+            requested_channels=payload.get("channels") or []
+            if not isinstance(requested_channels,list) or len(requested_channels)>256:
+                self._send_json(400, {"error":"channels must be a list with at most 256 entries"}); return
+            result=verify_camera(cfg)
             if result.get("verified"):
                 if self.path == "/activate":
-                    available = result.get("channels") or []
+                    available=result.get("channels") or []
                     if requested_channels:
-                        allowed = {str(x.get("channel_id")) for x in requested_channels if isinstance(x, dict)}
-                        result["channels"] = [x for x in available if str(x.get("channel_id")) in allowed]
-                    started, monitor_status = monitor_device(cfg,result.get("channels")); result["monitoring"]=monitor_status; result["monitoring_started"]=started
+                        allowed={str(x.get("channel_id")) for x in requested_channels if isinstance(x,dict)}
+                        result["channels"]=[x for x in available if str(x.get("channel_id")) in allowed]
+                    if not result.get("channels"):
+                        self._send_json(400, {"error":"No camera channels were selected."}); return
+                    started,monitor_status=monitor_device(cfg,result.get("channels")); result["monitoring"]=monitor_status; result["monitoring_started"]=started
                     heartbeat(cfg,result)
                 post_backend("/api/edge/verify", {"site_id":SITE_ID,**result})
             self._send_json(200,result)
-        except (ValueError,json.JSONDecodeError) as exc: self._send_json(400,{"error":f"Invalid request: {exc}"})
+        except (ValueError,json.JSONDecodeError) as exc:
+            self._send_json(400,{"error":f"Invalid request: {exc}"})
         except Exception:
             logging.exception("Local verification API error"); self._send_json(500,{"error":"Edge Agent verification failed"})
-    def log_message(self,format,*args): logging.info("Local API: "+format,*args)
+
+    def log_message(self, format, *args):
+        logging.info("Local API: " + format, *args)
 
 def local_inventory():
     """Return real, authorized local security-service state for the portal/diagnostics."""
@@ -587,6 +578,49 @@ def start_local_api():
     threading.Thread(target=server.serve_forever,daemon=True,name="nexusai-local-api").start()
     return server
 
+def _version_tuple(value):
+    match = re.search(r"(\\d+)\\.(\\d+)\\.(\\d+)", str(value or ""))
+    return tuple(int(x) for x in match.groups()) if match else (0, 0, 0)
+
+
+def check_for_agent_update():
+    if not AUTO_UPDATE or getattr(sys, "frozen", False):
+        return False
+    try:
+        source_path = Path(__file__).resolve()
+        if not source_path.exists() or not os.access(source_path, os.W_OK):
+            logging.info("Automatic update skipped: Edge Agent installation is not writable.")
+            return False
+        response = requests.get(f"{UPDATE_BASE_URL}/downloads/edge-agent/agent.py", timeout=20)
+        response.raise_for_status()
+        remote = response.text
+        if len(remote) > 2 * 1024 * 1024:
+            raise ValueError("Remote Edge Agent update is unexpectedly large.")
+        compile(remote, "nexusai-edge-agent-update", "exec")
+        match = re.search(r'EDGE_AGENT_VERSION\\s*=\\s*"([^"]+)"', remote)
+        remote_version = match.group(1) if match else ""
+        if not remote_version or _version_tuple(remote_version) <= _version_tuple(EDGE_AGENT_VERSION):
+            return False
+        temp_path = source_path.with_suffix(".update")
+        temp_path.write_text(remote, encoding="utf-8")
+        os.replace(temp_path, source_path)
+        logging.info("NexusAI Edge Agent updated from %s to %s; restarting.", EDGE_AGENT_VERSION, remote_version)
+        os.execv(sys.executable, [sys.executable, str(source_path)])
+        return True
+    except Exception as exc:
+        logging.warning("Automatic Edge Agent update check failed: %s", exc)
+        return False
+
+
+def auto_update_loop():
+    while True:
+        time.sleep(UPDATE_CHECK_SECONDS)
+        try:
+            check_for_agent_update()
+        except Exception:
+            logging.exception("NexusAI automatic update loop failed")
+
+
 def heartbeat_loop():
     while True:
         try: heartbeat()
@@ -598,6 +632,7 @@ def main():
     print(f"Site: {SITE_ID}"); print(f"Backend: {API_BASE_URL}"); print(f"Version: {EDGE_AGENT_VERSION}"); print("="*60)
     start_local_api()
     threading.Thread(target=heartbeat_loop,daemon=True,name="nexusai-aggregate-heartbeat").start()
+    threading.Thread(target=auto_update_loop,daemon=True,name="nexusai-auto-updater").start()
     cfg=camera_config()
     if all([cfg["camera_ip"],cfg["username"],cfg["password"]]):
         verification=verify_camera(cfg)
