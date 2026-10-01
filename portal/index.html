@@ -33,8 +33,13 @@
   <section id="installPanel" class="panel install-panel">
     <div class="install-icon">N</div>
     <div><p class="eyebrow">NEXUSAI LOCAL SECURITY SERVICE</p><h2>Connect your site</h2><p>The local NexusAI service is the hidden network bridge between your Hikvision system and NexusAI Cloud. You do not need to configure network addresses or camera software.</p></div>
-    <div class="install-code"><span>SITE CODE</span><strong id="siteCode">GENERATING…</strong><button id="copySiteCode" class="secondary-btn">COPY</button><button id="shareSiteBtn" class="secondary-btn">SHARE SITE</button></div>
-    <div class="notice"><strong id="connectionTitle">Checking local connection…</strong><span id="connectionText">NexusAI is checking whether the local security service is available on this network.</span></div>
+    <div class="install-code"><span>SITE CODE</span><strong id="siteCode">GENERATING…</strong><button id="copySiteCode" class="secondary-btn">COPY CODE</button></div>
+    <div class="notice"><strong id="connectionTitle">Checking site activation…</strong><span id="connectionText">NexusAI is creating or restoring this customer site automatically.</span></div>
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;margin-top:14px">
+      <input id="joinSiteCode" placeholder="Enter existing site activation code" autocomplete="off" autocapitalize="characters">
+      <button id="joinSiteBtn" class="secondary-btn">ACTIVATE THIS DEVICE</button>
+    </div>
+    <p class="muted" style="margin:10px 0 0">The activation code connects another computer or phone to this same customer site. No NexusAI link needs to be shared.</p>
     <button id="checkAgentBtn" class="primary-btn wide-btn">CONNECT TO LOCAL SECURITY SERVICE</button>
   </section>
 
@@ -49,13 +54,13 @@
     </div>
     <div class="notice">
       <strong>NexusAI Alert App</strong>
-      <span>Install the official NexusAI app from this client portal and link it to this protected site. NexusAI push notifications are the only mobile alert channel.</span>
+      <span>Install NexusAI on the customer phone and activate it with the site activation code. No installation link needs to be shared.</span>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
       <button id="installNexusAppBtn" class="primary-btn">INSTALL NEXUSAI APP</button>
     </div>
     <div id="nexusAppInstructions" class="result-box" style="margin-top:16px">
-      <strong>Phone:</strong> tap INSTALL NEXUSAI APP. Open the secure installation link on the client phone, install NexusAI, then enable Security Alerts. On iPhone/iPad use Share → Add to Home Screen.
+      <strong>Phone:</strong> open getnexusai.co.za on the customer phone, enter the site activation code, then install NexusAI and enable Security Alerts. On iPhone/iPad use Share → Add to Home Screen.
     </div>
   </section>
 
@@ -124,6 +129,6 @@
   <section class="panel"><div class="panel-header"><div><p class="eyebrow">SECURITY MONITORING</p><h2>Recent Events</h2></div><span class="live">● LIVE</span></div><div id="eventList" class="event-list"><div class="empty-state">No security events yet.</div></div></section>
 </main>
 </section>
-<script src="app.js?v=20260929-23"></script>
+<script src="app.js?v=20261001-1"></script>
 </body>
 </html>
