@@ -35,6 +35,8 @@ let events = loadArray("nexusai_events");
 let previousAlertKeys = new Set();
 let panelAlerts = loadArray("nexusai_panel_alerts");
 let browserAlertsEnabled = false;
+function siteHeaders(extra = {}) { return ACTIVATION_CODE ? {"X-NexusAI-Site-Code": ACTIVATION_CODE, ...extra} : extra; }
+function siteFetch(url, options = {}) { return fetch(url, {...options, headers: siteHeaders(options.headers || {})}); }
 
 function loadArray(key) {
   try {
@@ -56,8 +58,7 @@ function updateSteps(step) {
 async function ensureSiteActivation() {
   if (SITE_ID && /^site-[A-Za-z0-9._-]{6,100}$/.test(SITE_ID) && ACTIVATION_CODE) return true;
   if (SITE_ID && /^site-[A-Za-z0-9._-]{6,100}$/.test(SITE_ID)) {
-    const status = await fetch(API_BASE_URL + "/api/portal/status?site_id=" + encodeURIComponent(SITE_ID), {cache:"no-store"}).catch(() => null);
-    if (status?.ok) return true;
+    return true;
   }
   const response = await fetch(API_BASE_URL + "/api/portal/activate", {
     method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"
@@ -240,10 +241,9 @@ async function checkEdgeAgent() {
       try {
         const health = await result.response.clone().json();
         const version = health?.version || "UNKNOWN";
-                if ($("edgeVersionText")) $("edgeVersionText").textContent = "Version " + version + (version === "1.8.0" ? " is installed. Notifications and the latest portal controls are available." : " is installed. Update to version 1.8.0 before testing notifications.");
+        if ($("edgeVersionText")) $("edgeVersionText").textContent = "Version " + version + " is running.";
       } catch (_) {}
     } else if (!localOk) {
-      if ($("edgeVersionBadge")) $("edgeVersionBadge").textContent = "OFFLINE";
       if ($("edgeVersionText")) $("edgeVersionText").textContent = "The local Edge Agent could not be reached.";
       localError = "Edge Agent returned HTTP " + result.response.status + ".";
     }
@@ -425,7 +425,7 @@ function clearPanelAlerts() {
 }
 async function refreshCloudEvents() {
   try {
-    const r=await fetch(API_BASE_URL+"/api/portal/events?site_id="+encodeURIComponent(SITE_ID)+"&limit=50",{cache:"no-store"});
+    const r=await siteFetch(API_BASE_URL+"/api/portal/events?site_id="+encodeURIComponent(SITE_ID)+"&limit=50",{cache:"no-store"});
     if(!r.ok)return;
     const d=await r.json();
     if(Array.isArray(d.events)) {
@@ -449,7 +449,7 @@ async function refreshCloudEvents() {
 async function refreshCloudStatus() {
   await checkEdgeAgent();
   try {
-    const r=await fetch(API_BASE_URL+"/api/portal/status?site_id="+encodeURIComponent(SITE_ID),{cache:"no-store"});
+    const r=await siteFetch(API_BASE_URL+"/api/portal/status?site_id="+encodeURIComponent(SITE_ID),{cache:"no-store"});
     if(r.ok){
       const d=await r.json();
       if(Array.isArray(d.cameras) && d.cameras.length){
