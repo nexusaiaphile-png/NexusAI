@@ -10,6 +10,7 @@ import concurrent.futures
 import threading
 import re
 import ssl
+import sys
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timezone
@@ -31,6 +32,9 @@ SCAN_SUBNETS = [x.strip() for x in os.getenv("NEXUSAI_SCAN_SUBNETS", "").split("
 SITE_ID = os.getenv("NEXUSAI_SITE_ID", "site-unknown")
 HEARTBEAT_SECONDS = int(os.getenv("HEARTBEAT_SECONDS", "30"))
 RECONNECT_SECONDS = int(os.getenv("RECONNECT_SECONDS", "10"))
+AUTO_UPDATE = os.getenv("NEXUSAI_AUTO_UPDATE", "true").strip().lower() in {"1","true","yes","on"}
+UPDATE_CHECK_SECONDS = max(300, int(os.getenv("NEXUSAI_UPDATE_CHECK_SECONDS", "900")))
+UPDATE_BASE_URL = os.getenv("NEXUSAI_UPDATE_BASE_URL", "https://getnexusai.co.za").rstrip("/")
 SNAPSHOT_DIR = Path(os.getenv("SNAPSHOT_DIR", "snapshots"))
 LOG_FILE = os.getenv("LOG_FILE", "nexusai_edge.log")
 LOCAL_AGENT_HOST = os.getenv("LOCAL_AGENT_HOST", "127.0.0.1")
@@ -574,6 +578,49 @@ def start_local_api():
     threading.Thread(target=server.serve_forever,daemon=True,name="nexusai-local-api").start()
     return server
 
+def _version_tuple(value):
+    match = re.search(r"(\\d+)\\.(\\d+)\\.(\\d+)", str(value or ""))
+    return tuple(int(x) for x in match.groups()) if match else (0, 0, 0)
+
+
+def check_for_agent_update():
+    if not AUTO_UPDATE or getattr(sys, "frozen", False):
+        return False
+    try:
+        source_path = Path(__file__).resolve()
+        if not source_path.exists() or not os.access(source_path, os.W_OK):
+            logging.info("Automatic update skipped: Edge Agent installation is not writable.")
+            return False
+        response = requests.get(f"{UPDATE_BASE_URL}/downloads/edge-agent/agent.py", timeout=20)
+        response.raise_for_status()
+        remote = response.text
+        if len(remote) > 2 * 1024 * 1024:
+            raise ValueError("Remote Edge Agent update is unexpectedly large.")
+        compile(remote, "nexusai-edge-agent-update", "exec")
+        match = re.search(r'EDGE_AGENT_VERSION\\s*=\\s*"([^"]+)"', remote)
+        remote_version = match.group(1) if match else ""
+        if not remote_version or _version_tuple(remote_version) <= _version_tuple(EDGE_AGENT_VERSION):
+            return False
+        temp_path = source_path.with_suffix(".update")
+        temp_path.write_text(remote, encoding="utf-8")
+        os.replace(temp_path, source_path)
+        logging.info("NexusAI Edge Agent updated from %s to %s; restarting.", EDGE_AGENT_VERSION, remote_version)
+        os.execv(sys.executable, [sys.executable, str(source_path)])
+        return True
+    except Exception as exc:
+        logging.warning("Automatic Edge Agent update check failed: %s", exc)
+        return False
+
+
+def auto_update_loop():
+    while True:
+        time.sleep(UPDATE_CHECK_SECONDS)
+        try:
+            check_for_agent_update()
+        except Exception:
+            logging.exception("NexusAI automatic update loop failed")
+
+
 def heartbeat_loop():
     while True:
         try: heartbeat()
@@ -585,6 +632,7 @@ def main():
     print(f"Site: {SITE_ID}"); print(f"Backend: {API_BASE_URL}"); print(f"Version: {EDGE_AGENT_VERSION}"); print("="*60)
     start_local_api()
     threading.Thread(target=heartbeat_loop,daemon=True,name="nexusai-aggregate-heartbeat").start()
+    threading.Thread(target=auto_update_loop,daemon=True,name="nexusai-auto-updater").start()
     cfg=camera_config()
     if all([cfg["camera_ip"],cfg["username"],cfg["password"]]):
         verification=verify_camera(cfg)
