@@ -502,7 +502,7 @@ def persist_event(event: dict):
     event.pop("snapshot_base64",None)
     return event_id
 
-def load_events(site_id: str, limit: int = 50) -> list[dict]:
+def load_events(site_id: str, limit: int = 50, access_code: str | None = None) -> list[dict]:
     limit=max(1,min(limit,200))
     with DB_LOCK:
         if database_url():
@@ -518,7 +518,7 @@ def load_events(site_id: str, limit: int = 50) -> list[dict]:
     result=[]
     for row in rows:
         item=dict(zip(keys,row))
-        if item.get("snapshot_available"): item["snapshot_url"]=f"/api/portal/snapshots/{item['id']}?site_id={quote(site_id)}"
+        if item.get("snapshot_available"): item["snapshot_url"]=f"/api/portal/snapshots/{item['id']}?site_id={quote(site_id)}&access_code={quote(access_code or '')}"
         result.append(item)
     return result
 
@@ -979,7 +979,7 @@ async def portal_status(site_id: str = "", x_nexusai_site_code: str | None = Hea
 async def portal_events(site_id: str = "", limit: int = 50, x_nexusai_site_code: str | None = Header(default=None)):
     site_id = require_site_access(site_id, x_nexusai_site_code)
     limit = max(1, min(int(limit), 100))
-    return {"site_id": site_id, "events": load_events(site_id, limit)}
+    return {"site_id": site_id, "events": load_events(site_id, limit, x_nexusai_site_code)}
 
 
 def load_site(site_id: str):
