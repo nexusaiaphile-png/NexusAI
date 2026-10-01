@@ -79,4 +79,5 @@ window.addEventListener("appinstalled",()=>{setStatus("NEXUSAI INSTALLED","The N
     if(!cfg.configured)setStatus("PUSH SERVICE WAITING","The NexusAI app is built, but the secure VAPID keys still need to be configured on Render.");
     else {setStatus("NEXUSAI READY","This phone is linked to site "+siteId+". Enable security alerts to register this device.");$("enableBtn").disabled=false}
   }catch(e){setStatus("NEXUSAI CLOUD UNAVAILABLE","Reconnect to the internet and open this app again.",true)}
+  }
 })();
