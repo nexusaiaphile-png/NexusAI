@@ -64,27 +64,7 @@
     </div>
   </section>
 
-  <section class="panel edge-update-panel">
-    <div class="panel-header">
-      <div>
-        <p class="eyebrow">LOCAL SECURITY SERVICE</p>
-        <h2>Edge Agent</h2>
-        <p class="muted">Your computer runs the NexusAI Edge Agent that connects this portal to your local Hikvision network. Keep it updated before testing cameras or alerts.</p>
-      </div>
-      <span id="edgeVersionBadge" class="badge">CHECKING</span>
-    </div>
-    <div class="notice">
-      <strong>Current Edge Agent</strong>
-      <span id="edgeVersionText">Checking the local agent version…</span>
-    </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
-      <button id="macInstallBtn" class="primary-btn">UPDATE MAC EDGE AGENT</button>
-      <button id="windowsInstallBtn" class="secondary-btn">UPDATE WINDOWS EDGE AGENT</button>
-    </div>
-    <div id="edgeUpdateInstructions" class="result-box" style="margin-top:16px">
-      <strong>Mac:</strong> download the installer, open Terminal, then run <code>bash ~/Downloads/NexusAI-Edge-Agent-Mac.sh</code>. After it finishes, return here and reconnect.
-    </div>
-  </section>
+  
 
   <section id="discoveryPanel" class="panel">
     <div class="panel-header"><div><p class="eyebrow">STEP 2 • LOCAL DISCOVERY</p><h2>Find your Hikvision system</h2><p class="muted">NexusAI shows the cameras already connected to this site from the cloud. Local Hikvision discovery requires the Edge Agent on a computer that can reach the CCTV network; other devices can view and manage the same site without installing the agent.</p></div><span id="scanStatus" class="badge">WAITING</span></div>
