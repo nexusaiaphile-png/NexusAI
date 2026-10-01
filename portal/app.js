@@ -8,8 +8,14 @@ function safeStorageSet(key, value) {
   try { localStorage.setItem(key, value); } catch (_) {}
 }
 function getSiteId() {
+  const params = new URLSearchParams(window.location.search);
+  const shared = (params.get("site_id") || "").trim();
+  if (shared && /^site-[A-Za-z0-9._-]{6,100}$/.test(shared)) {
+    safeStorageSet("nexusai_site_id", shared);
+    return shared;
+  }
   const existing = safeStorageGet("nexusai_site_id");
-  if (existing) return existing;
+  if (existing && /^site-[A-Za-z0-9._-]{6,100}$/.test(existing)) return existing;
   let id = "";
   try { id = crypto.randomUUID(); } catch (_) { id = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,10); }
   id = "site-" + id;
@@ -92,6 +98,7 @@ function bind() {
   if ($("enableBrowserAlertsBtn")) $("enableBrowserAlertsBtn").onclick = enableBrowserAlerts;
   if ($("clearPanelAlertsBtn")) $("clearPanelAlertsBtn").onclick = clearPanelAlerts;
   if ($("installNexusAppBtn")) $("installNexusAppBtn").onclick = installNexusApp;
+  if ($("shareSiteBtn")) $("shareSiteBtn").onclick = shareSite;
   $("copySiteCode").onclick = async () => {
     try { await navigator.clipboard.writeText($("siteCode").textContent); $("copySiteCode").textContent="COPIED"; setTimeout(()=>$("copySiteCode").textContent="COPY",1200); }
     catch (_) { $("copySiteCode").textContent="SELECT & COPY"; }
@@ -125,6 +132,24 @@ async function downloadInstructions(os) {
     if ($("scanText")) $("scanText").textContent = "NexusAI could not download the current Edge Agent installer. Please try again.";
     console.error("NexusAI installer download failed", e);
   }
+}
+async function shareSite() {
+  const url = new URL(window.location.origin + window.location.pathname);
+  url.searchParams.set("site_id", SITE_ID);
+  const payload = { title: "NexusAI Site", text: "Open this NexusAI site on another computer or phone.", url: url.toString() };
+  try {
+    if (navigator.share) {
+      await navigator.share(payload);
+    } else if (navigator.clipboard) {
+      await navigator.clipboard.writeText(url.toString());
+      if ($("shareSiteBtn")) {
+        $("shareSiteBtn").textContent = "LINK COPIED";
+        setTimeout(() => $("shareSiteBtn").textContent = "SHARE SITE", 1800);
+      }
+    } else {
+      window.prompt("Copy this NexusAI site link:", url.toString());
+    }
+  } catch (_) {}
 }
 async function checkBackend() {
   const controller = new AbortController();
@@ -214,13 +239,13 @@ async function checkEdgeAgent() {
       "Edge Agent is ONLINE on this computer. NexusAI can now discover compatible Hikvision equipment on this network."
     );
   } else {
-    hide($("discoveryPanel"));
+    show($("discoveryPanel"));
     updateSteps(1);
 
     if (!localOk && cloudOk) {
       setInstallState(
-        "Edge Agent connection blocked",
-        localError + " The Edge Agent is confirmed to run at 127.0.0.1:8787. Allow Local Network access for getnexusai.co.za if Chrome asks."
+        "NexusAI site is online",
+        "This device can access the NexusAI cloud site. Local Hikvision discovery is available only on the computer running the Edge Agent at the physical site."
       );
     } else if (localOk && !cloudOk) {
       setInstallState(
@@ -229,8 +254,8 @@ async function checkEdgeAgent() {
       );
     } else {
       setInstallState(
-        "NexusAI connection unavailable",
-        "The cloud and local security service could not both be reached."
+        "NexusAI site is online",
+        "This device is not running the local Edge Agent. Use SHARE SITE to open this same site on another device, or use the site's Edge-Agent computer for Hikvision discovery."
       );
     }
   }
@@ -251,7 +276,7 @@ function updateEdgeUI() {
   }
 }
 async function scanNetwork(subnet="") {
-  if(!edgeOnline) { $("scanStatus").textContent="CONNECTING"; $("scanTitle").textContent="Local security service required"; $("scanText").textContent="NexusAI cannot safely scan a private camera network directly from the browser."; return; }
+  if(!edgeOnline) { $("scanStatus").textContent="SITE VIEW"; $("scanTitle").textContent="Local discovery is not available on this device"; $("scanText").textContent="You can still view this site's protected cameras and security events. To discover a new Hikvision NVR, use the computer at this site that runs the NexusAI Edge Agent."; return; }
   $("scanBtn").disabled=true; if($("scanSubnetBtn")) $("scanSubnetBtn").disabled=true;
   $("scanStatus").textContent="SCANNING"; $("scanTitle").textContent="Searching local CCTV network…";
   try {
