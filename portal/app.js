@@ -26,6 +26,8 @@ let SITE_ID = getSiteId();
 let ACTIVATION_CODE = safeStorageGet("nexusai_activation_code", "");
 
 let edgeOnline = false;
+let cloudOnline = false;
+let localEdgeOnline = false;
 let discoveredDevices = [];
 let selectedDevice = null;
 let verifiedChannels = [];
@@ -57,14 +59,25 @@ function updateSteps(step) {
 }
 async function ensureSiteActivation() {
   if (SITE_ID && /^site-[A-Za-z0-9._-]{6,100}$/.test(SITE_ID) && ACTIVATION_CODE) return true;
-  if (SITE_ID && /^site-[A-Za-z0-9._-]{6,100}$/.test(SITE_ID)) {
-    return true;
+
+  // A site_id without its activation code is not an authenticated NexusAI site.
+  // Never display a fake "ACTIVE" state or make cloud requests without the code.
+  if (!ACTIVATION_CODE) {
+    safeStorageSet("nexusai_site_id", "");
+    safeStorageSet("nexusai_activation_code", "");
+    SITE_ID = "";
   }
+
   const response = await fetch(API_BASE_URL + "/api/portal/activate", {
-    method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:"{}",
+    cache:"no-store"
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || "Could not activate this NexusAI site.");
+  if (!response.ok || !data.site_id || !data.activation_code) {
+    throw new Error(data.detail || "Could not create the NexusAI site.");
+  }
   SITE_ID = data.site_id;
   ACTIVATION_CODE = data.activation_code;
   safeStorageSet("nexusai_site_id", SITE_ID);
@@ -74,7 +87,7 @@ async function ensureSiteActivation() {
 async function init() {
   if (!$("dashboardScreen")) throw new Error("NexusAI portal markup is incomplete.");
   await ensureSiteActivation();
-  if ($("siteCode")) $("siteCode").textContent = ACTIVATION_CODE || "ACTIVE";
+  if ($("siteCode")) $("siteCode").textContent = ACTIVATION_CODE || "CREATING…";
   bind();
   renderDashboard();
   renderPanelAlerts();
@@ -231,6 +244,7 @@ async function pairEdgeAgent() {
 
 async function checkEdgeAgent() {
   const cloudOk = await checkBackend();
+  cloudOnline = Boolean(cloudOk);
   let localOk = false;
   let localError = "";
 
@@ -253,6 +267,7 @@ async function checkEdgeAgent() {
       : (e?.message || "Browser could not connect to the local Edge Agent.");
   }
 
+  localEdgeOnline = Boolean(localOk);
   edgeOnline = Boolean(cloudOk && localOk);
   updateEdgeUI();
 
@@ -290,14 +305,43 @@ function setInstallState(title,text) {
   if ($("scanText")) $("scanText").textContent=text;
 }
 function updateEdgeUI() {
-  if ($("edgeStatus")) $("edgeStatus").innerHTML=edgeOnline ? "<i></i> LOCAL SECURITY SERVICE ONLINE" : "<i></i> CONNECTING";
-  if ($("edgeStat")) $("edgeStat").textContent=edgeOnline ? "ONLINE" : "WAITING";
-  if ($("connectionTitle")) $("connectionTitle").textContent=edgeOnline ? "NexusAI local service connected" : "Waiting for NexusAI local service";
-  if ($("connectionText")) $("connectionText").textContent=edgeOnline ? "Your local security service is connected. NexusAI can now discover the Hikvision equipment on this network." : "The local NexusAI security service must be running on this network before the portal can discover private Hikvision equipment.";
-  if(edgeOnline) {
+  // The top connection indicator represents NexusAI Cloud, not the optional
+  // local discovery service. A customer viewing the portal from another
+  // phone/laptop must never see "CONNECTING" just because Edge Agent is elsewhere.
+  if ($("edgeStatus")) {
+    $("edgeStatus").innerHTML = cloudOnline
+      ? "<i></i> NEXUSAI CLOUD ONLINE"
+      : "<i></i> CLOUD OFFLINE";
+  }
+  if ($("edgeStat")) $("edgeStat").textContent = localEdgeOnline ? "ONLINE" : (cloudOnline ? "REMOTE" : "OFFLINE");
+  if ($("connectionTitle")) {
+    $("connectionTitle").textContent = localEdgeOnline
+      ? "NexusAI local service connected"
+      : "NexusAI site is online";
+  }
+  if ($("connectionText")) {
+    $("connectionText").textContent = localEdgeOnline
+      ? "The Edge Agent is running on this computer. NexusAI can discover compatible Hikvision equipment on this local network."
+      : cloudOnline
+        ? "This portal is connected to NexusAI Cloud. The Edge Agent runs in the background on the site computer; this device does not need its own Edge Agent."
+        : "NexusAI Cloud is temporarily unavailable. Please check the internet connection and try again.";
+  }
+  if ($("setupTitle")) {
+    $("setupTitle").textContent = localEdgeOnline
+      ? "NexusAI local service connected"
+      : cloudOnline ? "NexusAI site is online" : "Connecting to NexusAI Cloud…";
+  }
+  if ($("setupBadge")) {
+    $("setupBadge").textContent = localEdgeOnline ? "LOCAL ONLINE" : (cloudOnline ? "SITE ONLINE" : "OFFLINE");
+  }
+  if (localEdgeOnline) {
     $("scanStatus").textContent="READY";
     $("scanTitle").textContent="Ready to discover your cameras";
     $("scanText").textContent="NexusAI will search the local network for compatible Hikvision devices.";
+  } else if (cloudOnline) {
+    $("scanStatus").textContent="SITE VIEW";
+    $("scanTitle").textContent="Site is online";
+    $("scanText").textContent="Cloud cameras and security events are available here. Local Hikvision discovery runs only on the computer with the Edge Agent.";
   }
 }
 async function scanNetwork(subnet="") {
