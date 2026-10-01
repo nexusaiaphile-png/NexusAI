@@ -52,15 +52,15 @@ app.add_middleware(
 
 
 class EdgeCamera(BaseModel):
-    camera_id: str
-    camera_name: str
-    location: str
+    camera_id: str = Field(..., min_length=1, max_length=128)
+    camera_name: str = Field(..., min_length=1, max_length=200)
+    location: str = Field(..., min_length=1, max_length=200)
     verified: bool = False
     device_id: str | None = None
     device_ip: str | None = None
     channel_id: str | None = None
     device_type: str | None = None
-    status: str = "ONLINE"
+    status: str = Field(default="ONLINE", max_length=32)
 
 
 class EdgeHeartbeat(BaseModel):
@@ -87,16 +87,16 @@ class EdgeVerification(BaseModel):
 
 
 class EdgeEvent(BaseModel):
-    site_id: str
-    camera_id: str
-    camera_name: str
-    location: str
-    event: str
-    severity: str
-    timestamp: str
-    source: str
+    site_id: str = Field(..., min_length=8, max_length=100)
+    camera_id: str = Field(..., min_length=1, max_length=128)
+    camera_name: str = Field(..., min_length=1, max_length=200)
+    location: str = Field(..., min_length=1, max_length=200)
+    event: str = Field(..., min_length=1, max_length=120)
+    severity: str = Field(..., min_length=1, max_length=32)
+    timestamp: str = Field(..., min_length=1, max_length=80)
+    source: str = Field(..., min_length=1, max_length=80)
     snapshot_available: bool = False
-    snapshot_base64: str | None = None
+    snapshot_base64: str | None = Field(default=None, max_length=3_000_000)
     snapshot_mime: str | None = None
     snapshot_filename: str | None = None
 
