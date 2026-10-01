@@ -639,14 +639,28 @@ def allow_activation_attempt(request: Request):
         ACTIVATION_RATE[host] = attempts
 
 
-def require_edge_token(token: str | None, authorization: str | None = None):
-    expected = os.getenv("NEXUSAI_EDGE_TOKEN", "").strip()
-    if not expected:
-        raise HTTPException(status_code=503, detail="NexusAI Edge Agent authentication is not configured.")
+def site_edge_token(site_id: str) -> str:
+    secret = os.getenv("NEXUSAI_APP_LINK_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="NexusAI site security is not configured.")
+    site_id = validate_site_id(site_id)
+    payload = "nexusai-edge:" + site_id
+    return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+
+def require_edge_token(token: str | None, authorization: str | None = None, site_id: str | None = None):
     bearer = authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else ""
     supplied = token or bearer
-    if not supplied or not secrets.compare_digest(supplied, expected):
-        raise HTTPException(status_code=401, detail="Invalid NexusAI Edge Agent token.")
+    if site_id and supplied:
+        expected_site = site_edge_token(site_id)
+        if secrets.compare_digest(supplied, expected_site):
+            return
+    expected = os.getenv("NEXUSAI_EDGE_TOKEN", "").strip()
+    if expected and supplied and secrets.compare_digest(supplied, expected):
+        return
+    if not expected and not site_id:
+        raise HTTPException(status_code=503, detail="NexusAI Edge Agent authentication is not configured.")
+    raise HTTPException(status_code=401, detail="Invalid NexusAI Edge Agent token.")
 
 
 @app.get("/", include_in_schema=False)
@@ -888,13 +902,19 @@ async def api_status():
     }
 
 
+@app.get("/api/edge/provision")
+async def edge_provision(site_id: str, activation_code: str):
+    site_id = require_site_access(site_id, activation_code)
+    return {"site_id": site_id, "edge_token": site_edge_token(site_id), "api_url": "https://getnexusai.co.za"}
+
+
 @app.post("/api/edge/heartbeat")
 async def edge_heartbeat(
     heartbeat: EdgeHeartbeat,
     x_nexusai_edge_token: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
 ):
-    require_edge_token(x_nexusai_edge_token, authorization)
+    require_edge_token(x_nexusai_edge_token, authorization, heartbeat.site_id)
     site = {
         "site_id": heartbeat.site_id,
         "status": heartbeat.status,
@@ -914,7 +934,7 @@ async def edge_verify(
     x_nexusai_edge_token: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
 ):
-    require_edge_token(x_nexusai_edge_token, authorization)
+    require_edge_token(x_nexusai_edge_token, authorization, verification.site_id)
     return {
         "accepted": True,
         "verified": verification.verified,
@@ -936,7 +956,7 @@ async def edge_event(
     x_nexusai_edge_token: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
 ):
-    require_edge_token(x_nexusai_edge_token, authorization)
+    require_edge_token(x_nexusai_edge_token, authorization, event.site_id)
     event_data = event.model_dump()
     EDGE_EVENTS.insert(0, event_data)
     del EDGE_EVENTS[200:]
