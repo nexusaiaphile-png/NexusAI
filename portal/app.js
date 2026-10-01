@@ -22,7 +22,8 @@ function getSiteId() {
   safeStorageSet("nexusai_site_id", id);
   return id;
 }
-const SITE_ID = getSiteId();
+let SITE_ID = getSiteId();
+let ACTIVATION_CODE = safeStorageGet("nexusai_activation_code", "");
 
 let edgeOnline = false;
 let discoveredDevices = [];
@@ -52,12 +53,27 @@ function updateSteps(step) {
   document.querySelectorAll(".step").forEach(el => el.classList.toggle("active", Number(el.dataset.step) <= step));
   if ($("setupBadge")) $("setupBadge").textContent = "STEP " + step + " OF 5";
 }
-function makeSiteCode() {
-  return "NEX-" + SITE_ID.slice(-8).replace(/-/g, "").toUpperCase();
+async function ensureSiteActivation() {
+  if (SITE_ID && /^site-[A-Za-z0-9._-]{6,100}$/.test(SITE_ID) && ACTIVATION_CODE) return true;
+  if (SITE_ID && /^site-[A-Za-z0-9._-]{6,100}$/.test(SITE_ID)) {
+    const status = await fetch(API_BASE_URL + "/api/portal/status?site_id=" + encodeURIComponent(SITE_ID), {cache:"no-store"}).catch(() => null);
+    if (status?.ok) return true;
+  }
+  const response = await fetch(API_BASE_URL + "/api/portal/activate", {
+    method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || "Could not activate this NexusAI site.");
+  SITE_ID = data.site_id;
+  ACTIVATION_CODE = data.activation_code;
+  safeStorageSet("nexusai_site_id", SITE_ID);
+  safeStorageSet("nexusai_activation_code", ACTIVATION_CODE);
+  return true;
 }
-function init() {
+async function init() {
   if (!$("dashboardScreen")) throw new Error("NexusAI portal markup is incomplete.");
-  if ($("siteCode")) $("siteCode").textContent = makeSiteCode();
+  await ensureSiteActivation();
+  if ($("siteCode")) $("siteCode").textContent = ACTIVATION_CODE || "ACTIVE";
   bind();
   renderDashboard();
   renderPanelAlerts();
@@ -98,11 +114,11 @@ function bind() {
   if ($("enableBrowserAlertsBtn")) $("enableBrowserAlertsBtn").onclick = enableBrowserAlerts;
   if ($("clearPanelAlertsBtn")) $("clearPanelAlertsBtn").onclick = clearPanelAlerts;
   if ($("installNexusAppBtn")) $("installNexusAppBtn").onclick = installNexusApp;
-  if ($("shareSiteBtn")) $("shareSiteBtn").onclick = shareSite;
   $("copySiteCode").onclick = async () => {
     try { await navigator.clipboard.writeText($("siteCode").textContent); $("copySiteCode").textContent="COPIED"; setTimeout(()=>$("copySiteCode").textContent="COPY",1200); }
     catch (_) { $("copySiteCode").textContent="SELECT & COPY"; }
   };
+  if ($("joinSiteBtn")) $("joinSiteBtn").onclick = joinExistingSite;
   if ($("windowsInstallBtn")) $("windowsInstallBtn").onclick = () => downloadInstructions("Windows");
   if ($("macInstallBtn")) $("macInstallBtn").onclick = () => downloadInstructions("macOS");
 }
@@ -133,23 +149,35 @@ async function downloadInstructions(os) {
     console.error("NexusAI installer download failed", e);
   }
 }
-async function shareSite() {
-  const url = new URL(window.location.origin + window.location.pathname);
-  url.searchParams.set("site_id", SITE_ID);
-  const payload = { title: "NexusAI Site", text: "Open this NexusAI site on another computer or phone.", url: url.toString() };
+async function joinExistingSite() {
+  const code = $("joinSiteCode")?.value.trim().toUpperCase();
+  if (!code) { alert("Enter the NexusAI activation code."); return; }
+  const button = $("joinSiteBtn");
+  if (button) { button.disabled = true; button.textContent = "CONNECTING…"; }
   try {
-    if (navigator.share) {
-      await navigator.share(payload);
-    } else if (navigator.clipboard) {
-      await navigator.clipboard.writeText(url.toString());
-      if ($("shareSiteBtn")) {
-        $("shareSiteBtn").textContent = "LINK COPIED";
-        setTimeout(() => $("shareSiteBtn").textContent = "SHARE SITE", 1800);
-      }
-    } else {
-      window.prompt("Copy this NexusAI site link:", url.toString());
-    }
-  } catch (_) {}
+    const r = await fetch(API_BASE_URL + "/api/portal/activate", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({activation_code: code})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "Activation code not found.");
+    SITE_ID = d.site_id;
+    ACTIVATION_CODE = d.activation_code;
+    safeStorageSet("nexusai_site_id", SITE_ID);
+    safeStorageSet("nexusai_activation_code", ACTIVATION_CODE);
+    if ($("siteCode")) $("siteCode").textContent = ACTIVATION_CODE;
+    if ($("connectionTitle")) $("connectionTitle").textContent = "Site activated";
+    if ($("connectionText")) $("connectionText").textContent = "This device is now connected to the selected NexusAI site.";
+    if ($("joinSiteCode")) $("joinSiteCode").value = "";
+    await checkEdgeAgent();
+    await refreshCloudStatus();
+    await refreshCloudEvents();
+    alert("NexusAI site activated on this device.");
+  } catch(e) {
+    alert(e.message || "Could not activate this site.");
+  } finally {
+    if (button) { button.disabled = false; button.textContent = "ACTIVATE THIS DEVICE"; }
+  }
 }
 async function checkBackend() {
   const controller = new AbortController();
@@ -461,4 +489,4 @@ function renderDashboard() {
   $("eventList").innerHTML=events.length?events.slice(0,20).map(e=>`<div class="event-row"><span>◉</span><div><strong>${escapeHTML(e.type||"Security event")}</strong><small>${escapeHTML(e.camera||"NexusAI")} • ${escapeHTML(e.location||"Client site")} • ${escapeHTML(e.severity||"LOW")}</small>${e.snapshot_url?`<div style="margin-top:8px"><img src="${escapeHTML(API_BASE_URL+e.snapshot_url)}" alt="Security event snapshot" loading="lazy" style="width:180px;max-width:100%;border-radius:10px;border:1px solid rgba(111,239,201,.25)"></div>`:""}</div><time>${new Date(e.timestamp||Date.now()).toLocaleString()}</time></div>`).join(""):'<div class="empty-state">No security events yet.</div>';
 }
 function escapeHTML(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
-document.addEventListener("DOMContentLoaded",()=>{ try { init(); setInterval(refreshCloudStatus,10000); setInterval(refreshCloudEvents,5000); refreshCloudEvents(); } catch(e) { console.error("NexusAI portal initialization failed",e); document.body.innerHTML='<div style="min-height:100vh;background:#04080d;color:#f2f8fb;font-family:Arial,sans-serif;display:grid;place-items:center;padding:30px;text-align:center"><div><h1>NexusAI Portal</h1><p style="color:#9aabb8;margin-top:10px">The portal could not initialize. Refresh the page and try again.</p><p style="color:#ff7b88;margin-top:10px">Please do not enter your Hikvision password until the portal is working.</p></div></div>'; } });
+document.addEventListener("DOMContentLoaded",async()=>{ try { await init(); setInterval(refreshCloudStatus,10000); setInterval(refreshCloudEvents,5000); refreshCloudEvents(); } catch(e) { console.error("NexusAI portal initialization failed",e); document.body.innerHTML='<div style="min-height:100vh;background:#04080d;color:#f2f8fb;font-family:Arial,sans-serif;display:grid;place-items:center;padding:30px;text-align:center"><div><h1>NexusAI Portal</h1><p style="color:#9aabb8;margin-top:10px">The portal could not initialize. Refresh the page and try again.</p><p style="color:#ff7b88;margin-top:10px">Please do not enter your Hikvision password until the portal is working.</p></div></div>'; } });
