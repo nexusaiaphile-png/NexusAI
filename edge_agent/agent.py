@@ -25,7 +25,7 @@ load_dotenv()
 
 API_BASE_URL = os.getenv("NEXUSAI_API_URL", "https://getnexusai.co.za").rstrip("/")
 EDGE_AGENT_TOKEN = os.getenv("NEXUSAI_EDGE_TOKEN", "")
-EDGE_AGENT_VERSION = "1.9.0"
+EDGE_AGENT_VERSION = "1.9.1"
 MAX_MONITORS = int(os.getenv("NEXUSAI_MAX_MONITORS", "32"))
 SNAPSHOT_MAX_BYTES = int(os.getenv("NEXUSAI_SNAPSHOT_MAX_BYTES", str(2 * 1024 * 1024)))
 SCAN_SUBNETS = [x.strip() for x in os.getenv("NEXUSAI_SCAN_SUBNETS", "").split(",") if x.strip()]
