@@ -16,7 +16,7 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr
 
@@ -760,6 +760,110 @@ async def nexusai_app_icon():
 
 EDGE_AGENT_DIR = BASE_DIR / "edge_agent"
 
+@app.get("/protect/install", include_in_schema=False)
+async def protect_install_page():
+    return FileResponse(PORTAL_DIR / "protect" / "install.html", media_type="text/html")
+
+@app.get("/downloads/security-box/{filename}", include_in_schema=False)
+async def security_box_source(filename: str):
+    allowed = {
+        "agent.py": ("agent.py", "text/x-python"),
+        "security_box.py": ("security_box.py", "text/x-python"),
+        "secure_store.py": ("secure_store.py", "text/x-python"),
+        "setup_security_box.py": ("setup_security_box.py", "text/x-python"),
+        "windows_service.py": ("windows_service.py", "text/x-python"),
+    }
+    item = allowed.get(filename)
+    if not item:
+        raise HTTPException(status_code=404, detail="Security Box file not found.")
+    return FileResponse(EDGE_AGENT_DIR / item[0], media_type=item[1], headers={"Cache-Control":"no-store"})
+
+@app.get("/downloads/security-box/windows.ps1", include_in_schema=False)
+async def security_box_windows_installer(installer_token: str):
+    token = str(installer_token or "").strip()
+    if len(token) < 40 or len(token) > 120:
+        raise HTTPException(status_code=400, detail="Invalid installer token.")
+    script = r'''$ErrorActionPreference = "Stop"
+if (-not (Get-Command py.exe -ErrorAction SilentlyContinue)) {
+  $PythonInstaller = "$env:TEMP\NexusAI-Python-3.13.16.exe"
+  Invoke-WebRequest "https://www.python.org/ftp/python/3.13.16/python-3.13.16-amd64.exe" -OutFile $PythonInstaller
+  Start-Process $PythonInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait
+  Remove-Item $PythonInstaller -Force
+}
+$Py = Get-Command py.exe -ErrorAction SilentlyContinue
+if (-not $Py) { throw "Python could not be installed." }
+$Root = "$env:ProgramFiles\NexusAI\SecurityBox"
+New-Item -ItemType Directory -Force -Path $Root | Out-Null
+foreach ($Name in @("agent.py","security_box.py","secure_store.py","setup_security_box.py","windows_service.py")) {
+  Invoke-WebRequest ("https://getnexusai.co.za/downloads/security-box/" + $Name) -OutFile (Join-Path $Root $Name)
+}
+& $Py.Source -m pip install --disable-pip-version-check --quiet requests python-dotenv keyring pywin32
+& $Py.Source (Join-Path $Root "setup_security_box.py") --installer-token "__TOKEN__"
+& $Py.Source (Join-Path $Root "windows_service.py") install
+sc.exe config NexusAISecurityBox start= delayed-auto | Out-Null
+sc.exe failure NexusAISecurityBox reset= 900 actions= restart/60000/restart/120000/restart/300000 | Out-Null
+& $Py.Source (Join-Path $Root "windows_service.py") start
+Write-Host "NexusAI Security Box is installed and running."
+'''
+    return PlainTextResponse(script.replace("__TOKEN__", token), media_type="text/plain", headers={"Content-Disposition":'attachment; filename="NexusAI-SecurityBox-Installer.ps1"',"Cache-Control":"no-store"})
+
+@app.get("/downloads/security-box/macos.sh", include_in_schema=False)
+async def security_box_macos_installer(installer_token: str):
+    token = str(installer_token or "").strip()
+    if len(token) < 40 or len(token) > 120:
+        raise HTTPException(status_code=400, detail="Invalid installer token.")
+    script = r'''#!/bin/sh
+set -eu
+if [ "$(id -u)" -ne 0 ]; then
+  exec sudo "$0"
+fi
+ROOT="/Library/Application Support/NexusAI/SecurityBox"
+mkdir -p "$ROOT"
+PY="/usr/local/bin/python3"
+if [ ! -x "$PY" ]; then
+  PKG="/tmp/NexusAI-Python-3.13.16.pkg"
+  curl -fL "https://www.python.org/ftp/python/3.13.16/python-3.13.16-macos11.pkg" -o "$PKG"
+  installer -pkg "$PKG" -target /
+  rm -f "$PKG"
+fi
+for NAME in agent.py security_box.py secure_store.py setup_security_box.py; do
+  curl -fL "https://getnexusai.co.za/downloads/security-box/$NAME" -o "$ROOT/$NAME"
+done
+"$PY" -m pip install --disable-pip-version-check --quiet requests python-dotenv keyring
+"$PY" "$ROOT/setup_security_box.py" --installer-token "__TOKEN__"
+EXEC="$ROOT/NexusAI-SecurityBox"
+cat > "$EXEC" <<'PYEOF'
+#!/usr/bin/env python3
+from edge_agent.security_box import run
+raise SystemExit(run())
+PYEOF
+chmod 755 "$EXEC"
+PLIST="/Library/LaunchDaemons/za.co.getnexusai.securitybox.plist"
+cat > "$PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>za.co.getnexusai.securitybox</string>
+<key>ProgramArguments</key><array><string>$EXEC</string></array>
+<key>RunAtLoad</key><true/>
+<key>KeepAlive</key><true/>
+<key>ProcessType</key><string>Background</string>
+<key>StandardOutPath</key><string>/Library/Application Support/NexusAI/SecurityBox/security-box.stdout.log</string>
+<key>StandardErrorPath</key><string>/Library/Application Support/NexusAI/SecurityBox/security-box.stderr.log</string>
+</dict></plist>
+EOF
+chmod 644 "$PLIST"
+chown root:wheel "$PLIST"
+launchctl bootout system "$PLIST" 2>/dev/null || true
+launchctl bootstrap system "$PLIST"
+launchctl enable system/za.co.getnexusai.securitybox
+launchctl kickstart -k system/za.co.getnexusai.securitybox
+echo "NexusAI Security Box is installed and running."
+'''
+    return PlainTextResponse(script.replace("__TOKEN__", token), media_type="text/plain", headers={"Content-Disposition":'attachment; filename="NexusAI-SecurityBox-Installer.sh"',"Cache-Control":"no-store"})
+
+
 
 @app.get("/downloads/edge-agent/agent.py", include_in_schema=False)
 async def download_edge_agent_source():
@@ -1143,6 +1247,17 @@ def consume_installer_token(token: str) -> str:
             conn.execute("UPDATE nexusai_installer_tokens SET used_at=? WHERE token_hash=?", (now, token_hash))
             conn.commit()
             return str(row[0])
+
+@app.get("/api/edge/installer-link-by-qr")
+async def edge_installer_link_by_qr(qr: str = ""):
+    site_id = resolve_qr_token(qr)
+    token = create_installer_token(site_id)
+    return {
+        "site_id": site_id,
+        "expires_in": 900,
+        "windows": f"/downloads/security-box/windows.ps1?installer_token={quote(token)}",
+        "macos": f"/downloads/security-box/macos.sh?installer_token={quote(token)}",
+    }
 
 @app.get("/api/edge/installer-link")
 async def edge_installer_link(site_id: str, activation_code: str):
