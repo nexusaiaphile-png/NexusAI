@@ -802,11 +802,13 @@ $Py = Get-Command py.exe -ErrorAction SilentlyContinue
 if (-not $Py) { throw "Python could not be installed." }
 $Root = "$env:ProgramFiles\NexusAI\SecurityBox"
 New-Item -ItemType Directory -Force -Path $Root | Out-Null
-foreach ($Name in @("agent.py","security_box.py","secure_store.py","setup_security_box.py","windows_service.py")) {
-  Invoke-WebRequest ("https://getnexusai.co.za/downloads/security-box/source/" + $Name) -OutFile (Join-Path $Root $Name)
+New-Item -ItemType Directory -Force -Path (Join-Path $Root "edge_agent") | Out-Null
+foreach ($Name in @("agent.py","security_box.py","secure_store.py","setup_security_box.py")) {
+  Invoke-WebRequest ("https://getnexusai.co.za/downloads/security-box/source/" + $Name) -OutFile (Join-Path $Root ("edge_agent\" + $Name))
 }
+Invoke-WebRequest "https://getnexusai.co.za/downloads/security-box/source/windows_service.py" -OutFile (Join-Path $Root "windows_service.py")
 & $Py.Source -m pip install --disable-pip-version-check --quiet requests python-dotenv keyring pywin32
-& $Py.Source (Join-Path $Root "setup_security_box.py") --installer-token "__TOKEN__"
+& $Py.Source (Join-Path $Root "edge_agent\setup_security_box.py") --installer-token "__TOKEN__"
 & $Py.Source (Join-Path $Root "windows_service.py") install
 sc.exe config NexusAISecurityBox start= delayed-auto | Out-Null
 sc.exe failure NexusAISecurityBox reset= 900 actions= restart/60000/restart/120000/restart/300000 | Out-Null
@@ -834,11 +836,12 @@ if [ ! -x "$PY" ]; then
   installer -pkg "$PKG" -target /
   rm -f "$PKG"
 fi
+mkdir -p "$ROOT/edge_agent"
 for NAME in agent.py security_box.py secure_store.py setup_security_box.py; do
-  curl -fL "https://getnexusai.co.za/downloads/security-box/source/$NAME" -o "$ROOT/$NAME"
+  curl -fL "https://getnexusai.co.za/downloads/security-box/source/$NAME" -o "$ROOT/edge_agent/$NAME"
 done
 "$PY" -m pip install --disable-pip-version-check --quiet requests python-dotenv keyring
-"$PY" "$ROOT/setup_security_box.py" --installer-token "__TOKEN__"
+"$PY" "$ROOT/edge_agent/setup_security_box.py" --installer-token "__TOKEN__"
 EXEC="$ROOT/NexusAI-SecurityBox"
 cat > "$EXEC" <<'PYEOF'
 #!/usr/bin/env python3
