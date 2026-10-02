@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NexusAI Protected Site QR</title>
+<style>
+body{margin:0;background:#fff;color:#07110f;font-family:Arial,Helvetica,sans-serif}.sheet{width:100%;max-width:760px;margin:0 auto;padding:40px;text-align:center}.logo{font-weight:900;letter-spacing:2px;font-size:28px;margin-bottom:8px}.eyebrow{font-size:12px;letter-spacing:3px;font-weight:800;color:#167a65}.qr{width:360px;height:360px;margin:28px auto}.qr img,.qr canvas{max-width:100%;max-height:100%}.title{font-size:34px;font-weight:900;margin:8px}.copy{font-size:18px;color:#42514e}.site{margin:18px auto;padding:12px;border:2px solid #07110f;border-radius:10px;max-width:400px;font-weight:800}.actions{margin-top:28px}.actions button{border:0;border-radius:10px;padding:14px 24px;background:#0b6e5b;color:#fff;font-weight:800;cursor:pointer}@media print{.actions{display:none}.sheet{padding:10px}.qr{width:420px;height:420px}}@media(max-width:520px){.sheet{padding:24px 12px}.qr{width:280px;height:280px}.title{font-size:28px}}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="logo">NEXUSAI</div>
+  <div class="eyebrow">AI SECURITY MONITORING</div>
+  <div id="qr" class="qr"></div>
+  <div class="title">NEXUSAI PROTECTED</div>
+  <div class="copy">Scan this code with a phone to open your NexusAI Security Center.</div>
+  <div id="site" class="site">Preparing secure site QR…</div>
+  <div class="actions"><button onclick="window.print()">PRINT QR STICKER</button></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+(async()=>{
+ const p=new URLSearchParams(location.search), site=p.get("site_id")||"", code=p.get("activation_code")||"";
+ const box=document.getElementById("qr"), label=document.getElementById("site");
+ if(!site||!code){label.textContent="Missing site details.";return}
+ try{
+   const r=await fetch("/api/protect/qr?site_id="+encodeURIComponent(site)+"&activation_code="+encodeURIComponent(code),{cache:"no-store"});
+   const d=await r.json();
+   if(!r.ok) throw new Error(d.detail||"Could not create QR");
+   new QRCode(box,{text:d.url,width:360,height:360,colorDark:"#000000",colorLight:"#ffffff",correctLevel:QRCode.CorrectLevel.H});
+   label.textContent="NexusAI Site • QR access";
+ }catch(e){label.textContent=e.message||"Could not create QR."}
+})();
+</script>
+</body>
+</html>
