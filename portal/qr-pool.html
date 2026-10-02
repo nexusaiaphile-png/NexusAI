@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NexusAI QR Inventory</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#07110f;color:#f4fbf8;font-family:Arial,Helvetica,sans-serif}.wrap{max-width:1100px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;gap:20px;align-items:end}.brand{font-size:28px;font-weight:900;letter-spacing:2px}.sub{color:#8fa7a1;margin-top:6px}.card{background:#0d1d19;border:1px solid #193c33;border-radius:18px;padding:20px;margin-top:20px}.controls{display:flex;gap:10px;flex-wrap:wrap}.controls input{width:90px}.controls input,.controls input[type=password]{background:#07110f;color:#fff;border:1px solid #31584e;border-radius:10px;padding:12px}.controls button,.print{border:0;border-radius:10px;padding:12px 16px;font-weight:900;cursor:pointer;background:#18a67e;color:#fff}.print{background:#31584e}.status{margin-top:12px;color:#9ab2ac}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;margin-top:20px}.qr{background:#fff;color:#07110f;border-radius:14px;padding:16px;text-align:center;break-inside:avoid}.code{font-weight:900;font-size:13px;word-break:break-all;margin-top:10px}.state{font-size:12px;font-weight:900;margin-top:6px}.unused{color:#bceee0}.activated{color:#5ac99f}.qrbox{width:180px;height:180px;margin:auto}.site{font-size:12px;margin-top:6px;color:#657b76}@media print{body{background:#fff;color:#07110f}.wrap{max-width:none;padding:0}.top,.controls,.status{display:none}.card{border:0;background:#fff;padding:0;margin:0}.grid{grid-template-columns:repeat(3,1fr);gap:10mm;margin:0}.qr{border:1px solid #bbb}.site{color:#555}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div><div class="brand">NEXUSAI</div><div class="sub">Pre-Activation QR Inventory</div></div>
+    <button class="print" onclick="window.print()">PRINT QR SHEET</button>
+  </div>
+  <div class="card">
+    <div class="controls">
+      <input id="key" type="password" placeholder="Admin key" autocomplete="off">
+      <input id="count" type="number" min="1" max="500" value="10">
+      <button id="generate">GENERATE NEW QR CODES</button>
+      <button id="load" class="print">REFRESH</button>
+    </div>
+    <div id="status" class="status">Enter your NexusAI admin key, then generate a batch.</div>
+  </div>
+  <div class="card">
+    <strong>QR inventory</strong>
+    <div id="grid" class="grid"></div>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+const keyEl=document.getElementById("key"),countEl=document.getElementById("count"),grid=document.getElementById("grid"),statusEl=document.getElementById("status");
+keyEl.value=sessionStorage.getItem("nexusai_admin_key")||"";
+function key(){const v=keyEl.value.trim();if(v)sessionStorage.setItem("nexusai_admin_key",v);return v}
+function showStatus(v){statusEl.textContent=v}
+async function api(url,options={}){
+  const k=key(); if(!k) throw new Error("Enter the NexusAI admin key.");
+  options.headers=Object.assign({"X-NexusAI-Admin-Key":k},options.headers||{});
+  const r=await fetch(url,options),d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d.detail||"Request failed.");
+  return d;
+}
+function render(codes){
+  grid.innerHTML="";
+  codes.forEach((c,i)=>{
+    const card=document.createElement("div");card.className="qr";
+    const box=document.createElement("div");box.className="qrbox";card.appendChild(box);
+    new QRCode(box,{text:c.url,width:180,height:180,colorDark:"#000000",colorLight:"#ffffff",correctLevel:QRCode.CorrectLevel.H});
+    const code=document.createElement("div");code.className="code";code.textContent="NEXUSAI QR #"+(i+1);
+    card.appendChild(code);
+    const state=document.createElement("div");state.className="state "+(c.status==="UNUSED"?"unused":"activated");state.textContent=c.status;
+    card.appendChild(state);
+    const site=document.createElement("div");site.className="site";site.textContent=c.site_id?("Site: "+c.site_id):"Not assigned — ready for a customer";
+    card.appendChild(site);grid.appendChild(card);
+  });
+}
+async function load(){
+  try{showStatus("Loading QR inventory…");const d=await api("/api/admin/qr-pool");render(d.codes||[]);showStatus((d.codes||[]).filter(x=>x.status==="UNUSED").length+" unused QR codes ready.");}
+  catch(e){showStatus(e.message)}
+}
+document.getElementById("generate").onclick=async()=>{
+  try{
+    const n=Math.max(1,Math.min(500,Number(countEl.value)||10));
+    document.getElementById("generate").disabled=true;showStatus("Generating "+n+" secure QR codes…");
+    const d=await api("/api/admin/qr-pool",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({count:n})});
+    render(d.generated||[]);showStatus((d.generated||[]).length+" new unused QR codes generated. Print this sheet and use each sticker at a different customer site.");
+  }catch(e){showStatus(e.message)}finally{document.getElementById("generate").disabled=false}
+};
+document.getElementById("load").onclick=load;
+if(key())load();
+</script>
+</body>
+</html>
