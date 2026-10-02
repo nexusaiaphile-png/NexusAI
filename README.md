@@ -75,3 +75,11 @@ uvicorn backend.src.main:app --reload
 ```
 
 The public site, portal, API, and NexusAI app are served by the same FastAPI service.
+
+## Security Box one-time installer
+
+The QR protection flow can generate a short-lived, site-specific Security Box installer. The installer provisions the site once, asks for the local Hikvision NVR username/password, stores those credentials in the operating system secure credential store, and registers the Security Box as a background service.
+
+The site credential is never written to the Security Box JSON configuration. Windows/macOS service startup reads the site ID from local non-secret configuration and retrieves the Edge token and Hikvision credentials from secure storage.
+
+Installer links are one-time and expire after 15 minutes. Production packaging should still be upgraded to signed/notarized native installers before broad customer rollout.
