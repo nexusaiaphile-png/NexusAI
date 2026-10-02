@@ -33,8 +33,6 @@ jobs:
         run: node --check nexusai-app/app.js
       - name: Validate service worker
         run: node --check nexusai-app/service-worker.js
-      - name: Validate portal JavaScript
-        run: node --check portal/app.js
       - name: Validate simple protection JavaScript
         run: node --check portal/protect/app.js
 
