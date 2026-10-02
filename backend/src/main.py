@@ -700,6 +700,11 @@ async def public_founder():
 async def client_portal():
     return FileResponse(PORTAL_DIR / "index.html")
 
+@app.get("/protect", include_in_schema=False)
+@app.get("/protect/", include_in_schema=False)
+async def simple_protect():
+    return FileResponse(PORTAL_DIR / "protect.html")
+
 
 @app.get("/app", include_in_schema=False)
 @app.get("/app/", include_in_schema=False)
