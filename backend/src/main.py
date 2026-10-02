@@ -195,6 +195,15 @@ def init_db():
                         last_used_at DOUBLE PRECISION
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS nexusai_qr_tokens (
+                        qr_token TEXT PRIMARY KEY,
+                        site_id TEXT NOT NULL UNIQUE,
+                        created_at DOUBLE PRECISION NOT NULL,
+                        last_used_at DOUBLE PRECISION
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_qr_site ON nexusai_qr_tokens(site_id)")
                 conn.commit()
     else:
         with _sqlite() as conn:
@@ -229,6 +238,13 @@ def init_db():
                     created_at REAL NOT NULL,
                     last_used_at REAL
                 );
+                CREATE TABLE IF NOT EXISTS nexusai_qr_tokens (
+                    qr_token TEXT PRIMARY KEY,
+                    site_id TEXT NOT NULL UNIQUE,
+                    created_at REAL NOT NULL,
+                    last_used_at REAL
+                );
+                CREATE INDEX IF NOT EXISTS idx_nexusai_qr_site ON nexusai_qr_tokens(site_id);
             """)
             conn.commit()
 
