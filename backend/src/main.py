@@ -204,6 +204,16 @@ def init_db():
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_qr_site ON nexusai_qr_tokens(site_id)")
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS nexusai_installer_tokens (
+                        token_hash TEXT PRIMARY KEY,
+                        site_id TEXT NOT NULL,
+                        created_at DOUBLE PRECISION NOT NULL,
+                        expires_at DOUBLE PRECISION NOT NULL,
+                        used_at DOUBLE PRECISION
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_installer_site ON nexusai_installer_tokens(site_id)")
                 conn.commit()
     else:
         with _sqlite() as conn:
@@ -1071,6 +1081,90 @@ async def api_status():
         "api_version": "3.1.0",
     }
 
+
+def _new_installer_token() -> str:
+    return secrets.token_urlsafe(36).replace("-", "").replace("_", "")
+
+def _installer_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+def create_installer_token(site_id: str, ttl_seconds: int = 900) -> str:
+    token = _new_installer_token()
+    now = time.time()
+    expires = now + ttl_seconds
+    token_hash = _installer_token_hash(token)
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO nexusai_installer_tokens(token_hash,site_id,created_at,expires_at) VALUES(%s,%s,%s,%s)",
+                        (token_hash, site_id, now, expires),
+                    )
+                conn.commit()
+        else:
+            with _sqlite() as conn:
+                conn.execute(
+                    "INSERT INTO nexusai_installer_tokens(token_hash,site_id,created_at,expires_at) VALUES(?,?,?,?,?)",
+                    (token_hash, site_id, now, expires),
+                )
+                conn.commit()
+    return token
+
+def consume_installer_token(token: str) -> str:
+    token = str(token or "").strip()
+    if len(token) < 40 or len(token) > 120:
+        raise HTTPException(status_code=400, detail="Invalid NexusAI installer token.")
+    token_hash = _installer_token_hash(token)
+    now = time.time()
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT site_id,expires_at,used_at FROM nexusai_installer_tokens WHERE token_hash=%s FOR UPDATE",
+                        (token_hash,),
+                    )
+                    row = cur.fetchone()
+                    if not row or row[2] is not None or float(row[1]) < now:
+                        raise HTTPException(status_code=403, detail="This NexusAI installer link is expired or already used.")
+                    cur.execute("UPDATE nexusai_installer_tokens SET used_at=%s WHERE token_hash=%s", (now, token_hash))
+                conn.commit()
+                return str(row[0])
+        with _sqlite() as conn:
+            row = conn.execute(
+                "SELECT site_id,expires_at,used_at FROM nexusai_installer_tokens WHERE token_hash=?",
+                (token_hash,),
+            ).fetchone()
+            if not row or row[2] is not None or float(row[1]) < now:
+                raise HTTPException(status_code=403, detail="This NexusAI installer link is expired or already used.")
+            conn.execute("UPDATE nexusai_installer_tokens SET used_at=? WHERE token_hash=?", (now, token_hash))
+            conn.commit()
+            return str(row[0])
+
+@app.get("/api/edge/installer-link")
+async def edge_installer_link(site_id: str, activation_code: str):
+    site_id = require_site_access(site_id, activation_code)
+    token = create_installer_token(site_id)
+    return {
+        "site_id": site_id,
+        "expires_in": 900,
+        "windows": f"/downloads/security-box/windows.ps1?installer_token={quote(token)}",
+        "macos": f"/downloads/security-box/macos.sh?installer_token={quote(token)}",
+    }
+
+@app.post("/api/edge/bootstrap")
+async def edge_bootstrap(request: dict):
+    token = str(request.get("installer_token", "")).strip()
+    site_id = consume_installer_token(token)
+    return {
+        "site_id": site_id,
+        "edge_token": site_edge_token(site_id),
+        "api_url": "https://getnexusai.co.za",
+        "expires_in": 86400,
+    }
 
 @app.get("/api/edge/provision")
 async def edge_provision(site_id: str, activation_code: str):
