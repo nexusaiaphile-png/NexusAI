@@ -770,10 +770,7 @@ async def nexusai_app_icon():
 EDGE_AGENT_DIR = BASE_DIR / "edge_agent"
 
 SECURITY_BOX_RELEASE_TAG = os.getenv("NEXUSAI_SECURITY_BOX_RELEASE_TAG", "security-box-latest")
-SECURITY_BOX_RELEASE_BASE = (
-    "https://github.com/nexusaiaphile-png/NexusAI/releases/download/"
-    + SECURITY_BOX_RELEASE_TAG
-)
+SECURITY_BOX_RELEASE_BASE = "https://github.com/nexusaiaphile-png/NexusAI/releases/download/" + SECURITY_BOX_RELEASE_TAG
 
 def _download_security_box_asset(filename: str) -> bytes:
     url = SECURITY_BOX_RELEASE_BASE + "/" + filename
@@ -816,11 +813,6 @@ async def security_box_source(filename: str):
 async def security_box_windows_exe(installer_token: str):
     token = _validate_installer_download_token(installer_token)
     payload = _download_security_box_asset("NexusAI-SecurityBox-Windows.exe")
-    marker = ("NEXUSAI_INSTALLER_TOKEN_PLACEHOLDER_" + "~" * 64).encode("ascii")
-    replacement = ("NEXUSAI_INSTALLER_TOKEN_PLACEHOLDER_" + token.ljust(64, "~")).encode("ascii")
-    if marker not in payload:
-        raise HTTPException(status_code=503, detail="NexusAI Windows installer is not compatible with this cloud version.")
-    payload = payload.replace(marker, replacement, 1)
     return Response(
         content=payload,
         media_type="application/vnd.microsoft.portable-executable",
