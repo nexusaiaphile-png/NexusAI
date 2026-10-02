@@ -12,12 +12,12 @@ body{margin:0;background:#050908;color:#f2f7f5;font-family:Inter,system-ui,sans-
 <body><main class="shell">
 <div class="brand">NEXUSAI · SECURITY BOX</div>
 <section class="card">
-<h1>Connect the security system</h1>
-<p class="muted">Install NexusAI Security Box on a computer connected to the site's Hikvision CCTV network. It will run quietly in the background and restart automatically after a reboot.</p>
+<h1>Turn on NexusAI</h1>
+<p class="muted">This takes just a few steps. Install NexusAI Security Box on the computer connected to the CCTV system. NexusAI will find the cameras and keep them connected automatically.</p>
 <div id="status" class="status">Preparing your site installer…</div>
 <div id="buttons" class="hidden">
-<a id="windows" class="primary">INSTALL ON WINDOWS</a>
-<a id="macos" class="secondary">INSTALL ON MAC</a>
+<a id="windows" class="primary">INSTALL NEXUSAI</a>
+<a id="macos" class="secondary">INSTALL NEXUSAI ON MAC</a>
 </div>
 <p class="small">The installer link is site-specific and expires after 15 minutes. Your Hikvision password is entered locally and stored in the computer's secure credential store; it is not sent to NexusAI Cloud.</p>
 </section>
@@ -32,7 +32,10 @@ body{margin:0;background:#050908;color:#f2f7f5;font-family:Inter,system-ui,sans-
   const d=await r.json(); if(!r.ok) throw new Error(d.detail||"Could not create installer link.");
   document.getElementById("windows").href=d.windows;
   document.getElementById("macos").href=d.macos;
-  status.innerHTML='<span class="ok">Installer ready.</span> Download it on the computer that is connected to the CCTV network.';
+  const isMac = /Macintosh|Mac OS X/i.test(navigator.userAgent);
+  document.getElementById("windows").classList.toggle("hidden", isMac);
+  document.getElementById("macos").classList.toggle("hidden", !isMac);
+  status.innerHTML='<span class="ok">Installer ready.</span> Download it on the computer connected to the CCTV network. NexusAI will do the technical setup in the background.';
   buttons.classList.remove("hidden");
  }catch(e){status.textContent=e.message||"Could not prepare the installer."}
 })();
