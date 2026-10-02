@@ -16,10 +16,12 @@ SCRIPTS="$WORK/scripts"
 rm -rf "$WORK"
 mkdir -p "$PKGROOT/Library/Application Support/NexusAI/SecurityBox" "$SCRIPTS" "$OUT"
 
-python3 -m pip install --upgrade pip pyinstaller requests python-dotenv
+VENV="$WORK/venv"
+python3 -m venv "$VENV"
+"$VENV/bin/python" -m pip install --upgrade pip pyinstaller requests python-dotenv
 
 rm -rf "$WORK/pyi" "$WORK/dist"
-python3 -m PyInstaller --clean --noconfirm --onefile   --name NexusAI-SecurityBox   --target-arch "$PY_ARCH"   --osx-bundle-identifier "za.co.getnexusai.securitybox"   edge_agent/security_box_macos_installer.py   --distpath "$WORK/dist" --workpath "$WORK/pyi"
+"$VENV/bin/python" -m PyInstaller --clean --noconfirm --onefile   --name NexusAI-SecurityBox   --target-arch "$PY_ARCH"   --osx-bundle-identifier "za.co.getnexusai.securitybox"   edge_agent/security_box_macos_installer.py   --distpath "$WORK/dist" --workpath "$WORK/pyi"
 
 cp "$WORK/dist/NexusAI-SecurityBox" "$PKGROOT/Library/Application Support/NexusAI/SecurityBox/NexusAI-SecurityBox"
 chmod 755 "$PKGROOT/Library/Application Support/NexusAI/SecurityBox/NexusAI-SecurityBox"
