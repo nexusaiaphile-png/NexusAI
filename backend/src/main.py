@@ -762,6 +762,65 @@ def _new_activation_code() -> str:
     return "NEX-" + "".join(secrets.choice(alphabet) for _ in range(8))
 
 
+def _new_qr_token() -> str:
+    return secrets.token_urlsafe(24).replace("-", "").replace("_", "")
+
+
+def ensure_qr_token(site_id: str) -> str:
+    site_id = validate_site_id(site_id)
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT qr_token FROM nexusai_qr_tokens WHERE site_id=%s", (site_id,))
+                    row = cur.fetchone()
+                    if row:
+                        return row[0]
+                    token = _new_qr_token()
+                    cur.execute("INSERT INTO nexusai_qr_tokens(qr_token,site_id,created_at) VALUES(%s,%s,%s)", (token, site_id, time.time()))
+                conn.commit()
+                return token
+        with _sqlite() as conn:
+            row = conn.execute("SELECT qr_token FROM nexusai_qr_tokens WHERE site_id=?", (site_id,)).fetchone()
+            if row:
+                return row[0]
+            for _ in range(10):
+                token = _new_qr_token()
+                try:
+                    conn.execute("INSERT INTO nexusai_qr_tokens(qr_token,site_id,created_at) VALUES(?,?,?)", (token, site_id, time.time()))
+                    conn.commit()
+                    return token
+                except sqlite3.IntegrityError:
+                    conn.rollback()
+            raise HTTPException(status_code=500, detail="Could not create NexusAI QR token.")
+
+
+def resolve_qr_token(qr_token: str) -> str:
+    token = str(qr_token or "").strip()
+    if len(token) < 20 or len(token) > 100 or not re.fullmatch(r"[A-Za-z0-9]+", token):
+        raise HTTPException(status_code=400, detail="Invalid NexusAI QR code.")
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT site_id FROM nexusai_qr_tokens WHERE qr_token=%s", (token,))
+                    row = cur.fetchone()
+                    if not row:
+                        raise HTTPException(status_code=404, detail="NexusAI site QR code not found.")
+                    cur.execute("UPDATE nexusai_qr_tokens SET last_used_at=%s WHERE qr_token=%s", (time.time(), token))
+                conn.commit()
+                return row[0]
+        with _sqlite() as conn:
+            row = conn.execute("SELECT site_id FROM nexusai_qr_tokens WHERE qr_token=?", (token,)).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="NexusAI site QR code not found.")
+            conn.execute("UPDATE nexusai_qr_tokens SET last_used_at=? WHERE qr_token=?", (time.time(), token))
+            conn.commit()
+            return row[0]
+
+
 def create_or_resolve_site(activation_code: str | None = None) -> tuple[str, str]:
     code = (activation_code or "").strip().upper()
     with DB_LOCK:
