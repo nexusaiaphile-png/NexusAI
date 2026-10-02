@@ -33,6 +33,14 @@
     siteId = data.site_id;
     installToken = data.install_token;
     renderCameras(data.cameras || []);
+    const installBtn = $("installBoxBtn");
+    if (installBtn) {
+      installBtn.href = "/protect/install?qr=" + encodeURIComponent(qr);
+      installBtn.classList.toggle("hidden", data.edge_agent === "ONLINE");
+      $("boxStatus").textContent = data.edge_agent === "ONLINE"
+        ? "Security Box connected."
+        : "The Security Box is not connected yet. Install it on a computer connected to the CCTV network.";
+    }
     setConnection(data.edge_agent === "ONLINE" ? "SECURITY SYSTEM ONLINE" : "CONNECTING TO SECURITY SYSTEM", data.edge_agent === "ONLINE");
     show("main");
     if (data.cameras && data.cameras.length) $("protectBtn").classList.remove("hidden");

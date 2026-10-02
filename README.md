@@ -55,6 +55,18 @@ It verifies the camera locally, maintains the Hikvision event stream, captures e
 
 Configure `NEXUSAI_API_URL=https://getnexusai.co.za` after the custom domain is active.
 
+## NexusAI Security Box
+
+The Security Box is the always-on local service layer for production sites. It runs the existing hardened Edge Agent under the operating system service manager, starts automatically after reboot, keeps the cloud heartbeat alive, and can continuously discover local Hikvision devices when NVR credentials are configured on the site computer.
+
+- Windows: `NexusAISecurityBox` Windows service with delayed automatic startup and SCM restart recovery.
+- macOS: launchd LaunchDaemon with `RunAtLoad` and `KeepAlive`.
+- Site provisioning: the existing `/api/edge/provision` flow supplies the site-bound Edge token after site activation.
+- Hikvision integration: discovery stays local; camera/NVR credentials are not sent to the NexusAI cloud by the discovery process.
+- Build outputs are validated by GitHub Actions for macOS and Windows.
+
+Hikvision documents ISAPI as its REST-style integration interface, while its SADP SDK is designed for discovering Hikvision devices on the same subnet. NexusAI therefore keeps device discovery and device authentication on the customer network.
+
 ## Local development
 
 ```bash
@@ -63,3 +75,11 @@ uvicorn backend.src.main:app --reload
 ```
 
 The public site, portal, API, and NexusAI app are served by the same FastAPI service.
+
+## Security Box one-time installer
+
+The QR protection flow can generate a short-lived, site-specific Security Box installer. The installer provisions the site once, asks for the local Hikvision NVR username/password, stores those credentials in the operating system secure credential store, and registers the Security Box as a background service.
+
+The site credential is never written to the Security Box JSON configuration. Windows/macOS service startup reads the site ID from local non-secret configuration and retrieves the Edge token and Hikvision credentials from secure storage.
+
+Installer links are one-time and expire after 15 minutes. Production packaging should still be upgraded to signed/notarized native installers before broad customer rollout.
