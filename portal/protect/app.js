@@ -10,7 +10,7 @@
   let automaticProtectionStarted = false;
 
   function show(id) {
-    ["loading","error","main"].forEach(x => $(x).classList.toggle("hidden", x !== id));
+    ["loading","activate","error","main"].forEach(x => $(x).classList.toggle("hidden", x !== id));
   }
   function fail(message) {
     $("errorText").textContent = message;
@@ -31,6 +31,10 @@
     const response = await fetch("/api/protect/session?qr=" + encodeURIComponent(qr), { cache: "no-store" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.detail || "The NexusAI site could not be found.");
+    if (!data.activated) {
+      show("activate");
+      return;
+    }
     siteId = data.site_id;
     installToken = data.install_token;
     renderCameras(data.cameras || []);
@@ -77,6 +81,30 @@
   }
   function escapeHtml(value) {
     return String(value).replace(/[&<>"']/g, ch => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[ch]));
+  }
+
+  async function activateSite() {
+    const button = $("activateSiteBtn");
+    const status = $("activateStatus");
+    if (!button) return;
+    button.disabled = true;
+    button.textContent = "ACTIVATING…";
+    status.textContent = "Creating your secure NexusAI site…";
+    try {
+      const response = await fetch("/api/protect/activate-qr", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({qr})
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "This QR code could not be activated.");
+      status.textContent = "✓ Site activated. Connecting your security system…";
+      await loadSession();
+    } catch (error) {
+      status.textContent = error.message || "Activation could not be completed.";
+      button.disabled = false;
+      button.textContent = "ACTIVATE NEXUSAI";
+    }
   }
 
   async function enableAlerts() {
@@ -167,6 +195,7 @@
     } catch (_) {}
   }
 
+  $("activateSiteBtn").addEventListener("click", activateSite);
   $("alertsBtn").addEventListener("click", enableAlerts);
   $("protectBtn").addEventListener("click", protectAll);
 
