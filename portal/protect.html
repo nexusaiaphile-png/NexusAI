@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07110f">
+  <link rel="manifest" href="/app/manifest.json">
+  <title>NexusAI Security</title>
+  <link rel="stylesheet" href="/protect/style.css?v=20261002-1">
+</head>
+<body>
+  <main class="shell">
+    <header class="brand">
+      <div class="logo">N</div>
+      <div><strong>NexusAI</strong><span>AI SECURITY</span></div>
+    </header>
+
+    <section id="loading" class="card center">
+      <div class="spinner"></div>
+      <h1>Connecting to your security site</h1>
+      <p>Please wait. NexusAI is identifying this site.</p>
+    </section>
+
+    <section id="error" class="card center hidden">
+      <div class="status bad">!</div>
+      <h1>We couldn't open this site</h1>
+      <p id="errorText">Please scan the NexusAI QR code again.</p>
+      <button onclick="location.reload()">TRY AGAIN</button>
+    </section>
+
+    <section id="main" class="hidden">
+      <section class="card hero">
+        <div class="eyebrow">NEXUSAI SECURITY</div>
+        <h1 id="title">Your security center</h1>
+        <p id="subtitle">Everything is being connected automatically.</p>
+        <div id="connection" class="pill">CONNECTING…</div>
+      </section>
+
+      <section class="card">
+        <div class="step"><span>1</span><div><h2>Turn on security alerts</h2><p>This phone will receive NexusAI alerts.</p></div></div>
+        <button id="alertsBtn" class="primary">ENABLE SECURITY ALERTS</button>
+        <p id="alertsStatus" class="small"></p>
+      </section>
+
+      <section class="card">
+        <div class="step"><span>2</span><div><h2>Your cameras</h2><p>NexusAI finds the Hikvision cameras automatically.</p></div></div>
+        <div id="cameraState" class="camera-state">Looking for your security system…</div>
+        <div id="cameras" class="camera-list"></div>
+        <button id="protectBtn" class="primary hidden">PROTECT ALL CAMERAS</button>
+      </section>
+
+      <section id="done" class="card done hidden">
+        <div class="check">✓</div>
+        <div class="eyebrow">NEXUSAI PROTECTED</div>
+        <h1>Your security is on</h1>
+        <p id="doneText">NexusAI is now monitoring your selected cameras and this phone will receive security alerts.</p>
+        <div class="summary"><strong id="protectedCount">0</strong><span>CAMERAS PROTECTED</span></div>
+      </section>
+
+      <section class="trust">
+        <strong>NexusAI Security Engine</strong>
+        <span>Runs in the background and connects your site's Hikvision system to NexusAI Cloud.</span>
+      </section>
+    </section>
+  </main>
+  <script src="/protect/app.js?v=20261002-1"></script>
+</body>
+</html>
