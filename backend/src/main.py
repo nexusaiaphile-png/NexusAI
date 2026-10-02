@@ -157,6 +157,7 @@ def init_db():
                         snapshot_data BYTEA
                     )
                 """)
+                cur.execute("ALTER TABLE nexusai_qr_tokens ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ACTIVATED'")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_mime TEXT")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_filename TEXT")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_data BYTEA")
@@ -201,7 +202,8 @@ def init_db():
                         qr_token TEXT PRIMARY KEY,
                         site_id TEXT NOT NULL UNIQUE,
                         created_at DOUBLE PRECISION NOT NULL,
-                        last_used_at DOUBLE PRECISION
+                        last_used_at DOUBLE PRECISION,
+                        status TEXT NOT NULL DEFAULT 'ACTIVATED'
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_qr_site ON nexusai_qr_tokens(site_id)")
@@ -253,7 +255,8 @@ def init_db():
                     qr_token TEXT PRIMARY KEY,
                     site_id TEXT NOT NULL UNIQUE,
                     created_at REAL NOT NULL,
-                    last_used_at REAL
+                    last_used_at REAL,
+                    status TEXT NOT NULL DEFAULT 'ACTIVATED'
                 );
                 CREATE INDEX IF NOT EXISTS idx_nexusai_qr_site ON nexusai_qr_tokens(site_id);
                 CREATE TABLE IF NOT EXISTS nexusai_installer_tokens (
@@ -281,6 +284,9 @@ def startup():
             conn.commit()
     else:
         with _sqlite() as conn:
+            qr_cols = {row[1] for row in conn.execute("PRAGMA table_info(nexusai_qr_tokens)").fetchall()}
+            if "status" not in qr_cols:
+                conn.execute("ALTER TABLE nexusai_qr_tokens ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVATED'")
             cols = {row[1] for row in conn.execute("PRAGMA table_info(nexusai_events)").fetchall()}
             if "snapshot_mime" not in cols: conn.execute("ALTER TABLE nexusai_events ADD COLUMN snapshot_mime TEXT")
             if "snapshot_filename" not in cols: conn.execute("ALTER TABLE nexusai_events ADD COLUMN snapshot_filename TEXT")
@@ -727,6 +733,10 @@ async def protect_style():
 async def protect_print():
     return FileResponse(PORTAL_DIR / "qr.html")
 
+@app.get("/qr-pool", include_in_schema=False)
+async def qr_pool_page():
+    return FileResponse(PORTAL_DIR / "qr-pool.html")
+
 @app.get("/protect/app.js", include_in_schema=False)
 async def protect_app_js():
     return FileResponse(PORTAL_DIR / "protect/app.js", media_type="application/javascript")
@@ -972,7 +982,11 @@ def _new_activation_code() -> str:
 
 
 def _new_qr_token() -> str:
-    return secrets.token_urlsafe(24).replace("-", "").replace("_", "")
+    return secrets.token_urlsafe(32).replace("-", "").replace("_", "")
+
+
+def _pool_placeholder(token: str) -> str:
+    return "__POOL__:" + token
 
 
 def ensure_qr_token(site_id: str) -> str:
@@ -982,22 +996,22 @@ def ensure_qr_token(site_id: str) -> str:
             import psycopg
             with psycopg.connect(database_url()) as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT qr_token FROM nexusai_qr_tokens WHERE site_id=%s", (site_id,))
+                    cur.execute("SELECT qr_token FROM nexusai_qr_tokens WHERE site_id=%s AND status='ACTIVATED'", (site_id,))
                     row = cur.fetchone()
                     if row:
                         return row[0]
                     token = _new_qr_token()
-                    cur.execute("INSERT INTO nexusai_qr_tokens(qr_token,site_id,created_at) VALUES(%s,%s,%s)", (token, site_id, time.time()))
+                    cur.execute("INSERT INTO nexusai_qr_tokens(qr_token,site_id,created_at,last_used_at,status) VALUES(%s,%s,%s,%s,'ACTIVATED')", (token,site_id,time.time(),None))
                 conn.commit()
                 return token
         with _sqlite() as conn:
-            row = conn.execute("SELECT qr_token FROM nexusai_qr_tokens WHERE site_id=?", (site_id,)).fetchone()
+            row = conn.execute("SELECT qr_token FROM nexusai_qr_tokens WHERE site_id=? AND status='ACTIVATED'", (site_id,)).fetchone()
             if row:
                 return row[0]
             for _ in range(10):
                 token = _new_qr_token()
                 try:
-                    conn.execute("INSERT INTO nexusai_qr_tokens(qr_token,site_id,created_at) VALUES(?,?,?)", (token, site_id, time.time()))
+                    conn.execute("INSERT INTO nexusai_qr_tokens(qr_token,site_id,created_at,last_used_at,status) VALUES(?,?,?,?,?)", (token,site_id,time.time(),None,"ACTIVATED"))
                     conn.commit()
                     return token
                 except sqlite3.IntegrityError:
@@ -1005,29 +1019,152 @@ def ensure_qr_token(site_id: str) -> str:
             raise HTTPException(status_code=500, detail="Could not create NexusAI QR token.")
 
 
-def resolve_qr_token(qr_token: str) -> str:
+def qr_token_info(qr_token: str) -> dict:
     token = str(qr_token or "").strip()
-    if len(token) < 20 or len(token) > 100 or not re.fullmatch(r"[A-Za-z0-9]+", token):
+    if len(token) < 20 or len(token) > 120 or not re.fullmatch(r"[A-Za-z0-9]+", token):
         raise HTTPException(status_code=400, detail="Invalid NexusAI QR code.")
     with DB_LOCK:
         if database_url():
             import psycopg
             with psycopg.connect(database_url()) as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT site_id FROM nexusai_qr_tokens WHERE qr_token=%s", (token,))
+                    cur.execute("SELECT qr_token,site_id,status,created_at,last_used_at FROM nexusai_qr_tokens WHERE qr_token=%s", (token,))
+                    row = cur.fetchone()
+        else:
+            with _sqlite() as conn:
+                row = conn.execute("SELECT qr_token,site_id,status,created_at,last_used_at FROM nexusai_qr_tokens WHERE qr_token=?", (token,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="NexusAI QR code not found.")
+    return {"qr_token":row[0],"site_id":row[1],"status":row[2] or "ACTIVATED","created_at":row[3],"last_used_at":row[4]}
+
+
+def resolve_qr_token(qr_token: str) -> str:
+    info = qr_token_info(qr_token)
+    if info["status"] != "ACTIVATED" or not info["site_id"] or str(info["site_id"]).startswith("__POOL__:"):
+        raise HTTPException(status_code=409, detail="This NexusAI QR sticker has not been activated yet.")
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE nexusai_qr_tokens SET last_used_at=%s WHERE qr_token=%s AND status='ACTIVATED'", (time.time(),info["qr_token"]))
+                conn.commit()
+        else:
+            with _sqlite() as conn:
+                conn.execute("UPDATE nexusai_qr_tokens SET last_used_at=? WHERE qr_token=? AND status='ACTIVATED'", (time.time(),info["qr_token"]))
+                conn.commit()
+    return str(info["site_id"])
+
+
+def claim_qr_for_new_site(qr_token: str) -> tuple[str, str]:
+    token = str(qr_token or "").strip()
+    if len(token) < 20 or len(token) > 120 or not re.fullmatch(r"[A-Za-z0-9]+", token):
+        raise HTTPException(status_code=400, detail="Invalid NexusAI QR code.")
+    now = time.time()
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT site_id,status FROM nexusai_qr_tokens WHERE qr_token=%s FOR UPDATE", (token,))
                     row = cur.fetchone()
                     if not row:
-                        raise HTTPException(status_code=404, detail="NexusAI site QR code not found.")
-                    cur.execute("UPDATE nexusai_qr_tokens SET last_used_at=%s WHERE qr_token=%s", (time.time(), token))
+                        raise HTTPException(status_code=404, detail="NexusAI QR code not found.")
+                    if row[1] == "ACTIVATED" and row[0] and not str(row[0]).startswith("__POOL__:"):
+                        cur.execute("UPDATE nexusai_qr_tokens SET last_used_at=%s WHERE qr_token=%s", (now,token))
+                        cur.execute("SELECT activation_code FROM nexusai_site_codes WHERE site_id=%s", (row[0],))
+                        code_row = cur.fetchone()
+                        conn.commit()
+                        return str(row[0]), str(code_row[0]) if code_row else ""
+                    if row[1] != "UNUSED":
+                        raise HTTPException(status_code=409, detail="This QR code is currently being activated. Please scan it again.")
+                    site_id = _new_site_id()
+                    activation_code = _new_activation_code()
+                    cur.execute("INSERT INTO nexusai_site_codes(activation_code,site_id,created_at,last_used_at) VALUES(%s,%s,%s,%s)", (activation_code,site_id,now,now))
+                    cur.execute("INSERT INTO nexusai_sites(site_id,status,agent_version,timestamp,received_at,cameras_json) VALUES(%s,%s,%s,%s,%s,%s)", (site_id,"WAITING","", "", now, "[]"))
+                    cur.execute("UPDATE nexusai_qr_tokens SET site_id=%s,status='ACTIVATED',last_used_at=%s WHERE qr_token=%s", (site_id,now,token))
                 conn.commit()
-                return row[0]
+                return site_id, activation_code
         with _sqlite() as conn:
-            row = conn.execute("SELECT site_id FROM nexusai_qr_tokens WHERE qr_token=?", (token,)).fetchone()
+            row = conn.execute("SELECT site_id,status FROM nexusai_qr_tokens WHERE qr_token=?", (token,)).fetchone()
             if not row:
-                raise HTTPException(status_code=404, detail="NexusAI site QR code not found.")
-            conn.execute("UPDATE nexusai_qr_tokens SET last_used_at=? WHERE qr_token=?", (time.time(), token))
-            conn.commit()
-            return row[0]
+                raise HTTPException(status_code=404, detail="NexusAI QR code not found.")
+            if row[1] == "ACTIVATED" and row[0] and not str(row[0]).startswith("__POOL__:"):
+                conn.execute("UPDATE nexusai_qr_tokens SET last_used_at=? WHERE qr_token=?", (now,token))
+                code_row = conn.execute("SELECT activation_code FROM nexusai_site_codes WHERE site_id=?", (row[0],)).fetchone()
+                conn.commit()
+                return str(row[0]), str(code_row[0]) if code_row else ""
+            if row[1] != "UNUSED":
+                raise HTTPException(status_code=409, detail="This QR code is currently being activated. Please scan it again.")
+            site_id = _new_site_id()
+            activation_code = _new_activation_code()
+            try:
+                conn.execute("INSERT INTO nexusai_site_codes(activation_code,site_id,created_at,last_used_at) VALUES(?,?,?,?)", (activation_code,site_id,now,now))
+                conn.execute("INSERT INTO nexusai_sites(site_id,status,agent_version,timestamp,received_at,cameras_json) VALUES(?,?,?,?,?,?)", (site_id,"WAITING","", "", now, "[]"))
+                conn.execute("UPDATE nexusai_qr_tokens SET site_id=?,status='ACTIVATED',last_used_at=? WHERE qr_token=?", (site_id,now,token))
+                conn.commit()
+                return site_id, activation_code
+            except sqlite3.IntegrityError:
+                conn.rollback()
+                raise HTTPException(status_code=409, detail="This QR code was activated at the same time by another device.")
+
+
+def require_admin_key(value: str | None):
+    configured = os.getenv("NEXUSAI_ADMIN_KEY", "").strip()
+    if not configured or not value or not secrets.compare_digest(value.strip(), configured):
+        raise HTTPException(status_code=401, detail="NexusAI admin access is required.")
+
+
+def create_qr_pool(count: int) -> list[dict]:
+    count = max(1, min(int(count), 500))
+    created = []
+    now = time.time()
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    for _ in range(count):
+                        for _attempt in range(10):
+                            token = _new_qr_token()
+                            try:
+                                cur.execute("INSERT INTO nexusai_qr_tokens(qr_token,site_id,created_at,last_used_at,status) VALUES(%s,%s,%s,%s,'UNUSED')", (token,_pool_placeholder(token),now,None))
+                                created.append(token)
+                                break
+                            except Exception:
+                                conn.rollback()
+                        else:
+                            raise HTTPException(status_code=500, detail="Could not generate a secure QR batch.")
+                conn.commit()
+        else:
+            with _sqlite() as conn:
+                for _ in range(count):
+                    for _attempt in range(10):
+                        token = _new_qr_token()
+                        try:
+                            conn.execute("INSERT INTO nexusai_qr_tokens(qr_token,site_id,created_at,last_used_at,status) VALUES(?,?,?,?,?)", (token,_pool_placeholder(token),now,None,"UNUSED"))
+                            created.append(token)
+                            break
+                        except sqlite3.IntegrityError:
+                            conn.rollback()
+                    else:
+                        raise HTTPException(status_code=500, detail="Could not generate a secure QR batch.")
+                conn.commit()
+    return [{"token":token,"url":"https://getnexusai.co.za/protect/?qr="+quote(token)} for token in created]
+
+
+def list_qr_pool() -> list[dict]:
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT qr_token,site_id,status,created_at,last_used_at FROM nexusai_qr_tokens ORDER BY created_at DESC")
+                    rows = cur.fetchall()
+        else:
+            with _sqlite() as conn:
+                rows = conn.execute("SELECT qr_token,site_id,status,created_at,last_used_at FROM nexusai_qr_tokens ORDER BY created_at DESC").fetchall()
+    return [{"token":row[0],"status":row[2] or "ACTIVATED","site_id":None if str(row[1]).startswith("__POOL__:") else row[1],"url":"https://getnexusai.co.za/protect/?qr="+quote(row[0]),"created_at":row[3],"last_used_at":row[4]} for row in rows]
 
 
 def create_or_resolve_site(activation_code: str | None = None) -> tuple[str, str]:
@@ -1088,16 +1225,24 @@ async def portal_activate(request: SiteActivationRequest, http_request: Request)
 
 @app.get("/api/protect/session")
 async def protect_session(qr: str = ""):
-    site_id = resolve_qr_token(qr)
-    site = EDGE_SITES.get(site_id) or load_site(site_id) or {"site_id": site_id, "status": "WAITING", "cameras": []}
+    info = qr_token_info(qr)
+    if info["status"] != "ACTIVATED" or not info["site_id"] or str(info["site_id"]).startswith("__POOL__:"):
+        return {"activated":False,"status":"UNUSED","site_id":None,"install_token":None,"edge_agent":"WAITING","cameras":[]}
+    site_id = str(info["site_id"])
+    site = EDGE_SITES.get(site_id) or load_site(site_id) or {"site_id":site_id,"status":"WAITING","cameras":[]}
     cameras = load_cameras(site_id)
-    return {
-        "site_id": site_id,
-        "install_token": create_install_token(site_id),
-        "status": site.get("status", "WAITING"),
-        "edge_agent": "ONLINE" if site.get("received_at") and time.time() - float(site.get("received_at", 0)) <= 90 else "WAITING",
-        "cameras": cameras,
-    }
+    return {"activated":True,"status":"ACTIVATED","site_id":site_id,"install_token":create_install_token(site_id),"site_status":site.get("status","WAITING"),"edge_agent":"ONLINE" if site.get("received_at") and time.time()-float(site.get("received_at",0)) <= 90 else "WAITING","cameras":cameras}
+
+
+class ActivateQrRequest(BaseModel):
+    qr: str = Field(..., min_length=20, max_length=120)
+
+
+@app.post("/api/protect/activate-qr")
+async def activate_qr(request: ActivateQrRequest, http_request: Request):
+    allow_activation_attempt(http_request)
+    site_id, activation_code = claim_qr_for_new_site(request.qr)
+    return {"activated":True,"site_id":site_id,"activation_code":activation_code,"qr_url":"https://getnexusai.co.za/protect/?qr="+quote(request.qr)}
 
 
 class ProtectCamerasRequest(BaseModel):
@@ -1136,6 +1281,22 @@ async def protect_qr(site_id: str = "", activation_code: str = ""):
     site_id = require_site_access(site_id, activation_code)
     token = ensure_qr_token(site_id)
     return {"site_id": site_id, "url": "https://getnexusai.co.za/protect/?qr=" + quote(token), "token": token}
+
+
+@app.get("/api/admin/qr-pool")
+async def admin_qr_pool(x_nexusai_admin_key: str | None = Header(default=None)):
+    require_admin_key(x_nexusai_admin_key)
+    return {"codes":list_qr_pool()}
+
+
+class QrPoolGenerateRequest(BaseModel):
+    count: int = Field(default=10, ge=1, le=500)
+
+
+@app.post("/api/admin/qr-pool")
+async def admin_generate_qr_pool(request: QrPoolGenerateRequest, x_nexusai_admin_key: str | None = Header(default=None)):
+    require_admin_key(x_nexusai_admin_key)
+    return {"generated":create_qr_pool(request.count)}
 
 @app.post("/api/push/activate")
 async def push_activate(request: SiteActivationRequest, http_request: Request):
