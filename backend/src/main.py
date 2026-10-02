@@ -709,6 +709,10 @@ async def simple_protect():
 async def protect_style():
     return FileResponse(PORTAL_DIR / "protect.css", media_type="text/css")
 
+@app.get("/protect/print", include_in_schema=False)
+async def protect_print():
+    return FileResponse(PORTAL_DIR / "qr.html")
+
 @app.get("/protect/app.js", include_in_schema=False)
 async def protect_app_js():
     return FileResponse(PORTAL_DIR / "protect/app.js", media_type="application/javascript")
