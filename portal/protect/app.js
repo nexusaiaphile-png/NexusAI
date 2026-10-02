@@ -43,8 +43,12 @@
     }
     setConnection(data.edge_agent === "ONLINE" ? "SECURITY SYSTEM ONLINE" : "CONNECTING TO SECURITY SYSTEM", data.edge_agent === "ONLINE");
     show("main");
-    if (data.cameras && data.cameras.length) $("protectBtn").classList.remove("hidden");
-    else $("protectBtn").classList.add("hidden");
+    if (data.cameras && data.cameras.length) {
+      $("protectBtn").classList.add("hidden");
+      await protectAll();
+    } else {
+      $("protectBtn").classList.add("hidden");
+    }
     await enableAlertsIfAlreadyGranted();
   }
 
@@ -53,15 +57,17 @@
     const box = $("cameras");
     box.innerHTML = "";
     if (!list.length) {
-      $("cameraState").textContent = "NexusAI is waiting for the site's Security Engine. This page will keep checking automatically.";
+      $("cameraState").textContent = "NexusAI is connecting to the security system…";
       return;
     }
     const protectedCount = list.filter(c => c.status === "PROTECTED" || c.verified).length;
-    $("cameraState").textContent = protectedCount ? protectedCount + " cameras already protected." : list.length + " cameras found.";
+    $("cameraState").textContent = protectedCount
+      ? protectedCount + " cameras protected."
+      : list.length + " cameras found — NexusAI is protecting them automatically.";
     list.forEach((camera, i) => {
-      const label = document.createElement("label");
+      const label = document.createElement("div");
       label.className = "camera";
-      label.innerHTML = '<input type="checkbox" checked data-camera-id="' + String(camera.camera_id).replace(/"/g,"&quot;") + '"><div><div class="name">' + escapeHtml(camera.camera_name || ("Camera " + (i+1))) + '</div><div class="loc">' + escapeHtml(camera.location || "Security camera") + '</div></div>';
+      label.innerHTML = '<div><div class="name">' + escapeHtml(camera.camera_name || ("Camera " + (i+1))) + '</div><div class="loc">' + escapeHtml(camera.location || "Security camera") + '</div></div>';
       box.appendChild(label);
     });
   }
@@ -111,7 +117,7 @@
   }
 
   async function protectAll() {
-    const selected = [...document.querySelectorAll("#cameras input[type=checkbox]:checked")].map(x => x.dataset.cameraId);
+    const selected = cameras.map(camera => camera.camera_id);
     if (!selected.length) return;
     $("protectBtn").disabled = true;
     $("protectBtn").textContent = "PROTECTING…";
@@ -127,7 +133,7 @@
       $("done").classList.remove("hidden");
       $("protectBtn").classList.add("hidden");
       $("cameraState").textContent = data.protected_count + " cameras protected.";
-      document.querySelectorAll("#cameras input").forEach(x => x.disabled = true);
+
       setConnection("NEXUSAI PROTECTED", true);
       window.scrollTo({top: document.body.scrollHeight, behavior: "smooth"});
     } catch (error) {
@@ -145,7 +151,10 @@
       installToken = data.install_token;
       if (data.cameras) {
         renderCameras(data.cameras);
-        if (data.cameras.length) $("protectBtn").classList.remove("hidden");
+        if (data.cameras.length) {
+          $("protectBtn").classList.add("hidden");
+          await protectAll();
+        }
       }
       setConnection(data.edge_agent === "ONLINE" ? "SECURITY SYSTEM ONLINE" : "CONNECTING TO SECURITY SYSTEM", data.edge_agent === "ONLINE");
     } catch (_) {}
