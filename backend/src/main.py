@@ -255,6 +255,14 @@ def init_db():
                     last_used_at REAL
                 );
                 CREATE INDEX IF NOT EXISTS idx_nexusai_qr_site ON nexusai_qr_tokens(site_id);
+                CREATE TABLE IF NOT EXISTS nexusai_installer_tokens (
+                    token_hash TEXT PRIMARY KEY,
+                    site_id TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    expires_at REAL NOT NULL,
+                    used_at REAL
+                );
+                CREATE INDEX IF NOT EXISTS idx_nexusai_installer_site ON nexusai_installer_tokens(site_id);
             """)
             conn.commit()
 
