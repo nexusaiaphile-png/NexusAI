@@ -705,6 +705,14 @@ async def client_portal():
 async def simple_protect():
     return FileResponse(PORTAL_DIR / "protect.html")
 
+@app.get("/protect/style.css", include_in_schema=False)
+async def protect_style():
+    return FileResponse(PORTAL_DIR / "protect.css", media_type="text/css")
+
+@app.get("/protect/app.js", include_in_schema=False)
+async def protect_app_js():
+    return FileResponse(PORTAL_DIR / "protect/app.js", media_type="application/javascript")
+
 
 @app.get("/app", include_in_schema=False)
 @app.get("/app/", include_in_schema=False)
