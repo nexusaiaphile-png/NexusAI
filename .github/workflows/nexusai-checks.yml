@@ -62,6 +62,11 @@ jobs:
         run: |
           test -e "dist/NexusAI-Edge-Agent" || test -e "dist/NexusAI-Edge-Agent/NexusAI-Edge-Agent.exe"
           test -e "dist/NexusAI-SecurityBox" || test -e "dist/NexusAI-SecurityBox/NexusAI-SecurityBox.exe"
+      - name: Upload Security Box artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexusAI-SecurityBox-${{ matrix.os }}
+          path: dist/NexusAI-SecurityBox/
 
   windows-security-box-service:
     runs-on: windows-latest
@@ -80,3 +85,8 @@ jobs:
       - name: Verify Windows service build
         shell: bash
         run: test -e "dist/NexusAI-SecurityBox-Service/NexusAI-SecurityBox-Service.exe"
+      - name: Upload Windows Security Box service artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexusAI-SecurityBox-Windows-Service
+          path: dist/NexusAI-SecurityBox-Service/
