@@ -873,7 +873,8 @@ def create_or_resolve_site(activation_code: str | None = None) -> tuple[str, str
 async def portal_activate(request: SiteActivationRequest, http_request: Request):
     allow_activation_attempt(http_request)
     site_id, activation_code = create_or_resolve_site(request.activation_code)
-    return {"activated": True, "site_id": site_id, "activation_code": activation_code}
+    qr_token = ensure_qr_token(site_id)
+    return {"activated": True, "site_id": site_id, "activation_code": activation_code, "qr_url": f"https://getnexusai.co.za/protect/?qr={quote(qr_token)}"}
 
 
 @app.post("/api/push/activate")
