@@ -7,6 +7,7 @@
   let installToken = "";
   let cameras = [];
   let refreshTimer = null;
+  let automaticProtectionStarted = false;
 
   function show(id) {
     ["loading","error","main"].forEach(x => $(x).classList.toggle("hidden", x !== id));
@@ -45,7 +46,10 @@
     show("main");
     if (data.cameras && data.cameras.length) {
       $("protectBtn").classList.add("hidden");
-      await protectAll();
+      if (!automaticProtectionStarted) {
+        automaticProtectionStarted = true;
+        await protectAll();
+      }
     } else {
       $("protectBtn").classList.add("hidden");
     }
@@ -153,7 +157,10 @@
         renderCameras(data.cameras);
         if (data.cameras.length) {
           $("protectBtn").classList.add("hidden");
-          await protectAll();
+          if (!automaticProtectionStarted) {
+            automaticProtectionStarted = true;
+            await protectAll();
+          }
         }
       }
       setConnection(data.edge_agent === "ONLINE" ? "SECURITY SYSTEM ONLINE" : "CONNECTING TO SECURITY SYSTEM", data.edge_agent === "ONLINE");
