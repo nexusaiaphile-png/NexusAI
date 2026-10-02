@@ -1,0 +1,119 @@
+name: NexusAI Security Box Native Release
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "edge_agent/**"
+      - "macos/build_security_box_pkg.sh"
+      - ".github/workflows/security-box-release.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller requests python-dotenv pywin32
+      - name: Build one-click Windows EXE
+        shell: pwsh
+        run: |
+          python -m PyInstaller --clean --noconfirm --onefile --noconsole `
+            --name NexusAI-SecurityBox-Setup `
+            --uac-admin `
+            --hidden-import win32timezone `
+            --hidden-import servicemanager `
+            --hidden-import win32service `
+            --hidden-import win32serviceutil `
+            --hidden-import win32event `
+            edge_agent/security_box_windows_installer.py
+          New-Item -ItemType Directory -Force -Path dist/release | Out-Null
+          Copy-Item dist/NexusAI-SecurityBox-Setup.exe dist/release/NexusAI-SecurityBox-Windows.exe
+      - name: Verify installer marker
+        shell: pwsh
+        run: |
+          $bytes = [System.IO.File]::ReadAllBytes("dist/release/NexusAI-SecurityBox-Windows.exe")
+          $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+          if (-not $text.Contains("NEXUSAI_INSTALLER_TOKEN_PLACEHOLDER_")) {
+            throw "Installer token marker was not embedded."
+          }
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexusAI-SecurityBox-Windows
+          path: dist/release/NexusAI-SecurityBox-Windows.exe
+
+  macos-intel:
+    runs-on: macos-15-intel
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build Intel package
+        run: |
+          export NEXUSAI_MAC_ARCH=x86_64
+          chmod +x macos/build_security_box_pkg.sh
+          ./macos/build_security_box_pkg.sh
+          mv dist/NexusAI-SecurityBox-Mac-Intel-unsigned.pkg dist/NexusAI-SecurityBox-Mac-Intel.pkg
+      - name: Upload Intel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexusAI-SecurityBox-Mac-Intel
+          path: dist/NexusAI-SecurityBox-Mac-Intel.pkg
+
+  macos-arm64:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build Apple Silicon package
+        run: |
+          export NEXUSAI_MAC_ARCH=arm64
+          chmod +x macos/build_security_box_pkg.sh
+          ./macos/build_security_box_pkg.sh
+          mv dist/NexusAI-SecurityBox-Mac-Arm64-unsigned.pkg dist/NexusAI-SecurityBox-Mac-Arm64.pkg
+      - name: Upload Apple Silicon artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexusAI-SecurityBox-Mac-Arm64
+          path: dist/NexusAI-SecurityBox-Mac-Arm64.pkg
+
+  publish:
+    needs: [windows, macos-intel, macos-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: NexusAI-SecurityBox-Windows
+          path: dist
+      - name: Download Intel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: NexusAI-SecurityBox-Mac-Intel
+          path: dist
+      - name: Download Apple Silicon artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: NexusAI-SecurityBox-Mac-Arm64
+          path: dist
+      - name: Publish moving release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view security-box-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            :
+          else
+            gh release create security-box-latest               --repo "$GITHUB_REPOSITORY"               --title "NexusAI Security Box latest"               --notes "Latest native NexusAI Security Box installers."
+          fi
+          gh release upload security-box-latest             --repo "$GITHUB_REPOSITORY"             dist/NexusAI-SecurityBox-Windows.exe             dist/NexusAI-SecurityBox-Mac-Intel.pkg             dist/NexusAI-SecurityBox-Mac-Arm64.pkg             --clobber
