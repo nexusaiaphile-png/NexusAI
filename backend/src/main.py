@@ -764,7 +764,7 @@ EDGE_AGENT_DIR = BASE_DIR / "edge_agent"
 async def protect_install_page():
     return FileResponse(PORTAL_DIR / "protect" / "install.html", media_type="text/html")
 
-@app.get("/downloads/security-box/{filename}", include_in_schema=False)
+@app.get("/downloads/security-box/source/{filename}", include_in_schema=False)
 async def security_box_source(filename: str):
     allowed = {
         "agent.py": ("agent.py", "text/x-python"),
