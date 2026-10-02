@@ -1,9 +1,12 @@
 """NexusAI Security Box entry point.
 
-This wrapper runs the existing NexusAI Edge Agent as a managed background
-process. Service managers on Windows and macOS keep it alive across reboots.
+This wrapper runs the existing hardened NexusAI Edge Agent under a platform
+service manager. The service manager handles startup and crash recovery.
 """
 import edge_agent.agent as agent
 
+def run():
+    return agent.main()
+
 if __name__ == "__main__":
-    agent.main()
+    run()
