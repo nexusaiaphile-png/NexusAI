@@ -714,11 +714,6 @@ async def public_founder():
     return FileResponse(PORTAL_DIR / "founder.html")
 
 
-@app.get("/portal", include_in_schema=False)
-@app.get("/portal/", include_in_schema=False)
-async def client_portal():
-    return FileResponse(PORTAL_DIR / "index.html")
-
 @app.get("/protect", include_in_schema=False)
 @app.get("/protect/", include_in_schema=False)
 async def simple_protect():
