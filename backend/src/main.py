@@ -13,10 +13,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import quote
+from urllib.request import Request as UrlRequest, urlopen
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse, PlainTextResponse
+from fastapi.responses import FileResponse, RedirectResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr
 
@@ -768,6 +769,82 @@ async def nexusai_app_icon():
 
 EDGE_AGENT_DIR = BASE_DIR / "edge_agent"
 
+SECURITY_BOX_RELEASE_TAG = os.getenv("NEXUSAI_SECURITY_BOX_RELEASE_TAG", "security-box-latest")
+SECURITY_BOX_RELEASE_BASE = "https://github.com/nexusaiaphile-png/NexusAI/releases/download/" + SECURITY_BOX_RELEASE_TAG
+
+def _download_security_box_asset(filename: str) -> bytes:
+    url = SECURITY_BOX_RELEASE_BASE + "/" + filename
+    try:
+        request = UrlRequest(url, headers={"User-Agent": "NexusAI-Security-Cloud"})
+        with urlopen(request, timeout=30) as response:
+            data = response.read()
+    except Exception as exc:
+        logging.exception("Could not download Security Box release asset: %s", filename)
+        raise HTTPException(status_code=503, detail="NexusAI Security Box installer is not available yet.") from exc
+    if not data:
+        raise HTTPException(status_code=503, detail="NexusAI Security Box installer is empty.")
+    return data
+
+def _validate_installer_download_token(token: str) -> str:
+    value = str(token or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9]{40,120}", value):
+        raise HTTPException(status_code=400, detail="Invalid NexusAI installer token.")
+    return value
+
+@app.get("/protect/install", include_in_schema=False)
+async def protect_install_page():
+    return FileResponse(PORTAL_DIR / "protect" / "install.html", media_type="text/html")
+
+@app.get("/downloads/security-box/source/{filename}", include_in_schema=False)
+async def security_box_source(filename: str):
+    allowed = {
+        "agent.py": ("agent.py", "text/x-python"),
+        "security_box.py": ("security_box.py", "text/x-python"),
+        "secure_store.py": ("secure_store.py", "text/x-python"),
+        "setup_security_box.py": ("setup_security_box.py", "text/x-python"),
+        "windows_service.py": ("windows_service.py", "text/x-python"),
+    }
+    item = allowed.get(filename)
+    if not item:
+        raise HTTPException(status_code=404, detail="Security Box file not found.")
+    return FileResponse(EDGE_AGENT_DIR / item[0], media_type=item[1], headers={"Cache-Control":"no-store"})
+
+@app.get("/downloads/security-box/windows.exe", include_in_schema=False)
+async def security_box_windows_exe(installer_token: str):
+    token = _validate_installer_download_token(installer_token)
+    payload = _download_security_box_asset("NexusAI-SecurityBox-Windows.exe")
+    return Response(
+        content=payload,
+        media_type="application/vnd.microsoft.portable-executable",
+        headers={
+            "Content-Disposition": f'attachment; filename="NexusAI-SecurityBox-{token}.exe"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+@app.get("/downloads/security-box/macos.pkg", include_in_schema=False)
+async def security_box_macos_pkg(installer_token: str, arch: str = "arm64"):
+    token = _validate_installer_download_token(installer_token)
+    normalized = str(arch or "").lower()
+    if normalized in {"arm64", "aarch64"}:
+        asset = "NexusAI-SecurityBox-Mac-Arm64.pkg"
+        label = "Arm64"
+    elif normalized in {"x86_64", "intel", "x64"}:
+        asset = "NexusAI-SecurityBox-Mac-Intel.pkg"
+        label = "Intel"
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported Mac architecture.")
+    payload = _download_security_box_asset(asset)
+    return Response(
+        content=payload,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="NexusAI-SecurityBox-Mac-{label}-{token}.pkg"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @app.get("/protect/install", include_in_schema=False)
 async def protect_install_page():
     return FileResponse(PORTAL_DIR / "protect" / "install.html", media_type="text/html")
@@ -1263,22 +1340,26 @@ def consume_installer_token(token: str) -> str:
 async def edge_installer_link_by_qr(qr: str = ""):
     site_id = resolve_qr_token(qr)
     token = create_installer_token(site_id)
+    encoded = quote(token)
     return {
         "site_id": site_id,
         "expires_in": 900,
-        "windows": f"/downloads/security-box/windows.ps1?installer_token={quote(token)}",
-        "macos": f"/downloads/security-box/macos.sh?installer_token={quote(token)}",
+        "windows": f"/downloads/security-box/windows.exe?installer_token={encoded}",
+        "macos_arm64": f"/downloads/security-box/macos.pkg?installer_token={encoded}&arch=arm64",
+        "macos_intel": f"/downloads/security-box/macos.pkg?installer_token={encoded}&arch=x86_64",
     }
 
 @app.get("/api/edge/installer-link")
 async def edge_installer_link(site_id: str, activation_code: str):
     site_id = require_site_access(site_id, activation_code)
     token = create_installer_token(site_id)
+    encoded = quote(token)
     return {
         "site_id": site_id,
         "expires_in": 900,
-        "windows": f"/downloads/security-box/windows.ps1?installer_token={quote(token)}",
-        "macos": f"/downloads/security-box/macos.sh?installer_token={quote(token)}",
+        "windows": f"/downloads/security-box/windows.exe?installer_token={encoded}",
+        "macos_arm64": f"/downloads/security-box/macos.pkg?installer_token={encoded}&arch=arm64",
+        "macos_intel": f"/downloads/security-box/macos.pkg?installer_token={encoded}&arch=x86_64",
     }
 
 @app.post("/api/edge/bootstrap")

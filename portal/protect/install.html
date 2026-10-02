@@ -16,8 +16,8 @@ body{margin:0;background:#050908;color:#f2f7f5;font-family:Inter,system-ui,sans-
 <p class="muted">This takes just a few steps. Install NexusAI Security Box on the computer connected to the CCTV system. NexusAI will find the cameras and keep them connected automatically.</p>
 <div id="status" class="status">Preparing your site installer…</div>
 <div id="buttons" class="hidden">
-<a id="windows" class="primary">INSTALL NEXUSAI</a>
-<a id="macos" class="secondary">INSTALL NEXUSAI ON MAC</a>
+<a id="windows" class="primary">INSTALL NEXUSAI FOR WINDOWS</a>
+<a id="macos" class="secondary">INSTALL NEXUSAI FOR MAC</a>
 </div>
 <p class="small">The installer link is site-specific and expires after 15 minutes. Your Hikvision password is entered locally and stored in the computer's secure credential store; it is not sent to NexusAI Cloud.</p>
 </section>
@@ -30,12 +30,13 @@ body{margin:0;background:#050908;color:#f2f7f5;font-family:Inter,system-ui,sans-
  try{
   const r=await fetch("/api/edge/installer-link-by-qr?qr="+encodeURIComponent(qr),{cache:"no-store"});
   const d=await r.json(); if(!r.ok) throw new Error(d.detail||"Could not create installer link.");
-  document.getElementById("windows").href=d.windows;
-  document.getElementById("macos").href=d.macos;
   const isMac = /Macintosh|Mac OS X/i.test(navigator.userAgent);
+  const macIntel = navigator.platform === "MacIntel" && !/ARM|arm64|aarch64/i.test(navigator.userAgent);
+  document.getElementById("windows").href = d.windows;
+  document.getElementById("macos").href = isMac ? (macIntel ? d.macos_intel : d.macos_arm64) : d.windows;
   document.getElementById("windows").classList.toggle("hidden", isMac);
   document.getElementById("macos").classList.toggle("hidden", !isMac);
-  status.innerHTML='<span class="ok">Installer ready.</span> Download it on the computer connected to the CCTV network. NexusAI will do the technical setup in the background.';
+  status.innerHTML='<span class="ok">Installer ready.</span> Download it on the computer connected to the CCTV network. Open it once. NexusAI will install the Security Box and do the technical setup in the background.';
   buttons.classList.remove("hidden");
  }catch(e){status.textContent=e.message||"Could not prepare the installer."}
 })();
