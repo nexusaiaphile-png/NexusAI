@@ -627,11 +627,46 @@ def heartbeat_loop():
         except Exception: logging.exception("NexusAI aggregate heartbeat failed")
         time.sleep(HEARTBEAT_SECONDS)
 
+def autonomous_discovery_loop():
+    """Continuously discover local Hikvision devices and attach configured credentials."""
+    while True:
+        try:
+            username = os.getenv("CAM_USER", "").strip()
+            password = os.getenv("CAM_PASS", "")
+            location = os.getenv("LOCATION", "Security Site")
+            if username and password:
+                for device in discover_local_devices():
+                    if str(device.get("type", "")).lower() != "hikvision":
+                        continue
+                    ip = str(device.get("ip", "")).strip()
+                    if not ip:
+                        continue
+                    cfg = {
+                        "camera_id": f"nvr-{ip.replace('.', '-')}",
+                        "camera_name": device.get("name") or "Hikvision NVR",
+                        "camera_ip": ip,
+                        "camera_port": int(device.get("port") or 80),
+                        "username": username,
+                        "password": password,
+                        "location": location,
+                        "snapshot_channel": "101",
+                    }
+                    if f"{cfg['camera_ip']}:{cfg['camera_port']}:{cfg['username']}" in ACTIVE_SESSIONS:
+                        continue
+                    verification = verify_camera(cfg)
+                    if verification.get("verified"):
+                        post_backend("/api/edge/verify", {"site_id": SITE_ID, **verification})
+                        monitor_device(cfg, verification.get("channels", []))
+        except Exception:
+            logging.exception("NexusAI autonomous discovery failed")
+        time.sleep(max(30, RECONNECT_SECONDS))
+
 def main():
     print("="*60); print("NEXUSAI EDGE AGENT"); print("="*60)
     print(f"Site: {SITE_ID}"); print(f"Backend: {API_BASE_URL}"); print(f"Version: {EDGE_AGENT_VERSION}"); print("="*60)
     start_local_api()
     threading.Thread(target=heartbeat_loop,daemon=True,name="nexusai-aggregate-heartbeat").start()
+    threading.Thread(target=autonomous_discovery_loop,daemon=True,name="nexusai-autonomous-discovery").start()
     threading.Thread(target=auto_update_loop,daemon=True,name="nexusai-auto-updater").start()
     cfg=camera_config()
     if all([cfg["camera_ip"],cfg["username"],cfg["password"]]):
