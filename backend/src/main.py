@@ -877,6 +877,57 @@ async def portal_activate(request: SiteActivationRequest, http_request: Request)
     return {"activated": True, "site_id": site_id, "activation_code": activation_code, "qr_url": f"https://getnexusai.co.za/protect/?qr={quote(qr_token)}"}
 
 
+@app.get("/api/protect/session")
+async def protect_session(qr: str = ""):
+    site_id = resolve_qr_token(qr)
+    site = EDGE_SITES.get(site_id) or load_site(site_id) or {"site_id": site_id, "status": "WAITING", "cameras": []}
+    cameras = load_cameras(site_id)
+    return {
+        "site_id": site_id,
+        "install_token": create_install_token(site_id),
+        "status": site.get("status", "WAITING"),
+        "edge_agent": "ONLINE" if site.get("received_at") and time.time() - float(site.get("received_at", 0)) <= 90 else "WAITING",
+        "cameras": cameras,
+    }
+
+
+class ProtectCamerasRequest(BaseModel):
+    site_id: str = Field(..., min_length=8, max_length=100)
+    install_token: str = Field(..., min_length=20, max_length=500)
+    camera_ids: list[str] = Field(default_factory=list, max_length=2000)
+
+
+@app.post("/api/protect/cameras")
+async def protect_cameras(request: ProtectCamerasRequest):
+    if not verify_install_token(request.site_id, request.install_token):
+        raise HTTPException(status_code=403, detail="This NexusAI protection session is invalid or expired.")
+    cameras = load_cameras(request.site_id)
+    requested = {str(x) for x in request.camera_ids}
+    selected = [c for c in cameras if str(c.get("camera_id")) in requested] if requested else cameras
+    if not selected:
+        raise HTTPException(status_code=400, detail="No cameras are currently available.")
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    for camera in selected:
+                        cur.execute("UPDATE nexusai_cameras SET verified=TRUE,status='PROTECTED' WHERE site_id=%s AND camera_id=%s", (request.site_id, str(camera.get("camera_id"))))
+                conn.commit()
+        else:
+            with _sqlite() as conn:
+                for camera in selected:
+                    conn.execute("UPDATE nexusai_cameras SET verified=1,status='PROTECTED' WHERE site_id=? AND camera_id=?", (request.site_id, str(camera.get("camera_id"))))
+                conn.commit()
+    return {"protected": True, "site_id": request.site_id, "protected_count": len(selected)}
+
+
+@app.get("/api/protect/qr")
+async def protect_qr(site_id: str = "", activation_code: str = ""):
+    site_id = require_site_access(site_id, activation_code)
+    token = ensure_qr_token(site_id)
+    return {"site_id": site_id, "url": "https://getnexusai.co.za/protect/?qr=" + quote(token), "token": token}
+
 @app.post("/api/push/activate")
 async def push_activate(request: SiteActivationRequest, http_request: Request):
     allow_activation_attempt(http_request)
