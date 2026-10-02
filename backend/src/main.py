@@ -278,6 +278,7 @@ def startup():
         import psycopg
         with psycopg.connect(database_url()) as conn:
             with conn.cursor() as cur:
+                cur.execute("ALTER TABLE nexusai_qr_tokens ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ACTIVATED'")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_mime TEXT")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_filename TEXT")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_data BYTEA")
