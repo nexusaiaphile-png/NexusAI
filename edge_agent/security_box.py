@@ -22,6 +22,10 @@ def provision_from_environment():
     payload = response.json()
     os.environ["NEXUSAI_EDGE_TOKEN"] = str(payload["edge_token"])
     os.environ["NEXUSAI_API_URL"] = str(payload.get("api_url") or api_url)
+    agent.SITE_ID = site_id
+    agent.EDGE_AGENT_TOKEN = str(payload["edge_token"])
+    agent.API_BASE_URL = str(payload.get("api_url") or api_url).rstrip("/")
+    agent.UPDATE_BASE_URL = agent.API_BASE_URL
     return True
 
 def run():
