@@ -1,5 +1,6 @@
 """Windows Service wrapper for NexusAI Security Box."""
 import servicemanager
+import sys
 import win32event
 import win32service
 import win32serviceutil
@@ -22,7 +23,12 @@ class NexusAISecurityBoxService(win32serviceutil.ServiceFramework):
 
     def SvcDoRun(self):
         servicemanager.LogInfoMsg("NexusAI Security Box started.")
-        security_box.run()
+        original_argv = sys.argv[:]
+        try:
+            sys.argv = [sys.argv[0]]
+            security_box.run()
+        finally:
+            sys.argv = original_argv
 
 
 if __name__ == "__main__":
