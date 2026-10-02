@@ -28,7 +28,7 @@ jobs:
       - name: Import Edge Agent
         run: python -c "import edge_agent.agent; print('Edge Agent import OK')"
       - name: Compile Security Box
-        run: python -m py_compile edge_agent/security_box.py
+        run: python -m py_compile edge_agent/security_box.py edge_agent/secure_store.py edge_agent/setup_security_box.py
       - name: Validate app JavaScript
         run: node --check nexusai-app/app.js
       - name: Validate service worker

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#07110f">
+<title>NexusAI Security Box</title>
+<style>
+body{margin:0;background:#050908;color:#f2f7f5;font-family:Inter,system-ui,sans-serif}.shell{max-width:620px;margin:auto;padding:32px 20px}.card{background:#0c1512;border:1px solid #20312b;border-radius:22px;padding:24px;margin:16px 0}.brand{font-weight:900;font-size:20px;letter-spacing:.08em}.muted{color:#9eb1aa;line-height:1.6}button,a{display:block;width:100%;box-sizing:border-box;border:0;border-radius:14px;padding:16px;margin-top:12px;text-align:center;text-decoration:none;font-weight:900;cursor:pointer}.primary{background:#59d7b0;color:#03100c}.secondary{background:#17231f;color:#f2f7f5}.small{font-size:13px;color:#879a93;line-height:1.5}.hidden{display:none}.status{padding:14px;border-radius:12px;background:#111e1a;margin-top:14px}.ok{color:#59d7b0}
+</style>
+</head>
+<body><main class="shell">
+<div class="brand">NEXUSAI · SECURITY BOX</div>
+<section class="card">
+<h1>Connect the security system</h1>
+<p class="muted">Install NexusAI Security Box on a computer connected to the site's Hikvision CCTV network. It will run quietly in the background and restart automatically after a reboot.</p>
+<div id="status" class="status">Preparing your site installer…</div>
+<div id="buttons" class="hidden">
+<a id="windows" class="primary">INSTALL ON WINDOWS</a>
+<a id="macos" class="secondary">INSTALL ON MAC</a>
+</div>
+<p class="small">The installer link is site-specific and expires after 15 minutes. Your Hikvision password is entered locally and stored in the computer's secure credential store; it is not sent to NexusAI Cloud.</p>
+</section>
+</main>
+<script>
+(async()=>{
+ const qr=new URLSearchParams(location.search).get("qr")||"";
+ const status=document.getElementById("status"), buttons=document.getElementById("buttons");
+ if(!qr){status.textContent="This installation link is missing its site QR code.";return}
+ try{
+  const r=await fetch("/api/edge/installer-link-by-qr?qr="+encodeURIComponent(qr),{cache:"no-store"});
+  const d=await r.json(); if(!r.ok) throw new Error(d.detail||"Could not create installer link.");
+  document.getElementById("windows").href=d.windows;
+  document.getElementById("macos").href=d.macos;
+  status.innerHTML='<span class="ok">Installer ready.</span> Download it on the computer that is connected to the CCTV network.';
+  buttons.classList.remove("hidden");
+ }catch(e){status.textContent=e.message||"Could not prepare the installer."}
+})();
+</script>
+</body></html>
