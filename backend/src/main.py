@@ -795,7 +795,7 @@ if (-not $Py) { throw "Python could not be installed." }
 $Root = "$env:ProgramFiles\NexusAI\SecurityBox"
 New-Item -ItemType Directory -Force -Path $Root | Out-Null
 foreach ($Name in @("agent.py","security_box.py","secure_store.py","setup_security_box.py","windows_service.py")) {
-  Invoke-WebRequest ("https://getnexusai.co.za/downloads/security-box/" + $Name) -OutFile (Join-Path $Root $Name)
+  Invoke-WebRequest ("https://getnexusai.co.za/downloads/security-box/source/" + $Name) -OutFile (Join-Path $Root $Name)
 }
 & $Py.Source -m pip install --disable-pip-version-check --quiet requests python-dotenv keyring pywin32
 & $Py.Source (Join-Path $Root "setup_security_box.py") --installer-token "__TOKEN__"
@@ -827,7 +827,7 @@ if [ ! -x "$PY" ]; then
   rm -f "$PKG"
 fi
 for NAME in agent.py security_box.py secure_store.py setup_security_box.py; do
-  curl -fL "https://getnexusai.co.za/downloads/security-box/$NAME" -o "$ROOT/$NAME"
+  curl -fL "https://getnexusai.co.za/downloads/security-box/source/$NAME" -o "$ROOT/$NAME"
 done
 "$PY" -m pip install --disable-pip-version-check --quiet requests python-dotenv keyring
 "$PY" "$ROOT/setup_security_box.py" --installer-token "__TOKEN__"
