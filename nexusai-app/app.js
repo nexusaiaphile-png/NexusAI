@@ -1,7 +1,12 @@
 const params=new URLSearchParams(location.search);
+const qrToken=(params.get("qr")||"").trim();
 let siteId=params.get("site_id")||localStorage.getItem("nexusai_site_id")||"";
 let installToken=params.get("install_token")||localStorage.getItem("nexusai_install_token")||"";
 const API=location.origin;
+
+if(qrToken){
+  window.location.replace("/protect/?qr="+encodeURIComponent(qrToken));
+}
 let deferredInstall=null;
 const $=id=>document.getElementById(id);
 function setStatus(title,text,error=false){$("statusTitle").textContent=title;$("statusText").textContent=text;$("statusText").className="install-help"+(error?" error":"");$("dot").className="dot"+(error?" off":"")}
