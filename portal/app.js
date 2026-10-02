@@ -133,6 +133,7 @@ function bind() {
     catch (_) { $("copySiteCode").textContent="SELECT & COPY"; }
   };
   if ($("joinSiteBtn")) $("joinSiteBtn").onclick = joinExistingSite;
+  if ($("printQrBtn")) $("printQrBtn").onclick = printSiteQr;
     }
 function showDashboard(){ $("dashboardScreen").classList.add("active"); renderDashboard(); checkEdgeAgent(); }
 function startInstall(){ show($("installPanel")); checkEdgeAgent(); $("installPanel").scrollIntoView({behavior:"smooth",block:"center"}); updateSteps(1); }
@@ -160,6 +161,14 @@ async function downloadInstructions(os) {
     if ($("scanText")) $("scanText").textContent = "NexusAI could not download the current Edge Agent installer. Please try again.";
     console.error("NexusAI installer download failed", e);
   }
+}
+async function printSiteQr() {
+  if (!SITE_ID || !ACTIVATION_CODE) {
+    alert("NexusAI is still preparing this site. Please try again.");
+    return;
+  }
+  const url = "/protect/print?site_id=" + encodeURIComponent(SITE_ID) + "&activation_code=" + encodeURIComponent(ACTIVATION_CODE);
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 async function joinExistingSite() {
   const code = $("joinSiteCode")?.value.trim().toUpperCase();
