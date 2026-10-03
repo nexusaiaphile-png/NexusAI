@@ -1511,8 +1511,14 @@ def consume_installer_token(token: str) -> str:
 
 @app.get("/api/edge/installer-link-by-qr")
 async def edge_installer_link_by_qr(qr: str = ""):
-    site_id = resolve_qr_token(qr)
-    token = create_installer_token(site_id)
+    try:
+        site_id = resolve_qr_token(qr)
+        token = create_installer_token(site_id)
+    except HTTPException:
+        raise
+    except Exception:
+        logging.exception("NexusAI Security Box installer-link generation failed.")
+        raise HTTPException(status_code=503, detail="NexusAI Cloud could not prepare the Security Box installer. Please try again.")
     encoded = quote(token)
     return {
         "site_id": site_id,
