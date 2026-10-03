@@ -28,8 +28,11 @@ body{margin:0;background:#050908;color:#f2f7f5;font-family:Inter,system-ui,sans-
  const status=document.getElementById("status"), buttons=document.getElementById("buttons");
  if(!qr){status.textContent="This installation link is missing its site QR code.";return}
  try{
-  const r=await fetch("/api/edge/installer-link-by-qr?qr="+encodeURIComponent(qr),{cache:"no-store"});
-  const d=await r.json(); if(!r.ok) throw new Error(d.detail||"Could not create installer link.");
+  const r=await fetch("/api/edge/installer-link-by-qr?qr="+encodeURIComponent(qr)+"&_="+Date.now(),{cache:"no-store",headers:{"Cache-Control":"no-cache"}});
+  const raw=await r.text();
+  let d={};
+  try{ d=raw ? JSON.parse(raw) : {}; }catch(_){ d={detail:"NexusAI Cloud returned an unexpected server response. Please try again in a moment."}; }
+  if(!r.ok) throw new Error(d.detail||"Could not create installer link.");
   const isMac = /Macintosh|Mac OS X/i.test(navigator.userAgent);
   const macIntel = navigator.platform === "MacIntel" && !/ARM|arm64|aarch64/i.test(navigator.userAgent);
   document.getElementById("windows").href = d.windows;
