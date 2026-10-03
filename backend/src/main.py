@@ -1430,7 +1430,7 @@ async def health():
     return {
         "status": "healthy",
         "service": "NexusAI Cloud",
-        "version": "3.1.1",
+        "version": "3.1.2",
         "push": "configured" if push_configured() else "awaiting-vapid-keys",
     }
 
@@ -1443,7 +1443,7 @@ async def api_status():
         "camera_verification": "EDGE_AGENT",
         "notification_engine": "NEXUSAI_PUSH",
         "whatsapp": "REMOVED",
-        "api_version": "3.1.1",
+        "api_version": "3.1.2",
     }
 
 
