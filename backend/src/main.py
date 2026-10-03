@@ -12,7 +12,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit, parse_qs
 from urllib.request import Request as UrlRequest, urlopen
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -1020,10 +1020,28 @@ def ensure_qr_token(site_id: str) -> str:
             raise HTTPException(status_code=500, detail="Could not create NexusAI QR token.")
 
 
-def qr_token_info(qr_token: str) -> dict:
-    token = str(qr_token or "").strip()
+def normalize_qr_token(qr_token: str) -> str:
+    value = unquote(str(qr_token or "").strip())
+    if value.startswith(("https://", "http://")):
+        try:
+            parsed = urlsplit(value)
+            value = parse_qs(parsed.query).get("qr", [""])[0]
+        except Exception:
+            value = ""
+    elif value.startswith("qr="):
+        value = value[3:]
+    return unquote(str(value).strip()).strip(" \\t\\r\\n\\"'<>.,;)")
+
+
+def validate_qr_token(qr_token: str) -> str:
+    token = normalize_qr_token(qr_token)
     if len(token) < 20 or len(token) > 120 or not re.fullmatch(r"[A-Za-z0-9_-]+", token):
         raise HTTPException(status_code=400, detail="Invalid NexusAI QR code.")
+    return token
+
+
+def qr_token_info(qr_token: str) -> dict:
+    token = validate_qr_token(qr_token)
     with DB_LOCK:
         if database_url():
             import psycopg
@@ -1058,9 +1076,7 @@ def resolve_qr_token(qr_token: str) -> str:
 
 
 def claim_qr_for_new_site(qr_token: str) -> tuple[str, str]:
-    token = str(qr_token or "").strip()
-    if len(token) < 20 or len(token) > 120 or not re.fullmatch(r"[A-Za-z0-9_-]+", token):
-        raise HTTPException(status_code=400, detail="Invalid NexusAI QR code.")
+    token = validate_qr_token(qr_token)
     now = time.time()
     with DB_LOCK:
         if database_url():
