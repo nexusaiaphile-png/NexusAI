@@ -6,42 +6,73 @@
 <meta name="theme-color" content="#07110f">
 <title>NexusAI Security Box</title>
 <style>
-body{margin:0;background:#050908;color:#f2f7f5;font-family:Inter,system-ui,sans-serif}.shell{max-width:620px;margin:auto;padding:32px 20px}.card{background:#0c1512;border:1px solid #20312b;border-radius:22px;padding:24px;margin:16px 0}.brand{font-weight:900;font-size:20px;letter-spacing:.08em}.muted{color:#9eb1aa;line-height:1.6}button,a{display:block;width:100%;box-sizing:border-box;border:0;border-radius:14px;padding:16px;margin-top:12px;text-align:center;text-decoration:none;font-weight:900;cursor:pointer}.primary{background:#59d7b0;color:#03100c}.secondary{background:#17231f;color:#f2f7f5}.small{font-size:13px;color:#879a93;line-height:1.5}.hidden{display:none}.status{padding:14px;border-radius:12px;background:#111e1a;margin-top:14px}.ok{color:#59d7b0}
+body{margin:0;background:#050908;color:#f2f7f5;font-family:Inter,system-ui,sans-serif}.shell{max-width:620px;margin:auto;padding:32px 20px}.card{background:#0c1512;border:1px solid #20312b;border-radius:22px;padding:24px;margin:16px 0}.brand{font-weight:900;font-size:20px;letter-spacing:.08em}.muted{color:#9eb1aa;line-height:1.6}.status{display:flex;gap:12px;align-items:flex-start;padding:16px;border-radius:14px;background:#111e1a;margin-top:18px}.dot{width:11px;height:11px;border-radius:50%;background:#59d7b0;margin-top:5px;flex:0 0 auto;box-shadow:0 0 0 5px rgba(89,215,176,.10)}.step{margin:0;font-weight:800}.detail{margin:5px 0 0;color:#9eb1aa;line-height:1.5;font-size:14px}.progress{height:6px;background:#17231f;border-radius:99px;overflow:hidden;margin-top:18px}.bar{height:100%;width:20%;background:#59d7b0;border-radius:99px;transition:width .5s ease}.hidden{display:none}.small{font-size:13px;color:#879a93;line-height:1.5;margin-top:18px}.ok{color:#59d7b0;font-weight:800}.error{color:#ff9b9b;font-weight:800}button{display:block;width:100%;box-sizing:border-box;border:0;border-radius:14px;padding:16px;margin-top:16px;text-align:center;font-weight:900;cursor:pointer;background:#59d7b0;color:#03100c}button:disabled{opacity:.55;cursor:default}
 </style>
 </head>
 <body><main class="shell">
 <div class="brand">NEXUSAI · SECURITY BOX</div>
 <section class="card">
-<h1>Turn on NexusAI</h1>
-<p class="muted">This takes just a few steps. Install NexusAI Security Box on the computer connected to the CCTV system. NexusAI will find the cameras and keep them connected automatically.</p>
-<div id="status" class="status">Preparing your site installer…</div>
-<div id="buttons" class="hidden">
-<a id="windows" class="primary">INSTALL NEXUSAI FOR WINDOWS</a>
-<a id="macos" class="secondary">INSTALL NEXUSAI FOR MAC</a>
+<h1>NexusAI is setting up</h1>
+<p class="muted">The Security Box is designed to run quietly in the background on the computer connected to your CCTV system. You only need to authorize the one-time setup.</p>
+
+<div id="status" class="status">
+  <span class="dot"></span>
+  <div><p id="step" class="step">Preparing secure setup…</p><p id="detail" class="detail">Connecting this site to NexusAI.</p></div>
 </div>
-<p class="small">The installer link is site-specific and expires after 15 minutes. Your Hikvision password is entered locally and stored in the computer's secure credential store; it is not sent to NexusAI Cloud.</p>
+<div class="progress"><div id="bar" class="bar"></div></div>
+<button id="start" class="hidden">START NEXUSAI SETUP</button>
+
+<p class="small">After the Security Box is opened once, it installs and runs as an always-on background service. It reconnects automatically and starts again after the computer restarts. Your Hikvision password is entered locally and is not sent to NexusAI Cloud.</p>
+<p id="manual" class="small hidden">If the download did not start, use the setup button above. The installer is site-specific and expires after 15 minutes.</p>
 </section>
 </main>
 <script>
 (async()=>{
  const qr=new URLSearchParams(location.search).get("qr")||"";
- const status=document.getElementById("status"), buttons=document.getElementById("buttons");
- if(!qr){status.textContent="This installation link is missing its site QR code.";return}
+ const status=document.getElementById("status"),step=document.getElementById("step"),detail=document.getElementById("detail");
+ const bar=document.getElementById("bar"),start=document.getElementById("start"),manual=document.getElementById("manual");
+ let downloadUrl="";
+
+ const setState=(title,body,pct)=>{
+   step.textContent=title; detail.textContent=body; bar.style.width=pct+"%";
+ };
+
+ if(!qr){setState("Installation link is incomplete.","Scan the NexusAI site QR code again.",0);status.querySelector(".dot").classList.add("hidden");return}
+
  try{
-  const r=await fetch("/api/edge/installer-link-by-qr?qr="+encodeURIComponent(qr)+"&_="+Date.now(),{cache:"no-store",headers:{"Cache-Control":"no-cache"}});
-  const raw=await r.text();
-  let d={};
-  try{ d=raw ? JSON.parse(raw) : {}; }catch(_){ d={detail:"NexusAI Cloud returned an unexpected server response. Please try again in a moment."}; }
-  if(!r.ok) throw new Error(d.detail||"Could not create installer link.");
-  const isMac = /Macintosh|Mac OS X/i.test(navigator.userAgent);
-  const macIntel = navigator.platform === "MacIntel" && !/ARM|arm64|aarch64/i.test(navigator.userAgent);
-  document.getElementById("windows").href = d.windows;
-  document.getElementById("macos").href = isMac ? (macIntel ? d.macos_intel : d.macos_arm64) : d.windows;
-  document.getElementById("windows").classList.toggle("hidden", isMac);
-  document.getElementById("macos").classList.toggle("hidden", !isMac);
-  status.innerHTML='<span class="ok">Installer ready.</span> Download it on the computer connected to the CCTV network. Open it once. NexusAI will install the Security Box and do the technical setup in the background.';
-  buttons.classList.remove("hidden");
- }catch(e){status.textContent=e.message||"Could not prepare the installer."}
+   setState("Preparing secure setup…","Creating a one-time installer for this site.",25);
+   const r=await fetch("/api/edge/installer-link-by-qr?qr="+encodeURIComponent(qr)+"&_="+Date.now(),{cache:"no-store",headers:{"Cache-Control":"no-cache"}});
+   const raw=await r.text();
+   let d={};
+   try{d=raw?JSON.parse(raw):{}}catch(_){d={detail:"NexusAI Cloud returned an unexpected server response."}}
+   if(!r.ok)throw new Error(d.detail||"Could not prepare the Security Box.");
+
+   const isMac=/Macintosh|Mac OS X/i.test(navigator.userAgent);
+   const macIntel=navigator.platform==="MacIntel"&&!/ARM|arm64|aarch64/i.test(navigator.userAgent);
+   downloadUrl=isMac?(macIntel?d.macos_intel:d.macos_arm64):d.windows;
+   if(!downloadUrl)throw new Error("No Security Box installer is available for this computer.");
+
+   setState("Security Box ready.","Your one-time setup is ready. Starting the download…",55);
+   start.classList.remove("hidden");
+
+   // Start the download automatically. The OS will still require the user to open/authorize
+   // the installer; after that, the Security Box runs completely in the background.
+   const a=document.createElement("a");a.href=downloadUrl;a.download="";a.rel="noopener";document.body.appendChild(a);a.click();a.remove();
+
+   setState("Open the Security Box once.","Open the downloaded installer and approve the one-time setup. Everything after that runs in the background.",70);
+   manual.classList.remove("hidden");
+ }catch(e){
+   status.querySelector(".dot").classList.add("hidden");
+   step.className="step error";
+   setState(e.message||"Could not prepare the Security Box.","Scan the QR code again or try again in a moment.",0);
+   manual.classList.remove("hidden");
+ }
+
+ start.onclick=()=>{
+   if(!downloadUrl)return;
+   window.location.href=downloadUrl;
+   setState("Opening Security Box setup…","Approve the one-time installer. NexusAI will then run in the background.",75);
+ };
 })();
 </script>
 </body></html>
