@@ -1030,7 +1030,7 @@ def normalize_qr_token(qr_token: str) -> str:
             value = ""
     elif value.startswith("qr="):
         value = value[3:]
-    return unquote(str(value).strip()).strip(" \\t\\r\\n\\"'<>.,;)")
+    return unquote(str(value).strip()).strip().rstrip(".,;)")
 
 
 def validate_qr_token(qr_token: str) -> str:
