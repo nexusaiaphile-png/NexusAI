@@ -1022,7 +1022,7 @@ def ensure_qr_token(site_id: str) -> str:
 
 def qr_token_info(qr_token: str) -> dict:
     token = str(qr_token or "").strip()
-    if len(token) < 20 or len(token) > 120 or not re.fullmatch(r"[A-Za-z0-9]+", token):
+    if len(token) < 20 or len(token) > 120 or not re.fullmatch(r"[A-Za-z0-9_-]+", token):
         raise HTTPException(status_code=400, detail="Invalid NexusAI QR code.")
     with DB_LOCK:
         if database_url():
@@ -1059,7 +1059,7 @@ def resolve_qr_token(qr_token: str) -> str:
 
 def claim_qr_for_new_site(qr_token: str) -> tuple[str, str]:
     token = str(qr_token or "").strip()
-    if len(token) < 20 or len(token) > 120 or not re.fullmatch(r"[A-Za-z0-9]+", token):
+    if len(token) < 20 or len(token) > 120 or not re.fullmatch(r"[A-Za-z0-9_-]+", token):
         raise HTTPException(status_code=400, detail="Invalid NexusAI QR code.")
     now = time.time()
     with DB_LOCK:
