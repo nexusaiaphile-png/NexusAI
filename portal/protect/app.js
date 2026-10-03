@@ -28,7 +28,7 @@
 
   async function loadSession() {
     if (!qr) return fail("This NexusAI QR code is missing. Please scan the QR code on the protected site.");
-    const response = await fetch("/api/protect/session?qr=" + encodeURIComponent(qr), { cache: "no-store" });
+    const response = await fetch("/api/protect/session?qr=" + encodeURIComponent(qr) + "&_=" + Date.now(), { cache: "no-store", headers: {"Cache-Control":"no-cache"} });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.detail || "The NexusAI site could not be found.");
     if (!data.activated) {
@@ -177,7 +177,7 @@
 
   async function refresh() {
     try {
-      const response = await fetch("/api/protect/session?qr=" + encodeURIComponent(qr), {cache:"no-store"});
+      const response = await fetch("/api/protect/session?qr=" + encodeURIComponent(qr) + "&_=" + Date.now(), {cache:"no-store", headers: {"Cache-Control":"no-cache"}});
       const data = await response.json();
       if (!response.ok) return;
       installToken = data.install_token;
