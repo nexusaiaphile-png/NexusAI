@@ -6,6 +6,7 @@ import socket
 import time
 import ipaddress
 import concurrent.futures
+import uuid
 
 import threading
 import re
@@ -41,6 +42,11 @@ LOCAL_AGENT_HOST = os.getenv("LOCAL_AGENT_HOST", "127.0.0.1")
 LOCAL_AGENT_PORT = int(os.getenv("LOCAL_AGENT_PORT", "8787"))
 SITE_CONFIG_PATH = Path(os.getenv("SITE_CONFIG_PATH", str(Path.home() / ".nexusai_site.json")))
 LOCAL_ALLOWED_ORIGINS = {"https://getnexusai.co.za", "https://www.getnexusai.co.za"}
+SADP_MULTICAST = "239.255.255.250"
+SADP_PORT = 37020
+SADP_TIMEOUT_SECONDS = 2.5
+MAX_SCAN_HOSTS = 4096
+DISCOVERY_LOCK = threading.Lock()
 
 # Load a locally persisted site pairing so an Edge Agent restart does not reset the site.
 try:
@@ -108,18 +114,42 @@ def device_info(cfg):
     response.raise_for_status()
     return response.text
 
-def local_network():
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+def local_ipv4_addresses():
+    addresses = set()
     try:
-        sock.connect(("8.8.8.8", 80)); local_ip = sock.getsockname()[0]
-    finally: sock.close()
-    return ipaddress.ip_network(f"{local_ip}/24", strict=False)
+        for item in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            address = str(item[4][0])
+            if address and not address.startswith("127."):
+                addresses.add(address)
+    except OSError:
+        pass
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.connect(("8.8.8.8", 80))
+            address = sock.getsockname()[0]
+            if address and not address.startswith("127."):
+                addresses.add(address)
+        finally:
+            sock.close()
+    except OSError:
+        pass
+    return sorted(addresses)
+
+def local_network():
+    addresses = local_ipv4_addresses()
+    if not addresses:
+        raise OSError("No local IPv4 interface was found.")
+    return ipaddress.ip_network(f"{addresses[0]}/24", strict=False)
 
 def resolve_scan_networks(requested_subnet=None):
     candidates = []
     if requested_subnet:
         candidates.append(requested_subnet.strip())
     candidates.extend(SCAN_SUBNETS)
+    if not candidates:
+        for address in local_ipv4_addresses():
+            candidates.append(str(ipaddress.ip_network(f"{address}/24", strict=False)))
     if not candidates:
         try:
             candidates.append(str(local_network()))
@@ -137,6 +167,75 @@ def resolve_scan_networks(requested_subnet=None):
     for network in networks:
         unique[str(network)] = network
     return list(unique.values())
+
+def _xml_text(root, key, default=""):
+    for node in root.iter():
+        if node.tag.split("}")[-1] == key and node.text:
+            return node.text.strip()
+    return default
+
+def discover_sadp_devices(timeout=SADP_TIMEOUT_SECONDS):
+    """Discover Hikvision devices using the LAN SADP multicast protocol."""
+    probe = ('<?xml version="1.0" encoding="utf-8"?>'
+             '<Probe><Uuid>' + str(uuid.uuid4()) + '</Uuid><Types>inquiry</Types></Probe>').encode("utf-8")
+    found = {}
+    addresses = local_ipv4_addresses() or [""]
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.settimeout(float(timeout))
+        for address in addresses:
+            try:
+                if address:
+                    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(address))
+                sock.sendto(probe, (SADP_MULTICAST, SADP_PORT))
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                sock.sendto(probe, ("255.255.255.255", SADP_PORT))
+            except OSError:
+                continue
+        deadline = time.time() + float(timeout)
+        while time.time() < deadline:
+            try:
+                raw, peer = sock.recvfrom(65535)
+            except socket.timeout:
+                break
+            except OSError:
+                break
+            try:
+                root = ET.fromstring(raw)
+            except ET.ParseError:
+                continue
+            if root.tag.split("}")[-1] != "ProbeMatch":
+                continue
+            ip = _xml_text(root, "IPv4Address", peer[0] if peer else "")
+            try:
+                ipaddress.ip_address(ip)
+            except ValueError:
+                continue
+            try:
+                http_port = int(_xml_text(root, "HttpPort", "80") or 80)
+            except ValueError:
+                http_port = 80
+            try:
+                command_port = int(_xml_text(root, "CommandPort", "8000") or 8000)
+            except ValueError:
+                command_port = 8000
+            found[ip] = {
+                "name": _xml_text(root, "DeviceDescription", "Hikvision device"),
+                "ip": ip,
+                "port": http_port,
+                "command_port": command_port,
+                "type": "Hikvision",
+                "device_type": _xml_text(root, "DeviceType", ""),
+                "serial": _xml_text(root, "DeviceSN", ""),
+                "mac": _xml_text(root, "MAC", ""),
+                "discovery": "SADP",
+            }
+    except OSError as exc:
+        logging.warning("Hikvision SADP discovery unavailable: %s", exc)
+    finally:
+        sock.close()
+    return list(found.values())
 
 def probe_hikvision(ip, ports=(80, 443)):
     for port in ports:
@@ -166,14 +265,35 @@ def discover_local_devices(requested_subnet=None, manual_ip=None, manual_port=No
                 return []
             device = probe_hikvision(manual_ip, (int(manual_port or 80),))
             return [device] if device else []
+
+        unique = {d["ip"]: d for d in discover_sadp_devices() if d.get("ip")}
         networks = resolve_scan_networks(requested_subnet)
         hosts = []
         for network in networks:
+            if network.num_addresses > MAX_SCAN_HOSTS:
+                local_addresses = local_ipv4_addresses()
+                narrowed = None
+                for address in local_addresses:
+                    try:
+                        candidate = ipaddress.ip_network(f"{address}/24", strict=False)
+                        if candidate.subnet_of(network):
+                            narrowed = candidate
+                            break
+                    except ValueError:
+                        continue
+                if narrowed:
+                    hosts.extend(str(ip) for ip in narrowed.hosts())
+                else:
+                    logging.info("Skipping broad scan %s; use SADP or configure NEXUSAI_SCAN_SUBNETS with a smaller range.", network)
+                continue
             hosts.extend(str(ip) for ip in network.hosts())
-        hosts = list(dict.fromkeys(hosts))[:65536]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=128) as pool:
-            results = list(pool.map(probe_hikvision, hosts))
-        unique = {d["ip"]: d for d in results if d}
+        hosts = list(dict.fromkeys(hosts))
+        if hosts:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=96) as pool:
+                results = list(pool.map(probe_hikvision, hosts))
+            for device in results:
+                if device:
+                    unique.setdefault(device["ip"], device)
         return list(unique.values())
     except Exception as exc:
         logging.exception("Local network discovery failed: %s", exc)
@@ -499,6 +619,12 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"service":"NexusAI Edge Agent","site_id":SITE_ID,"status":"ONLINE"}); return
         if path == "/inventory":
             self._send_json(200, local_inventory()); return
+        if path == "/setup/status":
+            username = os.getenv("CAM_USER", "").strip()
+            password = os.getenv("CAM_PASS", "")
+            self._send_json(200, {"service":"NexusAI Security Box","status":"ONLINE","site_id":SITE_ID,
+                                  "hikvision_credentials_saved":bool(username and password),
+                                  "scan_subnets":[str(x) for x in resolve_scan_networks()]}); return
         if path == "/discover":
             params = {k:v[0] for k,v in parse_qs(query, keep_blank_values=True).items()}
             devices = discover_local_devices(params.get("subnet"), params.get("ip"), params.get("port"))
@@ -524,6 +650,32 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
                 temp_path.write_text(json.dumps({"site_id":SITE_ID}), encoding="utf-8")
                 temp_path.replace(SITE_CONFIG_PATH)
                 self._send_json(200, {"configured":True,"site_id":SITE_ID}); return
+            if self.path == "/credentials":
+                username = str(payload.get("username","")).strip()[:128]
+                password = str(payload.get("password",""))
+                location = str(payload.get("location","Security Site")).strip()[:200] or "Security Site"
+                if not username or not password:
+                    self._send_json(400, {"error":"Hikvision username and password are required."}); return
+                try:
+                    requested_ip = str(payload.get("nvr_ip","")).strip()
+                    requested_port = int(payload.get("nvr_port") or 80)
+                    if requested_ip:
+                        ipaddress.ip_address(requested_ip)
+                        if not 1 <= requested_port <= 65535:
+                            raise ValueError
+                    secure_store.set_hikvision_credentials(SITE_ID, username, password)
+                    os.environ["CAM_USER"] = username
+                    os.environ["CAM_PASS"] = password
+                    os.environ["LOCATION"] = location
+                except ValueError:
+                    self._send_json(400, {"error":"The NVR IP address or port is invalid."}); return
+                except Exception:
+                    logging.exception("Could not save Hikvision credentials")
+                    self._send_json(500, {"error":"NexusAI could not securely save the Hikvision credentials."}); return
+                threading.Thread(target=discover_with_credentials,
+                                 args=(username,password,location,requested_ip,requested_port),
+                                 daemon=True,name="nexusai-immediate-discovery").start()
+                self._send_json(200, {"saved":True,"site_id":SITE_ID,"status":"SEARCHING"}); return
             if self.path not in ("/verify","/activate"):
                 self._send_json(404, {"error":"Not found"}); return
             required = ["camera_name","camera_ip","camera_port","username","password","location"]
@@ -627,6 +779,40 @@ def heartbeat_loop():
         except Exception: logging.exception("NexusAI aggregate heartbeat failed")
         time.sleep(HEARTBEAT_SECONDS)
 
+def discover_with_credentials(username, password, location="Security Site", manual_ip="", manual_port=80):
+    """Run one guarded discovery pass and start monitors for verified Hikvision devices."""
+    if not username or not password:
+        return []
+    if not DISCOVERY_LOCK.acquire(blocking=False):
+        return []
+    verified_devices = []
+    try:
+        devices = discover_local_devices(manual_ip=manual_ip, manual_port=manual_port) if manual_ip else discover_local_devices()
+        for device in devices:
+            if str(device.get("type","")).lower() != "hikvision":
+                continue
+            ip = str(device.get("ip","")).strip()
+            if not ip:
+                continue
+            cfg = {"camera_id":f"nvr-{ip.replace('.','-')}","camera_name":device.get("name") or "Hikvision NVR",
+                   "camera_ip":ip,"camera_port":int(device.get("port") or 80),"username":username,
+                   "password":password,"location":location,"snapshot_channel":"101"}
+            session_key = f"{cfg['camera_ip']}:{cfg['camera_port']}:{cfg['username']}"
+            if session_key in ACTIVE_SESSIONS:
+                continue
+            verification = verify_camera(cfg)
+            if verification.get("verified"):
+                verified_devices.append(verification)
+                post_backend("/api/edge/verify", {"site_id":SITE_ID, **verification})
+                monitor_device(cfg, verification.get("channels", []))
+        if verified_devices:
+            heartbeat()
+    except Exception:
+        logging.exception("NexusAI credentialed discovery failed")
+    finally:
+        DISCOVERY_LOCK.release()
+    return verified_devices
+
 def autonomous_discovery_loop():
     """Continuously discover local Hikvision devices and attach configured credentials."""
     while True:
@@ -635,28 +821,7 @@ def autonomous_discovery_loop():
             password = os.getenv("CAM_PASS", "")
             location = os.getenv("LOCATION", "Security Site")
             if username and password:
-                for device in discover_local_devices():
-                    if str(device.get("type", "")).lower() != "hikvision":
-                        continue
-                    ip = str(device.get("ip", "")).strip()
-                    if not ip:
-                        continue
-                    cfg = {
-                        "camera_id": f"nvr-{ip.replace('.', '-')}",
-                        "camera_name": device.get("name") or "Hikvision NVR",
-                        "camera_ip": ip,
-                        "camera_port": int(device.get("port") or 80),
-                        "username": username,
-                        "password": password,
-                        "location": location,
-                        "snapshot_channel": "101",
-                    }
-                    if f"{cfg['camera_ip']}:{cfg['camera_port']}:{cfg['username']}" in ACTIVE_SESSIONS:
-                        continue
-                    verification = verify_camera(cfg)
-                    if verification.get("verified"):
-                        post_backend("/api/edge/verify", {"site_id": SITE_ID, **verification})
-                        monitor_device(cfg, verification.get("channels", []))
+                discover_with_credentials(username, password, location)
         except Exception:
             logging.exception("NexusAI autonomous discovery failed")
         time.sleep(max(30, RECONNECT_SECONDS))
