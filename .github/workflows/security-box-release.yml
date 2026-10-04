@@ -37,6 +37,8 @@ jobs:
             --hidden-import win32service `
             --hidden-import win32serviceutil `
             --hidden-import win32event `
+            --hidden-import edge_agent.agent `
+            --hidden-import edge_agent.secure_store `
             edge_agent/security_box_windows_installer.py
           New-Item -ItemType Directory -Force -Path dist/release | Out-Null
           Copy-Item dist/NexusAI-SecurityBox-Setup.exe dist/release/NexusAI-SecurityBox-Windows.exe
