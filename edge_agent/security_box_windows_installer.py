@@ -80,7 +80,7 @@ def install_service(exe_path: Path) -> None:
                 NexusAISecurityBoxService,
                 SERVICE_NAME,
                 startType=win32service.SERVICE_AUTO_START,
-                exeName=sys.executable,
+                exeName=str(INSTALL_EXE),
                 description=SERVICE_DESCRIPTION,
                 displayName=SERVICE_DISPLAY,
                 delayedstart=True,
@@ -136,9 +136,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    if "--installer-token" in sys.argv or (
+    if "--installer-token" in sys.argv:
+        raise SystemExit(main())
+    if (
         getattr(sys, "frozen", False)
-        and re.search(r"NexusAI-SecurityBox-[A-Za-z0-9_-]{40,220}\.exe$", Path(sys.executable).name, re.I)
+        and "NexusAI-SecurityBox-" in Path(sys.executable).name
+        and Path(sys.executable).name.lower().endswith(".exe")
         and len(sys.argv) == 1
     ):
         try:
