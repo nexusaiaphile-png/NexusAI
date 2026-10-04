@@ -3,14 +3,92 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NexusAI Technologies | AI Security. Built for What Comes Next.</title>
-<meta name="description" content="NexusAI Technologies — South African AI security technology founded by 21-year-old entrepreneur Aphile Hlatshwayo in Bergville, KwaZulu-Natal.">
-<link rel="canonical" href="https://getnexusai.co.za/">
-<link rel="stylesheet" href="/story.css">
+<title>NexusAI QR Generation</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#071018;color:#f5fbff;font-family:Inter,Arial,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:40px 20px}
+.card{background:#0d1a24;border:1px solid #1c3444;border-radius:18px;padding:24px;margin-bottom:20px}
+h1{margin:0 0 8px;font-size:32px}.sub{color:#9fb4c2;margin-bottom:24px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+input,button{font:inherit;border-radius:10px;padding:12px 14px}
+input{background:#08131c;color:#fff;border:1px solid #2b4657;min-width:260px}
+button{border:0;background:#18d6a3;color:#04120e;font-weight:800;cursor:pointer}
+button.secondary{background:#19303e;color:#dff8ff}
+button:hover{filter:brightness(1.08)}
+.status{margin-top:12px;color:#9fb4c2;min-height:22px}
+table{width:100%;border-collapse:collapse;margin-top:18px}
+th,td{text-align:left;padding:12px;border-bottom:1px solid #1b303d;vertical-align:top}
+th{color:#8ea8b8;font-size:13px}
+.badge{display:inline-block;padding:5px 8px;border-radius:999px;background:#17382f;color:#6ff0c5;font-size:12px;font-weight:800}
+.badge.unused{background:#3b3118;color:#ffd978}
+a{color:#68e7ff;word-break:break-all}
+.small{font-size:13px;color:#8299a8}
+</style>
 </head>
 <body>
-<nav class="nav"><div class="container" style="display:flex;align-items:center;justify-content:space-between;width:100%"><a class="brand" href="/"><span class="logo">N</span><span>NEXUSAI TECHNOLOGIES</span></a><div class="navlinks"><a href="/about">ABOUT</a><a href="/founder">FOUNDER</a></div></div></nav>
-<main><section class="hero"><div class="container" style="display:contents"><div><div class="kicker">SOUTH AFRICAN AI SECURITY TECHNOLOGY</div><h1>AI SECURITY.<span>BUILT FOR WHAT COMES NEXT.</span></h1><p class="lead">NexusAI Technologies was founded by 21-year-old entrepreneur Aphile Hlatshwayo in Bergville, KwaZulu-Natal.</p><div class="meta"><span>FOUNDER & CEO · APHILE HLATSHAYO</span><span>02.03.2026</span></div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:28px"><a class="btn" href="/about">DISCOVER NEXUSAI →</a><a class="btn secondary" href="/founder">MEET THE FOUNDER</a></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:26px"><a class="btn" href="/app/" style="text-decoration:none">📱 MOBILE ACTIVATION →</a></div></div><div class="card"><div class="kicker">NEXUSAI</div><h2>SMARTER SECURITY.<br>INTELLIGENT TECHNOLOGY.</h2><p style="color:var(--muted);margin-top:16px">Threat detection · Theft detection · Weapon detection · Real-time alerts</p></div></div></section></main>
-<footer class="footer"><div class="container footer-row"><div><strong>NEXUSAI TECHNOLOGIES</strong><br>AI SECURITY. BUILT FOR WHAT COMES NEXT.</div><div>South Africa · getnexusai.co.za</div></div></footer>
+<main>
+  <div class="card">
+    <h1>NexusAI QR Generation</h1>
+    <div class="sub">Generate and manage the site QR stickers used to activate NexusAI at customer locations.</div>
+    <div class="row">
+      <input id="key" type="password" placeholder="NexusAI admin key" autocomplete="off">
+      <input id="count" type="number" min="1" max="500" value="10" style="min-width:120px">
+      <button onclick="generate()">GENERATE QR CODES</button>
+      <button class="secondary" onclick="loadCodes()">REFRESH</button>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+  <div class="card">
+    <h2>QR Inventory</h2>
+    <div class="small">UNUSED codes are ready to assign to a site. Once scanned and activated, the QR is permanently linked to that site.</div>
+    <div id="table"></div>
+  </div>
+</main>
+<script>
+const API_BASE=(location.hostname==='getnexusai.co.za'||location.hostname==='www.getnexusai.co.za')?'https://nexusai-1-wg9l.onrender.com':'';
+const api=(p)=>API_BASE+p;
+const keyEl=document.getElementById('key');
+keyEl.value=sessionStorage.getItem('nexusai_admin_key')||'';
+function headers(){return {'X-NexusAI-Admin-Key':keyEl.value.trim()};}
+function esc(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function saveKey(){sessionStorage.setItem('nexusai_admin_key',keyEl.value.trim());}
+function setStatus(s){document.getElementById('status').textContent=s;}
+async function loadCodes(){
+  saveKey();
+  if(!keyEl.value.trim()){setStatus('Enter the NexusAI admin key.');return;}
+  setStatus('Loading QR inventory...');
+  try{
+    const r=await fetch(api('/api/admin/qr-pool',{headers:headers(),cache:'no-store'});
+    const data=await r.json();
+    if(!r.ok) throw new Error(data.detail||'Could not load QR inventory.');
+    const rows=data.codes||[];
+    document.getElementById('table').innerHTML=rows.length?'<table><thead><tr><th>Status</th><th>Site</th><th>QR Link</th><th>Actions</th></tr></thead><tbody>'+rows.map(x=>{
+      const status=x.status||'ACTIVATED';
+      return '<tr><td><span class="badge '+(status==='UNUSED'?'unused':'')+'">'+esc(status)+'</span></td><td>'+esc(x.site_id||'Not assigned')+'</td><td><a href="'+esc(x.url)+'" target="_blank" rel="noopener">'+esc(x.url)+'</a></td><td><button class="secondary" onclick="copyLink('+JSON.stringify(x.url)+')">COPY LINK</button> <button class="secondary" onclick="window.open('+JSON.stringify(x.url)+','+'_blank'+')">OPEN</button></td></tr>';
+    }).join('')+'</tbody></table>':'<div class="status">No QR codes generated yet.</div>';
+    setStatus(rows.length+' QR code(s) found.');
+  }catch(e){setStatus(e.message);}
+}
+async function generate(){
+  saveKey();
+  if(!keyEl.value.trim()){setStatus('Enter the NexusAI admin key.');return;}
+  const count=Math.max(1,Math.min(500,Number(document.getElementById('count').value)||10));
+  setStatus('Generating '+count+' secure QR code(s)...');
+  try{
+    const r=await fetch(api('/api/admin/qr-pool',{method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify({count})});
+    const data=await r.json();
+    if(!r.ok) throw new Error(data.detail||'Could not generate QR codes.');
+    setStatus('Generated '+(data.generated||[]).length+' QR code(s).');
+    await loadCodes();
+  }catch(e){setStatus(e.message);}
+}
+async function copyLink(url){
+  try{await navigator.clipboard.writeText(url);setStatus('QR link copied.');}
+  catch(e){prompt('Copy this QR link:',url);}
+}
+keyEl.addEventListener('keydown',e=>{if(e.key==='Enter')loadCodes();});
+</script>
 </body>
 </html>
