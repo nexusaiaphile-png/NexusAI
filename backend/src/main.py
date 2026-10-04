@@ -792,10 +792,10 @@ def _download_security_box_asset(filename: str) -> bytes:
     return data
 
 def _validate_installer_download_token(token: str) -> str:
-    value = str(token or "").strip()
-    if not re.fullmatch(r"[A-Za-z0-9]{40,120}", value):
-        raise HTTPException(status_code=400, detail="Invalid NexusAI installer token.")
-    return value
+    # Validate the signed token without consuming it; the downloaded installer
+    # still needs the same token to bootstrap the Security Box.
+    verify_installer_token(token, max_age=900)
+    return str(token).strip()
 
 @app.get("/protect/install", include_in_schema=False)
 async def protect_install_page():
@@ -1454,60 +1454,42 @@ def _installer_token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 def create_installer_token(site_id: str, ttl_seconds: int = 900) -> str:
-    token = _new_installer_token()
-    now = time.time()
-    expires = now + ttl_seconds
-    token_hash = _installer_token_hash(token)
-    with DB_LOCK:
-        if database_url():
-            import psycopg
-            with psycopg.connect(database_url()) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO nexusai_installer_tokens(token_hash,site_id,created_at,expires_at) VALUES(%s,%s,%s,%s)",
-                        (token_hash, site_id, now, expires),
-                    )
-                conn.commit()
-        else:
-            with _sqlite() as conn:
-                conn.execute(
-                    "INSERT INTO nexusai_installer_tokens(token_hash,site_id,created_at,expires_at) VALUES(?,?,?,?,?)",
-                    (token_hash, site_id, now, expires),
-                )
-                conn.commit()
-    return token
+    # Installer links are signed, short-lived tokens. They do not require a
+    # separate database write, so generating an installer cannot fail because
+    # the installer-token table is unavailable.
+    site_id = validate_site_id(site_id)
+    now = int(time.time())
+    nonce = secrets.token_urlsafe(18)
+    payload = f"{site_id}.{now}.{nonce}"
+    signature = hmac.new(app_link_secret().encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    raw = f"{payload}.{signature}".encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+def verify_installer_token(token: str, max_age: int = 900) -> str:
+    token = str(token or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{40,220}", token):
+        raise HTTPException(status_code=400, detail="Invalid NexusAI installer token.")
+    try:
+        padded = token + "=" * (-len(token) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        site_id, issued, nonce, signature = raw.split(".", 3)
+        issued_int = int(issued)
+        if abs(int(time.time()) - issued_int) > max_age:
+            raise HTTPException(status_code=403, detail="This NexusAI installer link has expired. Please scan the QR code again.")
+        payload = f"{site_id}.{issued}.{nonce}"
+        expected = hmac.new(app_link_secret().encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise HTTPException(status_code=403, detail="This NexusAI installer link is invalid.")
+        return validate_site_id(site_id)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid NexusAI installer token.")
 
 def consume_installer_token(token: str) -> str:
-    token = str(token or "").strip()
-    if len(token) < 40 or len(token) > 120:
-        raise HTTPException(status_code=400, detail="Invalid NexusAI installer token.")
-    token_hash = _installer_token_hash(token)
-    now = time.time()
-    with DB_LOCK:
-        if database_url():
-            import psycopg
-            with psycopg.connect(database_url()) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT site_id,expires_at,used_at FROM nexusai_installer_tokens WHERE token_hash=%s FOR UPDATE",
-                        (token_hash,),
-                    )
-                    row = cur.fetchone()
-                    if not row or row[2] is not None or float(row[1]) < now:
-                        raise HTTPException(status_code=403, detail="This NexusAI installer link is expired or already used.")
-                    cur.execute("UPDATE nexusai_installer_tokens SET used_at=%s WHERE token_hash=%s", (now, token_hash))
-                conn.commit()
-                return str(row[0])
-        with _sqlite() as conn:
-            row = conn.execute(
-                "SELECT site_id,expires_at,used_at FROM nexusai_installer_tokens WHERE token_hash=?",
-                (token_hash,),
-            ).fetchone()
-            if not row or row[2] is not None or float(row[1]) < now:
-                raise HTTPException(status_code=403, detail="This NexusAI installer link is expired or already used.")
-            conn.execute("UPDATE nexusai_installer_tokens SET used_at=? WHERE token_hash=?", (now, token_hash))
-            conn.commit()
-            return str(row[0])
+    # Kept as a separate function because the Security Box bootstrap endpoint
+    # consumes the installer credential. The signed token is stateless.
+    return verify_installer_token(token, max_age=900)
 
 @app.get("/api/edge/installer-link-by-qr")
 async def edge_installer_link_by_qr(qr: str = ""):
