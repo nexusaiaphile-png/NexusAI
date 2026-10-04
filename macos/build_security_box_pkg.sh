@@ -33,44 +33,7 @@ set -euo pipefail
 PKG_PATH="$1"
 BASE="$(basename "$PKG_PATH" .pkg)"
 TOKEN="$(printf '%s' "$BASE" | sed -E 's/^NexusAI-SecurityBox-Mac-(Intel|Arm64)-([A-Za-z0-9_-]+)$/\2/')"
-if ! printf '%s' "$TOKEN" | grep -Eq '^[A-Za-z0-9_-]{40,220}
-ROOT="/Library/Application Support/NexusAI/SecurityBox"
-EXEC="$ROOT/NexusAI-SecurityBox"
-mkdir -p "$ROOT"
-
-"$EXEC" --installer-token "$TOKEN"
-
-PLIST="/Library/LaunchDaemons/za.co.getnexusai.securitybox.plist"
-cat > "$PLIST" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN"
- "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>za.co.getnexusai.securitybox</string>
-<key>ProgramArguments</key><array><string>$EXEC</string></array>
-<key>RunAtLoad</key><true/>
-<key>KeepAlive</key><true/>
-<key>ProcessType</key><string>Background</string>
-<key>StandardOutPath</key><string>$ROOT/security-box.stdout.log</string>
-<key>StandardErrorPath</key><string>$ROOT/security-box.stderr.log</string>
-</dict></plist>
-EOF
-
-chown root:wheel "$PLIST"
-chmod 644 "$PLIST"
-launchctl bootout system "$PLIST" >/dev/null 2>&1 || true
-launchctl bootstrap system "$PLIST"
-launchctl enable system/za.co.getnexusai.securitybox
-launchctl kickstart -k system/za.co.getnexusai.securitybox
-echo "NexusAI Security Box installed and running."
-POSTINSTALL
-chmod 755 "$SCRIPTS/postinstall"
-
-UNSIGNED="$OUT/NexusAI-SecurityBox-Mac-$LABEL-unsigned.pkg"
-pkgbuild   --root "$PKGROOT"   --scripts "$SCRIPTS"   --identifier "za.co.getnexusai.securitybox"   --version "2.0.0"   --install-location "/"   "$UNSIGNED"
-
-echo "Built $UNSIGNED"
-; then
+if ! printf '%s' "$TOKEN" | grep -Eq '^[A-Za-z0-9_-]{40,220}$'; then
   echo "NexusAI installer token could not be read from package name." >&2
   exit 1
 fi
@@ -108,6 +71,6 @@ POSTINSTALL
 chmod 755 "$SCRIPTS/postinstall"
 
 UNSIGNED="$OUT/NexusAI-SecurityBox-Mac-$LABEL-unsigned.pkg"
-pkgbuild   --root "$PKGROOT"   --scripts "$SCRIPTS"   --identifier "za.co.getnexusai.securitybox"   --version "2.0.0"   --install-location "/"   "$UNSIGNED"
+pkgbuild --root "$PKGROOT" --scripts "$SCRIPTS" --identifier "za.co.getnexusai.securitybox" --version "2.0.0" --install-location "/" "$UNSIGNED"
 
 echo "Built $UNSIGNED"
