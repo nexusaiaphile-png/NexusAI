@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -20,6 +21,7 @@ SERVICE_DISPLAY = "NexusAI Security Box"
 SERVICE_DESCRIPTION = "NexusAI always-on local CCTV security service."
 LOG_DIR = Path(os.getenv("PROGRAMDATA", r"C:\ProgramData")) / "NexusAI"
 LOG_FILE = LOG_DIR / "security-box-installer.log"
+INSTALL_EXE = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "NexusAI" / "SecurityBox" / "NexusAI-SecurityBox.exe"
 
 
 class NexusAISecurityBoxService(win32serviceutil.ServiceFramework):
@@ -59,7 +61,7 @@ def _log(message: str) -> None:
         pass
 
 
-def install_service() -> None:
+def install_service(exe_path: Path) -> None:
     try:
         win32serviceutil.InstallService(
             NexusAISecurityBoxService,
@@ -67,7 +69,7 @@ def install_service() -> None:
             SERVICE_DISPLAY,
             startType=win32service.SERVICE_AUTO_START,
             description=SERVICE_DESCRIPTION,
-            exeName=sys.executable,
+            exeName=str(exe_path),
             delayedstart=True,
         )
     except win32service.error as exc:
@@ -93,7 +95,11 @@ def provision_and_start() -> int:
     data = security_box.bootstrap(token, API_DEFAULT)
     site_id = str(data["site_id"])
     security_box.save_site_config(site_id, API_DEFAULT)
-    install_service()
+    INSTALL_EXE.parent.mkdir(parents=True, exist_ok=True)
+    source = Path(sys.executable)
+    if source.resolve() != INSTALL_EXE.resolve():
+        shutil.copy2(source, INSTALL_EXE)
+    install_service(INSTALL_EXE)
     try:
         win32serviceutil.StartService(SERVICE_NAME)
     except Exception as exc:
@@ -101,7 +107,7 @@ def provision_and_start() -> int:
         text = str(exc).lower()
         if "already" not in text and "1056" not in text:
             raise
-    _log("NexusAI Security Box installed and running for site %s.",)
+    _log("NexusAI Security Box installed and running.")
     return 0
 
 
@@ -115,7 +121,11 @@ def main() -> int:
         token = sys.argv[index + 1].strip()
         data = security_box.bootstrap(token, API_DEFAULT)
         security_box.save_site_config(str(data["site_id"]), API_DEFAULT)
-        install_service()
+        INSTALL_EXE.parent.mkdir(parents=True, exist_ok=True)
+        source = Path(sys.executable)
+        if source.resolve() != INSTALL_EXE.resolve():
+            shutil.copy2(source, INSTALL_EXE)
+        install_service(INSTALL_EXE)
         win32serviceutil.StartService(SERVICE_NAME)
         return 0
 
