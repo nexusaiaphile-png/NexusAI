@@ -47,8 +47,7 @@ a{color:#68e7ff;word-break:break-all}
   </div>
 </main>
 <script>
-const API_BASE=(location.hostname==='getnexusai.co.za'||location.hostname==='www.getnexusai.co.za')?'https://nexusai-1-wg9l.onrender.com':'';
-const api=(p)=>API_BASE+p;
+const api=(p)=>p;
 const keyEl=document.getElementById('key');
 keyEl.value=localStorage.getItem('nexusai_admin_key')||'';
 keyEl.hidden=!!keyEl.value;
