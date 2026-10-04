@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import os
-from edge_agent.security_box import bootstrap
+from edge_agent.security_box import bootstrap, save_site_config
 from edge_agent import secure_store
 
 parser = argparse.ArgumentParser()
@@ -14,6 +14,7 @@ args = parser.parse_args()
 data = bootstrap(args.installer_token, args.api_url)
 site_id = str(data["site_id"])
 print("NexusAI site connected:", site_id)
+save_site_config(site_id, args.api_url)
 
 username = input("Hikvision NVR username: ").strip()
 password = getpass.getpass("Hikvision NVR password: ")
