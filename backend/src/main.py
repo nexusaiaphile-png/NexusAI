@@ -40,7 +40,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 app = FastAPI(
     title="NexusAI Security Cloud",
     description="NexusAI Hikvision security cloud and native mobile push notification service.",
-    version="3.1.0",
+    version="3.2.0",
 )
 
 app.add_middleware(
@@ -851,24 +851,6 @@ async def security_box_macos_pkg(installer_token: str, arch: str = "arm64"):
     )
 
 
-@app.get("/protect/install", include_in_schema=False)
-async def protect_install_page():
-    return FileResponse(PORTAL_DIR / "protect" / "install.html", media_type="text/html")
-
-@app.get("/downloads/security-box/source/{filename}", include_in_schema=False)
-async def security_box_source(filename: str):
-    allowed = {
-        "agent.py": ("agent.py", "text/x-python"),
-        "security_box.py": ("security_box.py", "text/x-python"),
-        "secure_store.py": ("secure_store.py", "text/x-python"),
-        "setup_security_box.py": ("setup_security_box.py", "text/x-python"),
-        "windows_service.py": ("windows_service.py", "text/x-python"),
-    }
-    item = allowed.get(filename)
-    if not item:
-        raise HTTPException(status_code=404, detail="Security Box file not found.")
-    return FileResponse(EDGE_AGENT_DIR / item[0], media_type=item[1], headers={"Cache-Control":"no-store"})
-
 @app.get("/downloads/security-box/windows.ps1", include_in_schema=False)
 async def security_box_windows_installer(installer_token: str):
     token = str(installer_token or "").strip()
@@ -1430,7 +1412,7 @@ async def health():
     return {
         "status": "healthy",
         "service": "NexusAI Cloud",
-        "version": "3.1.2",
+        "version": "3.2.0",
         "push": "configured" if push_configured() else "awaiting-vapid-keys",
     }
 
@@ -1443,7 +1425,7 @@ async def api_status():
         "camera_verification": "EDGE_AGENT",
         "notification_engine": "NEXUSAI_PUSH",
         "whatsapp": "REMOVED",
-        "api_version": "3.1.2",
+        "api_version": "3.2.0",
     }
 
 
