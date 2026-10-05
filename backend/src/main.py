@@ -219,6 +219,29 @@ def init_db():
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_installer_site ON nexusai_installer_tokens(site_id)")
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS nexusai_customers (
+                        site_id TEXT PRIMARY KEY,
+                        business_name TEXT NOT NULL,
+                        store_address TEXT,
+                        contact_name TEXT,
+                        contact_phone TEXT,
+                        contact_email TEXT,
+                        camera_count INTEGER NOT NULL DEFAULT 0,
+                        created_at DOUBLE PRECISION NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'ACTIVE'
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS nexusai_customer_tokens (
+                        token_hash TEXT PRIMARY KEY,
+                        site_id TEXT NOT NULL,
+                        created_at DOUBLE PRECISION NOT NULL,
+                        active BOOLEAN NOT NULL DEFAULT TRUE
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_customer_tokens_site ON nexusai_customer_tokens(site_id)")
+
                 conn.commit()
     else:
         with _sqlite() as conn:
@@ -645,6 +668,93 @@ def dispatch_push_alert(event: dict):
     logging.info("NexusAI push dispatch complete: %s/%s devices delivered.", delivered, len(futures))
 
 
+
+def _customer_token_hash(token: str) -> str:
+    return hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+
+def create_customer_token(site_id: str) -> str:
+    token = "nxc_" + secrets.token_urlsafe(36)
+    now = time.time()
+    token_hash = _customer_token_hash(token)
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("INSERT INTO nexusai_customer_tokens(token_hash,site_id,created_at,active) VALUES(%s,%s,%s,TRUE)", (token_hash, site_id, now))
+                conn.commit()
+        else:
+            with _sqlite() as conn:
+                conn.execute("INSERT INTO nexusai_customer_tokens(token_hash,site_id,created_at,active) VALUES(?,?,?,1)", (token_hash, site_id, now))
+                conn.commit()
+    return token
+
+def require_customer_token(token: str) -> str:
+    raw = str(token or "").strip()
+    if len(raw) < 30 or len(raw) > 200:
+        raise HTTPException(status_code=401, detail="NexusAI customer access is invalid.")
+    token_hash = _customer_token_hash(raw)
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT site_id FROM nexusai_customer_tokens WHERE token_hash=%s AND active=TRUE", (token_hash,))
+                    row = cur.fetchone()
+        else:
+            with _sqlite() as conn:
+                row = conn.execute("SELECT site_id FROM nexusai_customer_tokens WHERE token_hash=? AND active=1", (token_hash,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=401, detail="NexusAI customer access is invalid or has been disabled.")
+    return validate_site_id(row[0])
+
+def load_customer(site_id: str):
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT site_id,business_name,store_address,contact_name,contact_phone,contact_email,camera_count,created_at,status FROM nexusai_customers WHERE site_id=%s", (site_id,))
+                    row=cur.fetchone()
+        else:
+            with _sqlite() as conn:
+                row=conn.execute("SELECT site_id,business_name,store_address,contact_name,contact_phone,contact_email,camera_count,created_at,status FROM nexusai_customers WHERE site_id=?", (site_id,)).fetchone()
+    if not row:
+        return None
+    keys=["site_id","business_name","store_address","contact_name","contact_phone","contact_email","camera_count","created_at","status"]
+    return dict(zip(keys,row))
+
+def save_customer(data: dict):
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO nexusai_customers(site_id,business_name,store_address,contact_name,contact_phone,contact_email,camera_count,created_at,status)
+                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,'ACTIVE')
+                        ON CONFLICT(site_id) DO UPDATE SET business_name=EXCLUDED.business_name,store_address=EXCLUDED.store_address,
+                        contact_name=EXCLUDED.contact_name,contact_phone=EXCLUDED.contact_phone,contact_email=EXCLUDED.contact_email,camera_count=EXCLUDED.camera_count,status='ACTIVE'
+                    """,(data["site_id"],data["business_name"],data.get("store_address",""),data.get("contact_name",""),data.get("contact_phone",""),data.get("contact_email",""),int(data.get("camera_count") or 0),time.time()))
+                conn.commit()
+        else:
+            with _sqlite() as conn:
+                conn.execute("""
+                    INSERT INTO nexusai_customers(site_id,business_name,store_address,contact_name,contact_phone,contact_email,camera_count,created_at,status)
+                    VALUES(?,?,?,?,?,?,?,?,'ACTIVE')
+                    ON CONFLICT(site_id) DO UPDATE SET business_name=excluded.business_name,store_address=excluded.store_address,
+                    contact_name=excluded.contact_name,contact_phone=excluded.contact_phone,contact_email=excluded.contact_email,camera_count=excluded.camera_count,status='ACTIVE'
+                """,(data["site_id"],data["business_name"],data.get("store_address",""),data.get("contact_name",""),data.get("contact_phone",""),data.get("contact_email",""),int(data.get("camera_count") or 0),time.time()))
+                conn.commit()
+
+def admin_site_summary(site_id: str):
+    customer=load_customer(site_id) or {"site_id":site_id,"business_name":"NexusAI Site","store_address":"","contact_name":"","contact_phone":"","contact_email":"","camera_count":0,"status":"ACTIVE"}
+    site=EDGE_SITES.get(site_id) or load_site(site_id) or {"site_id":site_id,"status":"WAITING","agent_version":"","received_at":0,"cameras":[]}
+    cameras=load_cameras(site_id)
+    return {**customer,"edge_agent":"ONLINE" if site.get("received_at") and time.time()-float(site.get("received_at",0))<=90 else "OFFLINE",
+            "site_status":site.get("status","WAITING"),"agent_version":site.get("agent_version",""),"cameras":cameras,
+            "camera_count_live":len(cameras)}
+
 def validate_site_id(site_id: str) -> str:
     value = str(site_id or "").strip()
     if not SITE_ID_RE.fullmatch(value):
@@ -744,6 +854,12 @@ async def qr_pool_page():
 async def protect_app_js():
     return FileResponse(PORTAL_DIR / "protect/app.js", media_type="application/javascript")
 
+
+
+@app.get("/client", include_in_schema=False)
+@app.get("/client/", include_in_schema=False)
+async def nexusai_client_portal():
+    return FileResponse(PORTAL_DIR / "client.html", media_type="text/html")
 
 @app.get("/app", include_in_schema=False)
 @app.get("/app/", include_in_schema=False)
@@ -1298,6 +1414,91 @@ class QrPoolGenerateRequest(BaseModel):
 async def admin_generate_qr_pool(request: QrPoolGenerateRequest, x_nexusai_admin_key: str | None = Header(default=None)):
     require_admin_key(x_nexusai_admin_key)
     return {"generated":create_qr_pool(request.count)}
+
+
+class AdminCreateSiteRequest(BaseModel):
+    business_name: str = Field(..., min_length=2, max_length=200)
+    store_address: str = Field(default="", max_length=300)
+    contact_name: str = Field(default="", max_length=160)
+    contact_phone: str = Field(default="", max_length=60)
+    contact_email: str = Field(default="", max_length=200)
+    camera_count: int = Field(default=0, ge=0, le=10000)
+
+@app.post("/api/admin/sites")
+async def admin_create_site(request: AdminCreateSiteRequest, x_nexusai_admin_key: str | None = Header(default=None)):
+    require_admin_key(x_nexusai_admin_key)
+    site_id, activation_code = create_or_resolve_site(None)
+    save_customer({"site_id":site_id, **request.model_dump()})
+    customer_token=create_customer_token(site_id)
+    qr_token=ensure_qr_token(site_id)
+    install_token=create_install_token(site_id)
+    return {
+        "site_id":site_id,
+        "activation_code":activation_code,
+        "qr_url":f"https://getnexusai.co.za/protect/?qr={quote(qr_token)}",
+        "customer_portal_url":f"https://getnexusai.co.za/client/?token={quote(customer_token)}",
+        "notification_app_url":f"https://getnexusai.co.za/app/?site_id={quote(site_id)}&install_token={quote(install_token)}",
+        "installer_links": {
+            "windows":f"https://getnexusai.co.za/downloads/security-box/windows.ps1?installer_token={quote(create_installer_token(site_id))}",
+            "macos":f"https://getnexusai.co.za/downloads/security-box/macos.sh?installer_token={quote(create_installer_token(site_id))}"
+        }
+    }
+
+@app.get("/api/admin/sites")
+async def admin_list_sites(x_nexusai_admin_key: str | None = Header(default=None)):
+    require_admin_key(x_nexusai_admin_key)
+    site_ids=set()
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT site_id FROM nexusai_customers ORDER BY created_at DESC")
+                    site_ids={r[0] for r in cur.fetchall()}
+        else:
+            with _sqlite() as conn:
+                site_ids={r[0] for r in conn.execute("SELECT site_id FROM nexusai_customers ORDER BY created_at DESC").fetchall()}
+    return {"sites":[admin_site_summary(x) for x in site_ids]}
+
+@app.get("/api/admin/sites/{site_id}")
+async def admin_get_site(site_id: str, x_nexusai_admin_key: str | None = Header(default=None)):
+    require_admin_key(x_nexusai_admin_key)
+    return admin_site_summary(validate_site_id(site_id))
+
+@app.get("/api/admin/sites/{site_id}/links")
+async def admin_site_links(site_id: str, x_nexusai_admin_key: str | None = Header(default=None)):
+    require_admin_key(x_nexusai_admin_key)
+    site_id=validate_site_id(site_id)
+    customer=load_customer(site_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="NexusAI customer site not found.")
+    customer_token=create_customer_token(site_id)
+    install_token=create_install_token(site_id)
+    return {
+        "site_id":site_id,
+        "customer_portal_url":f"https://getnexusai.co.za/client/?token={quote(customer_token)}",
+        "notification_app_url":f"https://getnexusai.co.za/app/?site_id={quote(site_id)}&install_token={quote(install_token)}",
+        "security_box_installer": {
+            "windows":f"https://getnexusai.co.za/downloads/security-box/windows.ps1?installer_token={quote(create_installer_token(site_id))}",
+            "macos":f"https://getnexusai.co.za/downloads/security-box/macos.sh?installer_token={quote(create_installer_token(site_id))}"
+        }
+    }
+
+@app.get("/api/customer/session")
+async def customer_session(token: str = ""):
+    site_id=require_customer_token(token)
+    customer=load_customer(site_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer site not found.")
+    site=EDGE_SITES.get(site_id) or load_site(site_id) or {"status":"WAITING","agent_version":"","received_at":0,"cameras":[]}
+    cameras=load_cameras(site_id)
+    return {**customer,"edge_agent":"ONLINE" if site.get("received_at") and time.time()-float(site.get("received_at",0))<=90 else "OFFLINE",
+            "site_status":site.get("status","WAITING"),"agent_version":site.get("agent_version",""),"cameras":cameras}
+
+@app.get("/api/customer/events")
+async def customer_events(token: str = "", limit: int = 50):
+    site_id=require_customer_token(token)
+    return {"site_id":site_id,"events":load_events(site_id,max(1,min(int(limit),100)),None)}
 
 @app.post("/api/push/activate")
 async def push_activate(request: SiteActivationRequest, http_request: Request):
