@@ -324,10 +324,25 @@ def discover_channels(cfg):
                                      "enabled": values.get("enabled", "true").lower() != "false",
                                      "video_input_channel_id": values.get("dynVideoInputChannelID") or values.get("videoInputChannelID")})
             enabled = [x for x in channels if x["enabled"]]
-            main = [x for x in enabled if x["channel_id"].isdigit() and x["channel_id"].endswith("01")]
-            selected = main or enabled; unique = {}
-            for item in selected: unique.setdefault(str(item.get("video_input_channel_id") or item["channel_id"]), item)
-            if unique: return list(unique.values())
+            # Hikvision NVR channel IDs are not universally numbered as 101/201/301.
+            # For example, Hikvision documents valid NVR channels such as 104 and
+            # 1301. Group by the physical/video-input channel and prefer a primary
+            # stream ending in 01 when one exists; otherwise keep the first enabled
+            # stream for that camera.
+            grouped = {}
+            for item in enabled:
+                camera_key = str(item.get("video_input_channel_id") or item["channel_id"])
+                current = grouped.get(camera_key)
+                if current is None:
+                    grouped[camera_key] = item
+                else:
+                    current_id = str(current.get("channel_id") or "")
+                    candidate_id = str(item.get("channel_id") or "")
+                    current_primary = current_id.isdigit() and current_id.endswith("01")
+                    candidate_primary = candidate_id.isdigit() and candidate_id.endswith("01")
+                    if candidate_primary and not current_primary:
+                        grouped[camera_key] = item
+            if grouped: return list(grouped.values())
         except (requests.RequestException, ET.ParseError): pass
     return []
 
