@@ -1,21 +1,58 @@
 # NexusAI Hik-Partner Pro OpenAPI
 
-NexusAI now has a first-party Hik-Partner Pro integration path. Security Box remains available as a fallback, but it is not required for the HPP path.
+NexusAI's primary Hikvision integration is now built around the Hik-Partner Pro OpenAPI V2.15.500 guide supplied to the project. Security Box remains a fallback only.
 
-## Render environment variables
+## Server environment
 
-Set these as Render environment variables. Never commit them to GitHub or put them in frontend code.
+Set these on Render. Never commit them or expose them in browser code.
 
-- `HPP_API_BASE_URL` — the Hik-Partner Pro OpenAPI API host from the current Hikvision partner guide/account.
-- `HPP_APP_KEY` — NexusAI's Hik-Partner Pro API Key/appKey.
-- `HPP_SECRET_KEY` — NexusAI's Hik-Partner Pro secretKey.
+- `HPP_APP_KEY` — NexusAI Hik-Partner Pro API Key/appKey.
+- `HPP_SECRET_KEY` — NexusAI Hik-Partner Pro secretKey.
 - `NEXUSAI_ADMIN_KEY` — existing NexusAI Command Centre admin key.
+- `HPP_ALARM_WORKER_ENABLED` — optional; defaults to `true`.
 
-The integration requests an access token from `POST /api/hpcgw/v1/token/get`, caches it in memory, and refreshes it when Hikvision reports an expired token.
+Do **not** configure `HPP_API_BASE_URL`. The HPP guide requires NexusAI to obtain a token from the common token domain and then use the returned regional `areaDomain` for service APIs.
 
-## Current integration endpoints
+## HPP flow implemented
 
-All require `X-NexusAI-Admin-Key`.
+```
+HPP appKey + secretKey
+        |
+        v
+POST /api/hpcgw/v1/token/get
+        |
+        +--> accessToken
+        +--> expireTime
+        +--> areaDomain
+                    |
+                    v
+        HPP site/device APIs
+                    |
+                    v
+        /api/hpcgw/v1/mq/subscribe
+                    |
+                    v
+        /api/hpcgw/v1/mq/messages
+              (20-second long poll)
+                    |
+                    v
+              data.list + batchId
+                    |
+                    v
+        NexusAI device mapping
+                    |
+                    v
+        persist_event() + notifications
+                    |
+                    v
+        POST /api/hpcgw/v1/mq/offset
+```
+
+The uploaded guide specifically says the messages API uses long polling, recommends calling it continuously, and requires the returned batch ID to be acknowledged so messages are not re-sent. fileciteturn370file0
+
+## Current API routes
+
+All HPP admin routes require `X-NexusAI-Admin-Key`.
 
 - `GET /api/hpp/status`
 - `POST /api/hpp/test-auth`
@@ -24,43 +61,78 @@ All require `X-NexusAI-Admin-Key`.
 - `POST /api/hpp/cameras/list`
 - `POST /api/hpp/alarms/subscribe`
 - `POST /api/hpp/alarms/poll`
-- `POST /api/hpp/alarms/picture-url`
+- `POST /api/hpp/alarms/offset`
+- `POST /api/hpp/alarm/picture-url`
+- `GET /api/hpp/mappings`
+- `POST /api/hpp/mappings`
 
-The alarm polling endpoint uses Hik-Partner Pro's documented long-polling message API and normalizes JSON/XML alarm payloads into NexusAI event objects.
+## Customer mapping
+
+HPP alarm messages identify the Hikvision device serial. NexusAI therefore maps:
+
+```
+Hikvision device serial
+        ↓
+NexusAI HPP mapping
+        ↓
+NexusAI customer site_id
+        ↓
+existing NexusAI event database
+        ↓
+existing NexusAI notification pipeline
+```
+
+A device must be mapped before its production alarm batch is acknowledged. This prevents an unmapped customer alarm from being silently discarded.
+
+Example mapping body:
+
+```json
+{
+  "hpp_site_id": "",
+  "hpp_device_serial": "HIKVISION_DEVICE_SERIAL",
+  "nexusai_site_id": "site-XXXXXXXXXXXX"
+}
+```
+
+## What was removed from the HPP path
+
+- The old fixed `HPP_API_BASE_URL` requirement.
+- The old assumption that alarm messages arrive directly as `data` instead of `data.list`.
+- The old omission of `/mq/offset`.
+- The old one-shot-only alarm handling.
+
+Security Box code/routes were **not** deleted because it is still a controlled fallback for Hikvision devices or deployments where HPP cannot provide a required capability.
+
+## Production architecture
+
+```
+Hikvision NVR / cameras
+          |
+          v
+   Hik-Partner Pro
+          |
+          v
+    NexusAI Cloud
+       /       \
+      v         v
+Command Centre  Event/Notification Engine
+```
+
+HPNetSDK is kept separate from the Render FastAPI process. Hikvision documents HPNetSDK for functions such as live view/playback/download, while HPP OpenAPI handles site/device management and alarms. citeturn0search3
 
 ## First live test
 
-1. Add the three HPP environment variables in Render.
-2. Open NexusAI Command Centre.
-3. Click **CHECK HPP CONNECTION**.
-4. Click **TEST HPP AUTHENTICATION**.
-5. Click **LOAD HIK-PARTNER PRO SITES**.
-6. Once sites are visible, list the site's devices and identify an NVR/device serial.
-7. Subscribe that device to alarms.
-8. Poll for an authorized test alarm.
+1. Put `HPP_APP_KEY`, `HPP_SECRET_KEY`, and the existing `NEXUSAI_ADMIN_KEY` into Render.
+2. Deploy.
+3. Call **TEST HPP AUTHENTICATION**.
+4. Confirm NexusAI receives a regional `areaDomain`.
+5. Load HPP sites.
+6. Load devices and identify the Hikvision device serial.
+7. Create the device-serial → NexusAI site mapping.
+8. Subscribe the device to alarms.
+9. Trigger one authorized Hikvision test event.
+10. Confirm the event appears in NexusAI.
+11. Confirm the batch is acknowledged.
+12. Confirm the existing NexusAI notification path receives the event.
 
-Do not expose a customer NVR to the public internet and do not put Hikvision API credentials in browser JavaScript.
-
-## Important limitation
-
-Hik-Partner Pro alarm messages identify the device and alarm payload. NexusAI must map device/channel information to the correct customer site before treating an event as a customer event. The current implementation is the integration foundation; site/device mapping and a continuously running alarm worker are the next production steps after the first real API test.
-
-## Architecture
-
-```
-Hikvision NVR/cameras
-        |
-        v
-Hik-Partner Pro
-        |
-        v
-NexusAI Cloud
-        |
-        +--> NexusAI Command Centre
-        |
-        +--> NexusAI event engine
-        |
-        +--> future notification channels
-```
-
-Security Box remains a fallback for deployments where the official HPP integration cannot provide the required capability.
+Do not put HPP credentials in customer browsers and do not expose customer NVRs through public port forwarding. Hikvision's own HPP integration material describes the OpenAPI as the cloud integration layer and highlights device management and alarm subscription capabilities. citeturn0search0turn0search2
