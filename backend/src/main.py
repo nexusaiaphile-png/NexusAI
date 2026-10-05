@@ -255,6 +255,16 @@ def init_db():
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_customer_tokens_site ON nexusai_customer_tokens(site_id)")
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS nexusai_hpp_mappings (
+                        hpp_site_id TEXT,
+                        hpp_device_serial TEXT,
+                        nexusai_site_id TEXT NOT NULL,
+                        created_at DOUBLE PRECISION NOT NULL,
+                        PRIMARY KEY(hpp_site_id, hpp_device_serial)
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_hpp_mappings_site ON nexusai_hpp_mappings(nexusai_site_id)")
 
                 conn.commit()
     else:
@@ -700,6 +710,89 @@ def dispatch_push_alert(event: dict):
             logging.exception("NexusAI push worker failed.")
     logging.info("NexusAI push dispatch complete: %s/%s devices delivered.", delivered, len(futures))
 
+
+
+def _hpp_mapping(hpp_site_id: str, hpp_device_serial: str = "") -> str | None:
+    """Resolve an HPP site/device to a NexusAI customer site."""
+    hpp_site_id = str(hpp_site_id or "").strip()
+    hpp_device_serial = str(hpp_device_serial or "").strip()
+    if not hpp_site_id and not hpp_device_serial:
+        return None
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """SELECT nexusai_site_id FROM nexusai_hpp_mappings
+                           WHERE hpp_site_id=%s AND (hpp_device_serial=%s OR hpp_device_serial='') 
+                           ORDER BY CASE WHEN hpp_device_serial=%s THEN 0 ELSE 1 END LIMIT 1""",
+                        (hpp_site_id, hpp_device_serial, hpp_device_serial),
+                    )
+                    row = cur.fetchone()
+        else:
+            with _sqlite() as conn:
+                row = conn.execute(
+                    """SELECT nexusai_site_id FROM nexusai_hpp_mappings
+                       WHERE hpp_site_id=? AND (hpp_device_serial=? OR hpp_device_serial='')
+                       ORDER BY CASE WHEN hpp_device_serial=? THEN 0 ELSE 1 END LIMIT 1""",
+                    (hpp_site_id, hpp_device_serial, hpp_device_serial),
+                ).fetchone()
+    return str(row[0]) if row else None
+
+
+def _save_hpp_mapping(hpp_site_id: str, hpp_device_serial: str, nexusai_site_id: str):
+    hpp_site_id = str(hpp_site_id or "").strip()
+    hpp_device_serial = str(hpp_device_serial or "").strip()
+    nexusai_site_id = validate_site_id(nexusai_site_id)
+    if not hpp_site_id:
+        raise HTTPException(status_code=400, detail="HPP site ID is required.")
+    now = time.time()
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """INSERT INTO nexusai_hpp_mappings
+                           (hpp_site_id,hpp_device_serial,nexusai_site_id,created_at)
+                           VALUES(%s,%s,%s,%s)
+                           ON CONFLICT(hpp_site_id,hpp_device_serial)
+                           DO UPDATE SET nexusai_site_id=EXCLUDED.nexusai_site_id""",
+                        (hpp_site_id, hpp_device_serial, nexusai_site_id, now),
+                    )
+                conn.commit()
+        else:
+            with _sqlite() as conn:
+                conn.execute(
+                    """INSERT INTO nexusai_hpp_mappings
+                       (hpp_site_id,hpp_device_serial,nexusai_site_id,created_at)
+                       VALUES(?,?,?,?)
+                       ON CONFLICT(hpp_site_id,hpp_device_serial)
+                       DO UPDATE SET nexusai_site_id=excluded.nexusai_site_id""",
+                    (hpp_site_id, hpp_device_serial, nexusai_site_id, now),
+                )
+                conn.commit()
+
+
+def _hpp_event_sink(event: dict) -> bool:
+    hpp_site_id = str(event.get("hpp_site_id") or "")
+    serial = str(event.get("hpp_device_serial") or "")
+    site_id = _hpp_mapping(hpp_site_id, serial)
+    if not site_id:
+        raise RuntimeError(
+            f"No NexusAI mapping for HPP site={hpp_site_id!r}, device={serial!r}. "
+            "Create the mapping before enabling production alarms."
+        )
+    event["site_id"] = site_id
+    # HPP owns the event transport; NexusAI's existing persistence and notification
+    # pipeline remains the single event path, preventing duplicate alarm systems.
+    event.pop("hpp_site_id", None)
+    event_id = persist_event(event)
+    EDGE_EVENTS.insert(0, dict(event))
+    del EDGE_EVENTS[200:]
+    PUSH_EXECUTOR.submit(dispatch_push_alert, event)
+    return bool(event_id)
 
 
 def _customer_token_hash(token: str) -> str:
@@ -1922,12 +2015,51 @@ def load_site(site_id: str):
     }
 
 
+@app.get("/api/hpp/mappings", include_in_schema=False)
+async def hpp_mappings(x_nexusai_admin_key: str | None = Header(default=None)):
+    expected = os.getenv("NEXUSAI_ADMIN_KEY", "").strip()
+    if not expected or x_nexusai_admin_key != expected:
+        raise HTTPException(status_code=401, detail="Invalid NexusAI admin key.")
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT hpp_site_id,hpp_device_serial,nexusai_site_id,created_at FROM nexusai_hpp_mappings ORDER BY created_at DESC")
+                    rows=cur.fetchall()
+        else:
+            with _sqlite() as conn:
+                rows=conn.execute("SELECT hpp_site_id,hpp_device_serial,nexusai_site_id,created_at FROM nexusai_hpp_mappings ORDER BY created_at DESC").fetchall()
+    return {"mappings":[dict(zip(["hpp_site_id","hpp_device_serial","nexusai_site_id","created_at"],row)) for row in rows]}
+
+
+@app.post("/api/hpp/mappings", include_in_schema=False)
+async def hpp_mapping_create(payload: dict, x_nexusai_admin_key: str | None = Header(default=None)):
+    expected = os.getenv("NEXUSAI_ADMIN_KEY", "").strip()
+    if not expected or x_nexusai_admin_key != expected:
+        raise HTTPException(status_code=401, detail="Invalid NexusAI admin key.")
+    _save_hpp_mapping(
+        str(payload.get("hpp_site_id", "")),
+        str(payload.get("hpp_device_serial", "")),
+        str(payload.get("nexusai_site_id", "")),
+    )
+    return {"saved": True}
+
+
 @app.get("/", include_in_schema=False)
 async def nexusai_root():
     return FileResponse(PORTAL_DIR / "qr-admin.html", media_type="text/html", headers={"Cache-Control":"no-store"})
 
 # Keep the portal mounted last so API routes stay reachable.
 app.mount("/portal", StaticFiles(directory=PORTAL_DIR, html=True), name="portal")
+
+# Hik-Partner Pro is the primary cloud integration. Security Box remains a fallback
+# and is not started or required by the HPP worker.
+try:
+    from hpp_integration import install as install_hpp
+    install_hpp(app, event_sink=_hpp_event_sink)
+except Exception:
+    logging.exception("Hik-Partner Pro integration failed to load.")
 
 # Managed Deployment: secure site-scoped pairing and remote Security Box control.
 try:
