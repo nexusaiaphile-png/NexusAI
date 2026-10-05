@@ -149,7 +149,10 @@ async def edge_commands(site_id:str,device_id:str="",x_nexusai_edge_token:str|No
         _set_paired(site_id,device_id=device_id) if _deployment(site_id)["paired"] else _register_device(site_id,device_id)
     out=[]
     for x in _commands(site_id):
-        out.append({"id":x["id"],"type":x["command_type"],"payload":open_sealed(x["payload_json"]) if x["payload_json"] else {},"expires_at":x["expires_at"]})
+        payload=open_sealed(x["payload_json"]) if x["payload_json"] else {}
+        if x["command_type"]=="PAIR_REQUEST" and payload.get("device_id") and payload.get("device_id") != device_id:
+            continue
+        out.append({"id":x["id"],"type":x["command_type"],"payload":payload,"expires_at":x["expires_at"]})
     return {"site_id":site_id,"commands":out}
 
 @router.post("/edge/commands/{command_id}/confirm")
