@@ -1497,13 +1497,48 @@ async def admin_site_links(site_id: str, x_nexusai_admin_key: str | None = Heade
         raise HTTPException(status_code=404, detail="NexusAI customer site not found.")
     customer_token=create_customer_token(site_id)
     install_token=create_install_token(site_id)
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT activation_code FROM nexusai_site_codes WHERE site_id=%s", (site_id,))
+                    row=cur.fetchone()
+        else:
+            with _sqlite() as conn:
+                row=conn.execute("SELECT activation_code FROM nexusai_site_codes WHERE site_id=?", (site_id,)).fetchone()
+    activation_code=str(row[0]) if row else ""
     return {
         "site_id":site_id,
+        "activation_code":activation_code,
+        "status":admin_site_summary(site_id),
         "customer_portal_url":f"https://getnexusai.co.za/client/?token={quote(customer_token)}",
         "notification_app_url":f"https://getnexusai.co.za/app/?site_id={quote(site_id)}&install_token={quote(install_token)}",
         "security_box_installer": {
             "windows":f"https://getnexusai.co.za/downloads/security-box/windows.ps1?installer_token={quote(create_installer_token(site_id))}",
             "macos":f"https://getnexusai.co.za/downloads/security-box/macos.sh?installer_token={quote(create_installer_token(site_id))}"
+        }
+    }
+
+@app.get("/api/admin/sites/{site_id}/connect")
+async def admin_connect_site(site_id: str, x_nexusai_admin_key: str | None = Header(default=None)):
+    require_admin_key(x_nexusai_admin_key)
+    site_id=validate_site_id(site_id)
+    customer=load_customer(site_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="NexusAI customer site not found.")
+    links=await admin_site_links(site_id, x_nexusai_admin_key)
+    return {
+        "site_id":site_id,
+        "connected": links["status"]["edge_agent"]=="ONLINE",
+        "status":links["status"],
+        "activation_code":links["activation_code"],
+        "next_step": "Security Box is online. Open the customer protection portal and connect the CCTV system." if links["status"]["edge_agent"]=="ONLINE" else "Install and open NexusAI Security Box at the customer site. It will connect outbound to NexusAI Cloud; do not expose the NVR to the public internet.",
+        "links": {
+            "customer_portal":links["customer_portal_url"],
+            "notification_app":links["notification_app_url"],
+            "windows_security_box":links["security_box_installer"]["windows"],
+            "macos_security_box":links["security_box_installer"]["macos"]
         }
     }
 
