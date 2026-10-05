@@ -33,12 +33,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate JavaScript syntax
         run: |
-          node --check portal/admin/index.html 2>/dev/null || true
           python - <<'PY'
-          import re, pathlib
-          for path in pathlib.Path("portal").rglob("*.js"):
-              text = path.read_text(encoding="utf-8")
-              if "\x00" in text:
-                  raise SystemExit(f"NUL byte found: {path}")
-              print("Checked", path)
+          import pathlib, re, subprocess, tempfile
+          files = list(pathlib.Path("portal").rglob("*.js"))
+          for html in pathlib.Path("portal").rglob("*.html"):
+              text = html.read_text(encoding="utf-8")
+              for i, script in enumerate(re.findall(r"<script(?:[^>]*)>(.*?)</script>", text, flags=re.S|re.I)):
+                  if script.strip():
+                      p = pathlib.Path(tempfile.gettempdir()) / f"nexusai-inline-{i}.js"
+                      p.write_text(script, encoding="utf-8")
+                      files.append(p)
+          for path in files:
+              subprocess.run(["node", "--check", str(path)], check=True)
+              print("JavaScript syntax OK:", path)
           PY
