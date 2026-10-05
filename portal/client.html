@@ -29,7 +29,7 @@ async function load(){
   $("onlineCount").textContent=(s.cameras||[]).filter(c=>String(c.status||"").toUpperCase()!=="OFFLINE").length;
   $("protectedCount").textContent=(s.cameras||[]).filter(c=>c.verified||c.status==="PROTECTED").length;
   $("cameras").innerHTML=(s.cameras||[]).map((c,i)=>'<div class="camera"><div class="camtop"><strong>'+esc(c.camera_name||("Camera "+(i+1)))+'</strong><span class="'+(String(c.status).toUpperCase()==="OFFLINE"?"offline":"online")+'">'+esc(c.status||"ONLINE")+'</span></div><div class="small">'+esc(c.location||"Security camera")+'</div><div class="small">Channel: '+esc(c.channel_id||"—")+'</div><div class="small">Capabilities: '+esc(Object.values(c.capabilities?.capabilities||{}).filter(x=>x.available).length)+' verified</div></div>').join("")||'<div class="notice">Waiting for the NexusAI Security Box to discover cameras.</div>';
-  $("appLink").href="/app/?site_id="+encodeURIComponent(s.site_id)+"&install_token="+encodeURIComponent("");
+  $("appLink").href=s.notification_app_url||"/app/";
   await loadEvents();
  }catch(e){$("connection").innerHTML='<span class="error">'+esc(e.message)+'</span>'}
 }
