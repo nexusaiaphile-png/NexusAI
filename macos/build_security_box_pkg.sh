@@ -26,6 +26,10 @@ python3 -m venv "$VENV"
 "$VENV/bin/python" -m pip install pyinstaller requests python-dotenv
 
 rm -rf "$WORK/pyi" "$WORK/dist"
+PYI_SIGN_ARGS=()
+if [[ -n "$APPLICATION_IDENTITY" ]]; then
+  PYI_SIGN_ARGS=(--codesign-identity "$APPLICATION_IDENTITY")
+fi
 "$VENV/bin/python" -m PyInstaller \
   --clean --noconfirm --onefile \
   --name NexusAI-SecurityBox \
@@ -34,6 +38,7 @@ rm -rf "$WORK/pyi" "$WORK/dist"
   --hidden-import edge_agent.agent \
   --hidden-import edge_agent.secure_store \
   --hidden-import edge_agent.capability_engine \
+  "${PYI_SIGN_ARGS[@]}" \
   edge_agent/security_box_macos_installer.py \
   --distpath "$WORK/dist" --workpath "$WORK/pyi"
 
