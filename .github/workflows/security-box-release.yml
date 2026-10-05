@@ -53,12 +53,52 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build Intel package
+      - name: Import Developer ID Application certificate
+        env:
+          CERT_BASE64: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_PASSWORD }}
         run: |
-          export NEXUSAI_MAC_ARCH=x86_64
+          test -n "$CERT_BASE64"
+          echo "$CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/application.p12"
+          security create-keychain -p "" "$RUNNER_TEMP/build.keychain-db"
+          security default-keychain -s "$RUNNER_TEMP/build.keychain-db"
+          security unlock-keychain -p "" "$RUNNER_TEMP/build.keychain-db"
+          security import "$RUNNER_TEMP/application.p12" -k "$RUNNER_TEMP/build.keychain-db" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$RUNNER_TEMP/build.keychain-db"
+      - name: Import Developer ID Installer certificate
+        env:
+          CERT_BASE64: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
+        run: |
+          test -n "$CERT_BASE64"
+          echo "$CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/installer.p12"
+          security import "$RUNNER_TEMP/installer.p12" -k "$RUNNER_TEMP/build.keychain-db" -P "$CERT_PASSWORD" -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$RUNNER_TEMP/build.keychain-db"
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and sign Intel package
+        env:
+          NEXUSAI_MAC_ARCH: x86_64
+          NEXUSAI_SECURITY_BOX_VERSION: 2.1.0
+          APPLE_APPLICATION_IDENTITY: ${{ secrets.APPLE_APPLICATION_IDENTITY }}
+          APPLE_INSTALLER_IDENTITY: ${{ secrets.APPLE_INSTALLER_IDENTITY }}
+        run: |
+          test -n "$APPLE_APPLICATION_IDENTITY"
+          test -n "$APPLE_INSTALLER_IDENTITY"
           chmod +x macos/build_security_box_pkg.sh
           ./macos/build_security_box_pkg.sh
-          mv dist/NexusAI-SecurityBox-Mac-Intel-unsigned.pkg dist/NexusAI-SecurityBox-Mac-Intel.pkg
+      - name: Notarize and staple Intel package
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          test -n "$APPLE_ID"
+          test -n "$APPLE_TEAM_ID"
+          test -n "$APPLE_APP_PASSWORD"
+          xcrun notarytool submit dist/NexusAI-SecurityBox-Mac-Intel.pkg --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple dist/NexusAI-SecurityBox-Mac-Intel.pkg
+          pkgutil --check-signature dist/NexusAI-SecurityBox-Mac-Intel.pkg
       - name: Upload Intel artifact
         uses: actions/upload-artifact@v4
         with:
@@ -70,12 +110,52 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build Apple Silicon package
+      - name: Import Developer ID Application certificate
+        env:
+          CERT_BASE64: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_PASSWORD }}
         run: |
-          export NEXUSAI_MAC_ARCH=arm64
+          test -n "$CERT_BASE64"
+          echo "$CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/application.p12"
+          security create-keychain -p "" "$RUNNER_TEMP/build.keychain-db"
+          security default-keychain -s "$RUNNER_TEMP/build.keychain-db"
+          security unlock-keychain -p "" "$RUNNER_TEMP/build.keychain-db"
+          security import "$RUNNER_TEMP/application.p12" -k "$RUNNER_TEMP/build.keychain-db" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$RUNNER_TEMP/build.keychain-db"
+      - name: Import Developer ID Installer certificate
+        env:
+          CERT_BASE64: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
+        run: |
+          test -n "$CERT_BASE64"
+          echo "$CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/installer.p12"
+          security import "$RUNNER_TEMP/installer.p12" -k "$RUNNER_TEMP/build.keychain-db" -P "$CERT_PASSWORD" -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$RUNNER_TEMP/build.keychain-db"
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and sign Apple Silicon package
+        env:
+          NEXUSAI_MAC_ARCH: arm64
+          NEXUSAI_SECURITY_BOX_VERSION: 2.1.0
+          APPLE_APPLICATION_IDENTITY: ${{ secrets.APPLE_APPLICATION_IDENTITY }}
+          APPLE_INSTALLER_IDENTITY: ${{ secrets.APPLE_INSTALLER_IDENTITY }}
+        run: |
+          test -n "$APPLE_APPLICATION_IDENTITY"
+          test -n "$APPLE_INSTALLER_IDENTITY"
           chmod +x macos/build_security_box_pkg.sh
           ./macos/build_security_box_pkg.sh
-          mv dist/NexusAI-SecurityBox-Mac-Arm64-unsigned.pkg dist/NexusAI-SecurityBox-Mac-Arm64.pkg
+      - name: Notarize and staple Apple Silicon package
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          test -n "$APPLE_ID"
+          test -n "$APPLE_TEAM_ID"
+          test -n "$APPLE_APP_PASSWORD"
+          xcrun notarytool submit dist/NexusAI-SecurityBox-Mac-Arm64.pkg --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple dist/NexusAI-SecurityBox-Mac-Arm64.pkg
+          pkgutil --check-signature dist/NexusAI-SecurityBox-Mac-Arm64.pkg
       - name: Upload Apple Silicon artifact
         uses: actions/upload-artifact@v4
         with:
@@ -108,6 +188,10 @@ jobs:
           if gh release view security-box-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             :
           else
-            gh release create security-box-latest               --repo "$GITHUB_REPOSITORY"               --title "NexusAI Security Box latest"               --notes "Latest native NexusAI Security Box installers."
+            gh release create security-box-latest --repo "$GITHUB_REPOSITORY" --title "NexusAI Security Box latest" --notes "Latest native NexusAI Security Box installers."
           fi
-          gh release upload security-box-latest             --repo "$GITHUB_REPOSITORY"             dist/NexusAI-SecurityBox-Windows.exe             dist/NexusAI-SecurityBox-Mac-Intel.pkg             dist/NexusAI-SecurityBox-Mac-Arm64.pkg             --clobber
+          gh release upload security-box-latest --repo "$GITHUB_REPOSITORY" \
+            dist/NexusAI-SecurityBox-Windows.exe \
+            dist/NexusAI-SecurityBox-Mac-Intel.pkg \
+            dist/NexusAI-SecurityBox-Mac-Arm64.pkg \
+            --clobber
