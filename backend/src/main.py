@@ -865,7 +865,8 @@ def require_edge_token(token: str | None, authorization: str | None = None, site
 
 @app.get("/", include_in_schema=False)
 async def public_home():
-    return FileResponse(ROOT_INDEX)
+    # The public domain is the NexusAI Remote Security Command Centre.
+    return RedirectResponse(url="/admin", status_code=307)
 
 
 @app.get("/about", include_in_schema=False)
@@ -1534,6 +1535,7 @@ async def admin_site_links(site_id: str, x_nexusai_admin_key: str | None = Heade
         "site_id":site_id,
         "activation_code":activation_code,
         "status":admin_site_summary(site_id),
+        "qr_url":f"https://getnexusai.co.za/protect/?qr={quote(ensure_qr_token(site_id))}",
         "customer_portal_url":f"https://getnexusai.co.za/client/?token={quote(customer_token)}",
         "notification_app_url":f"https://getnexusai.co.za/app/?site_id={quote(site_id)}&install_token={quote(install_token)}",
         "security_box_installer": {
@@ -1557,6 +1559,7 @@ async def admin_connect_site(site_id: str, x_nexusai_admin_key: str | None = Hea
         "activation_code":links["activation_code"],
         "next_step": "Security Box is online. Open the customer protection portal and connect the CCTV system." if links["status"]["edge_agent"]=="ONLINE" else "Install and open NexusAI Security Box at the customer site. It will connect outbound to NexusAI Cloud; do not expose the NVR to the public internet.",
         "links": {
+            "customer_setup":links["qr_url"],
             "customer_portal":links["customer_portal_url"],
             "notification_app":links["notification_app_url"],
             "windows_security_box":links["security_box_installer"]["windows"],
@@ -1570,11 +1573,12 @@ async def customer_session(token: str = ""):
     customer=load_customer(site_id)
     if not customer:
         raise HTTPException(status_code=404, detail="Customer site not found.")
-    site=EDGE_SITES.get(site_id) or load_site(site_id) or {"status":"WAITING","agent_version":"","received_at":0,"cameras":[]}
+    # Customer status must survive cloud process/browser refreshes.
+    site=load_site(site_id) or EDGE_SITES.get(site_id) or {"status":"WAITING","agent_version":"","received_at":0,"cameras":[]}
     cameras=load_cameras(site_id)
     install_token=create_install_token(site_id)
     return {**customer,
-            "edge_agent":"ONLINE" if site.get("received_at") and time.time()-float(site.get("received_at",0))<=90 else "OFFLINE",
+            "edge_agent":"ONLINE" if site_is_online(site) else "OFFLINE",
             "site_status":site.get("status","WAITING"),
             "agent_version":site.get("agent_version",""),
             "cameras":cameras,
@@ -1912,9 +1916,8 @@ async def edge_event(
 @app.get("/api/portal/status")
 async def portal_status(site_id: str = "", x_nexusai_site_code: str | None = Header(default=None)):
     site_id = require_site_access(site_id, x_nexusai_site_code)
-    site = EDGE_SITES.get(site_id)
-    if not site:
-        site = load_site(site_id)
+    # Always prefer the persisted heartbeat so refreshes/restarts cannot erase status.
+    site = load_site(site_id) or EDGE_SITES.get(site_id)
     if not site:
         return {"site_id": site_id, "edge_agent": "OFFLINE", "status": "WAITING", "cameras": []}
     return {
