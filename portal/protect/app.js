@@ -164,8 +164,40 @@
     await enableAlertsIfAlreadyGranted();
   }
 
+  function renderCapabilities(list) {
+    const card = $("capabilitiesCard");
+    const box = $("capabilities");
+    const summary = $("capabilitySummary");
+    if (!card || !box || !summary) return;
+    const merged = {};
+    list.forEach(camera => {
+      const caps = camera.capabilities?.capabilities || {};
+      Object.entries(caps).forEach(([id, cap]) => {
+        if (!merged[id]) merged[id] = {...cap, cameras: 0};
+        if (cap.available) merged[id].cameras += 1;
+      });
+    });
+    const entries = Object.entries(merged);
+    if (!entries.length) {
+      card.classList.add("hidden");
+      return;
+    }
+    const supported = entries.filter(([, cap]) => cap.available);
+    summary.textContent = supported.length + " verified capability" + (supported.length === 1 ? "" : "ies") + " detected across " + list.length + " camera(s).";
+    box.innerHTML = "";
+    entries.forEach(([id, cap]) => {
+      const row = document.createElement("div");
+      row.className = "camera";
+      const state = cap.available ? "SUPPORTED" : "NOT CONFIRMED";
+      row.innerHTML = '<div><div class="name">' + escapeHtml(cap.name || id) + '</div><div class="loc">' + escapeHtml(cap.category || "NexusAI Analytics") + '</div></div><strong>' + state + '</strong>';
+      box.appendChild(row);
+    });
+    card.classList.remove("hidden");
+  }
+
   function renderCameras(list) {
     cameras = list;
+    renderCapabilities(list);
     const box = $("cameras");
     box.innerHTML = "";
     if (!list.length) {
