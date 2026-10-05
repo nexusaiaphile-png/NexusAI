@@ -48,7 +48,7 @@ POST /api/hpcgw/v1/token/get
         POST /api/hpcgw/v1/mq/offset
 ```
 
-The uploaded guide specifically says the messages API uses long polling, recommends calling it continuously, and requires the returned batch ID to be acknowledged so messages are not re-sent. fileciteturn370file0
+The uploaded guide specifically says the messages API uses long polling, recommends calling it continuously, and requires the returned batch ID to be acknowledged so messages are not re-sent.
 
 ## Current API routes
 
@@ -118,7 +118,7 @@ Hikvision NVR / cameras
 Command Centre  Event/Notification Engine
 ```
 
-HPNetSDK is kept separate from the Render FastAPI process. Hikvision documents HPNetSDK for functions such as live view/playback/download, while HPP OpenAPI handles site/device management and alarms. citeturn0search3
+HPNetSDK is kept separate from the Render FastAPI process. Hikvision documents HPNetSDK for functions such as live view/playback/download, while HPP OpenAPI handles site/device management and alarms.
 
 ## First live test
 
@@ -135,4 +135,4 @@ HPNetSDK is kept separate from the Render FastAPI process. Hikvision documents H
 11. Confirm the batch is acknowledged.
 12. Confirm the existing NexusAI notification path receives the event.
 
-Do not put HPP credentials in customer browsers and do not expose customer NVRs through public port forwarding. Hikvision's own HPP integration material describes the OpenAPI as the cloud integration layer and highlights device management and alarm subscription capabilities. citeturn0search0turn0search2
+Do not put HPP credentials in customer browsers and do not expose customer NVRs through public port forwarding. Hikvision's own HPP integration material describes the OpenAPI as the cloud integration layer and highlights device management and alarm subscription capabilities.
