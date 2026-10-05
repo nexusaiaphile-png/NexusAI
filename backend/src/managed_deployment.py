@@ -48,10 +48,18 @@ def _admin(v):
     if not k or not v or not secrets.compare_digest(k,v.strip()):
         raise HTTPException(401,"NexusAI admin access is required.")
 def _edge(site_id,v):
+    value = (v or "").strip()
+    if not value:
+        raise HTTPException(401,"NexusAI Security Box authentication required.")
+    legacy = os.getenv("NEXUSAI_EDGE_TOKEN","").strip()
+    if legacy and secrets.compare_digest(legacy,value):
+        return
     k=os.getenv("NEXUSAI_APP_LINK_SECRET","").strip()
-    if not k or not v: raise HTTPException(401,"NexusAI Security Box authentication required.")
-    expected=hmac.new(k.encode(),("nexusai-edge:"+site_id).encode(),hashlib.sha256).hexdigest()
-    if not secrets.compare_digest(expected,v.strip()): raise HTTPException(401,"NexusAI Security Box authentication failed.")
+    if k:
+        expected=hmac.new(k.encode(),("nexusai-edge:"+site_id).encode(),hashlib.sha256).hexdigest()
+        if secrets.compare_digest(expected,value):
+            return
+    raise HTTPException(401,"NexusAI Security Box authentication failed.")
 def _deployment(site_id):
     _schema(); c=_conn()
     try:
