@@ -1714,7 +1714,7 @@ def _new_installer_token() -> str:
 def _installer_token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
-def create_installer_token(site_id: str, ttl_seconds: int = 900) -> str:
+def create_installer_token(site_id: str, ttl_seconds: int = 3600) -> str:
     # Installer links are signed, short-lived tokens. They do not require a
     # separate database write, so generating an installer cannot fail because
     # the installer-token table is unavailable.
@@ -1726,7 +1726,7 @@ def create_installer_token(site_id: str, ttl_seconds: int = 900) -> str:
     raw = f"{payload}.{signature}".encode("utf-8")
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
-def verify_installer_token(token: str, max_age: int = 900) -> str:
+def verify_installer_token(token: str, max_age: int = 3600) -> str:
     token = str(token or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{40,220}", token):
         raise HTTPException(status_code=400, detail="Invalid NexusAI installer token.")
@@ -1750,7 +1750,7 @@ def verify_installer_token(token: str, max_age: int = 900) -> str:
 def consume_installer_token(token: str) -> str:
     # Kept as a separate function because the Security Box bootstrap endpoint
     # consumes the installer credential. The signed token is stateless.
-    return verify_installer_token(token, max_age=900)
+    return verify_installer_token(token, max_age=3600)
 
 @app.get("/api/edge/installer-link-by-qr")
 async def edge_installer_link_by_qr(qr: str = ""):
@@ -1765,7 +1765,7 @@ async def edge_installer_link_by_qr(qr: str = ""):
     encoded = quote(token)
     return {
         "site_id": site_id,
-        "expires_in": 900,
+        "expires_in": 3600,
         "windows": f"/downloads/security-box/windows.exe?installer_token={encoded}",
         "macos_arm64": f"/downloads/security-box/macos.pkg?installer_token={encoded}&arch=arm64",
         "macos_intel": f"/downloads/security-box/macos.pkg?installer_token={encoded}&arch=x86_64",
