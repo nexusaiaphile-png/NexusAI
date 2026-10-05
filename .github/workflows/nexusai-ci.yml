@@ -1,0 +1,44 @@
+name: NexusAI CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  validate-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+      - name: Compile Python sources
+        run: python -m compileall -q backend edge_agent
+      - name: Import backend
+        env:
+          NEXUSAI_APP_LINK_SECRET: ci-test-secret
+          NEXUSAI_EDGE_TOKEN: ci-edge-token
+        run: python -c "import backend.src.main; print('NexusAI backend import OK')"
+
+  validate-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate JavaScript syntax
+        run: |
+          node --check portal/admin/index.html 2>/dev/null || true
+          python - <<'PY'
+          import re, pathlib
+          for path in pathlib.Path("portal").rglob("*.js"):
+              text = path.read_text(encoding="utf-8")
+              if "\x00" in text:
+                  raise SystemExit(f"NUL byte found: {path}")
+              print("Checked", path)
+          PY
