@@ -1005,9 +1005,7 @@ async def security_box_macos_pkg(installer_token: str, arch: str = "arm64"):
 
 @app.get("/downloads/security-box/windows.ps1", include_in_schema=False)
 async def security_box_windows_installer(installer_token: str):
-    token = str(installer_token or "").strip()
-    if len(token) < 40 or len(token) > 220:
-        raise HTTPException(status_code=400, detail="Invalid installer token.")
+    token = _validate_installer_download_token(installer_token)
     script = r'''$ErrorActionPreference = "Stop"
 if (-not (Get-Command py.exe -ErrorAction SilentlyContinue)) {
   $PythonInstaller = "$env:TEMP\NexusAI-Python-3.13.16.exe"
@@ -1036,9 +1034,7 @@ Write-Host "NexusAI Security Box is installed and running."
 
 @app.get("/downloads/security-box/macos.sh", include_in_schema=False)
 async def security_box_macos_installer(installer_token: str):
-    token = str(installer_token or "").strip()
-    if len(token) < 40 or len(token) > 120:
-        raise HTTPException(status_code=400, detail="Invalid installer token.")
+    token = _validate_installer_download_token(installer_token)
     script = r'''#!/bin/sh
 set -eu
 if [ "$(id -u)" -ne 0 ]; then
