@@ -1,7 +1,7 @@
-"""Hik-Partner Pro OpenAPI integration for NexusAI.
+"""NexusAI Hik-Partner Pro OpenAPI integration.
 
-This module intentionally keeps Hikvision partner credentials server-side.
-Customer CCTV credentials are not accepted here.
+Built against the uploaded Hik-Partner Pro OpenAPI V2.15.500 Developer Guide.
+HPP credentials remain server-side. Customer CCTV credentials are never accepted.
 """
 
 from __future__ import annotations
@@ -14,23 +14,27 @@ import time
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
-from typing import Callable, Any
+from typing import Any, Callable
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 LOG = logging.getLogger("nexusai.hpp")
 
+TOKEN_URL = "https://api.hik-partner.com"
 TOKEN_PATH = "/api/hpcgw/v1/token/get"
 SITE_SEARCH_PATH = "/api/hpcgw/v1/site/search"
 DEVICE_LIST_PATH = "/api/hpcgw/v1/device/list"
 CAMERA_LIST_PATH = "/api/hpcgw/v1/device/camera/list"
 ALARM_SUBSCRIBE_PATH = "/api/hpcgw/v1/mq/subscribe"
 ALARM_MESSAGES_PATH = "/api/hpcgw/v1/mq/messages"
+ALARM_OFFSET_PATH = "/api/hpcgw/v1/mq/offset"
 ALARM_PICTURE_URL_PATH = "/api/hpcgw/v1/alarm/pictureurl"
 
 _TOKEN: dict[str, Any] = {}
 _TOKEN_LOCK = threading.RLock()
+_WORKER: threading.Thread | None = None
+_STOP = threading.Event()
 
 
 class HppError(RuntimeError):
@@ -47,19 +51,21 @@ class HppPictureRequest(BaseModel):
     file_path: str = Field(..., min_length=1, max_length=2000)
 
 
-def _base_url() -> str:
-    value = os.getenv("HPP_API_BASE_URL", "").strip().rstrip("/")
-    if not value:
-        raise HppError("HPP_API_BASE_URL is not configured.")
-    return value
-
-
 def configured() -> bool:
-    return all(os.getenv(k, "").strip() for k in ("HPP_API_BASE_URL", "HPP_APP_KEY", "HPP_SECRET_KEY"))
+    return all(os.getenv(k, "").strip() for k in ("HPP_APP_KEY", "HPP_SECRET_KEY"))
 
 
-def _request(method: str, path: str, body: dict | None = None, token: str | None = None, timeout: int = 30) -> dict:
-    url = _base_url() + path
+def _service_base() -> str:
+    with _TOKEN_LOCK:
+        domain = str(_TOKEN.get("areaDomain") or "").strip().rstrip("/")
+    if not domain:
+        raise HppError("HPP regional areaDomain is not available. Authenticate first.")
+    return domain
+
+
+def _request(base: str, method: str, path: str, body: dict | None = None,
+             token: str | None = None, timeout: int = 30) -> dict:
+    url = base.rstrip("/") + path
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -81,26 +87,35 @@ def _request(method: str, path: str, body: dict | None = None, token: str | None
 
     code = str(payload.get("errorCode", "0"))
     if code != "0":
-        raise HppError(f"Hik-Partner Pro errorCode={code}: {payload.get('message') or payload.get('errorMsg') or 'request failed'}")
+        raise HppError(
+            f"Hik-Partner Pro errorCode={code}: "
+            f"{payload.get('message') or payload.get('errorMsg') or 'request failed'}"
+        )
     return payload
 
 
 def get_token(force: bool = False) -> dict:
     now_ms = int(time.time() * 1000)
     with _TOKEN_LOCK:
-        if not force and _TOKEN.get("accessToken") and now_ms < int(_TOKEN.get("expireTime", 0)) - 60_000:
+        if (
+            not force
+            and _TOKEN.get("accessToken")
+            and now_ms < int(_TOKEN.get("expireTime", 0)) - 60_000
+            and _TOKEN.get("areaDomain")
+        ):
             return dict(_TOKEN)
 
         payload = _request(
+            TOKEN_URL,
             "POST",
             TOKEN_PATH,
-            {"appKey": os.getenv("HPP_APP_KEY", "").strip(), "secretKey": os.getenv("HPP_SECRET_KEY", "").strip()},
+            {"appKey": os.getenv("HPP_APP_KEY", "").strip(),
+             "secretKey": os.getenv("HPP_SECRET_KEY", "").strip()},
             timeout=20,
         )
         data = payload.get("data") or {}
-        token = data.get("accessToken")
-        if not token:
-            raise HppError("Hik-Partner Pro did not return an accessToken.")
+        if not data.get("accessToken") or not data.get("areaDomain"):
+            raise HppError("Hik-Partner Pro did not return accessToken and areaDomain.")
         _TOKEN.clear()
         _TOKEN.update(data)
         return dict(_TOKEN)
@@ -109,19 +124,26 @@ def get_token(force: bool = False) -> dict:
 def call(path: str, body: dict | None = None, timeout: int = 30) -> dict:
     token_data = get_token()
     try:
-        return _request("POST", path, body or {}, token=token_data["accessToken"], timeout=timeout)
+        return _request(
+            str(token_data["areaDomain"]), "POST", path, body or {},
+            token=token_data["accessToken"], timeout=timeout
+        )
     except HppError as exc:
         if "LAP500004" not in str(exc):
             raise
         token_data = get_token(force=True)
-        return _request("POST", path, body or {}, token=token_data["accessToken"], timeout=timeout)
+        return _request(
+            str(token_data["areaDomain"]), "POST", path, body or {},
+            token=token_data["accessToken"], timeout=timeout
+        )
 
 
 def search_sites(page: int = 1, page_size: int = 50, search: str = "") -> dict:
     return call(SITE_SEARCH_PATH, {"page": page, "pageSize": page_size, "search": search})
 
 
-def list_devices(site_id: str = "", page: int = 1, page_size: int = 100, device_serial: str = "") -> dict:
+def list_devices(site_id: str = "", page: int = 1, page_size: int = 100,
+                 device_serial: str = "") -> dict:
     body: dict[str, Any] = {"page": page, "pageSize": page_size}
     if site_id:
         body["siteId"] = site_id
@@ -131,21 +153,29 @@ def list_devices(site_id: str = "", page: int = 1, page_size: int = 100, device_
 
 
 def list_cameras(device_serial: str) -> dict:
+    if not device_serial:
+        raise HppError("deviceSerial is required.")
     return call(CAMERA_LIST_PATH, {"deviceSerial": device_serial})
 
 
 def subscribe(req: HppSubscribeRequest) -> dict:
     if req.sub_mode == "list" and not req.device_serial_list:
-        raise HppError("device_serial_list is required when sub_mode=list.")
-    body = {"subType": req.sub_type, "subMode": req.sub_mode}
+        raise HppError("deviceSerialList is required when subMode=list.")
+    body: dict[str, Any] = {"subType": req.sub_type, "subMode": req.sub_mode}
     if req.sub_mode == "list":
         body["deviceSerialList"] = req.device_serial_list
     return call(ALARM_SUBSCRIBE_PATH, body)
 
 
 def poll_messages() -> dict:
-    # Hik-Partner Pro documents this endpoint as long polling; keep a generous timeout.
+    # The HPP guide documents this as long polling; no event returns after ~20s.
     return call(ALARM_MESSAGES_PATH, timeout=35)
+
+
+def acknowledge(batch_id: str) -> dict:
+    if not batch_id:
+        raise HppError("batchId is required.")
+    return call(ALARM_OFFSET_PATH, {"batchId": batch_id})
 
 
 def picture_url(file_path: str) -> dict:
@@ -167,7 +197,9 @@ def _xml_to_dict(raw: str) -> dict:
     return result
 
 
-def _parse_alarm_data(raw: str) -> dict:
+def _parse_alarm_data(raw: Any) -> dict:
+    if isinstance(raw, dict):
+        return raw
     raw = str(raw or "").strip()
     if not raw:
         return {}
@@ -179,28 +211,46 @@ def _parse_alarm_data(raw: str) -> dict:
         return parsed or {"raw": raw[:12000]}
 
 
-def normalize_message(message: dict) -> dict:
-    data = _parse_alarm_data(str(message.get("alarmData", "")))
-    channel = data.get("channelID") or data.get("channelId") or data.get("channelNo") or data.get("channel")
-    event_type = data.get("eventType") or data.get("eventTypeName") or data.get("event") or data.get("eventTypeCode") or "HIKVISION_ALARM"
-    state = data.get("eventState") or data.get("activePostCount") or "active"
-    timestamp = data.get("dateTime") or data.get("dateTimeLocal") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+def _first(data: dict, *keys: str) -> Any:
+    for key in keys:
+        value = data.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def normalize_message(message: dict, hpp_site_id: str = "") -> dict:
+    data = _parse_alarm_data(message.get("alarmData"))
+    nested = data.get("EventNotificationAlert") if isinstance(data.get("EventNotificationAlert"), dict) else data
+    channel = _first(nested, "channelID", "channelId", "channelNo", "channel")
+    event_type = _first(
+        nested, "eventType", "eventTypeName", "event", "eventTypeCode",
+        "description", "eventDescription"
+    ) or "HIKVISION_ALARM"
+    timestamp = _first(nested, "triggerTime", "dateTime", "dateTimeLocal", "timestamp")
+    timestamp = str(timestamp or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    state = str(_first(nested, "eventState", "activePostCount", "state") or "active").lower()
+
+    picture = _first(nested, "pictureUrl", "picture", "filePath", "url")
+    severity = "CRITICAL" if state in {"active", "1", "true", "alarm"} else "INFO"
+
+    serial = str(message.get("deviceSerial") or nested.get("deviceSerial") or "")
+    camera_id = f"{serial}-{channel}" if channel else serial or "hikvision-device"
     return {
-        "site_id": "",
-        "camera_id": f"{message.get('deviceSerial', 'hikvision')}-{channel or 'device'}",
-        "camera_name": f"Hikvision {message.get('deviceSerial', '')} Ch {channel}" if channel else f"Hikvision {message.get('deviceSerial', '')}",
+        "site_id": hpp_site_id,
+        "camera_id": camera_id,
+        "camera_name": f"Hikvision {serial} Ch {channel}" if channel else f"Hikvision {serial}",
         "location": "Hik-Partner Pro",
         "event": str(event_type),
-        "severity": "CRITICAL" if str(state).lower() in {"active", "1", "true"} else "INFO",
-        "timestamp": str(timestamp),
+        "severity": severity,
+        "timestamp": timestamp,
         "source": "hik-partner-pro",
-        "snapshot_available": bool(data.get("picture") or data.get("pictureUrl") or data.get("filePath")),
+        "snapshot_available": bool(picture),
         "snapshot_mime": "image/jpeg",
-        "hpp_device_serial": message.get("deviceSerial"),
-        "hpp_channel": channel,
+        "hpp_site_id": hpp_site_id,
+        "hpp_device_serial": serial,
+        "hpp_channel": str(channel) if channel is not None else None,
         "hpp_data": data,
-        "hpp_batch_id": message.get("batchId"),
-        "hpp_format_type": message.get("formatType"),
     }
 
 
@@ -212,25 +262,115 @@ def _admin_guard(key: str | None) -> None:
         raise HTTPException(status_code=401, detail="Invalid NexusAI admin key.")
 
 
+def _process_batch(result: dict, event_sink: Callable[[dict], Any] | None) -> dict:
+    data = result.get("data") or {}
+    if not isinstance(data, dict):
+        data = {}
+    batch_id = str(data.get("batchId") or "")
+    messages = data.get("list") or []
+    if not isinstance(messages, list):
+        messages = []
+
+    accepted = 0
+    skipped = 0
+    errors = []
+    for message in messages:
+        if not isinstance(message, dict):
+            skipped += 1
+            continue
+        try:
+            # event_sink is responsible for resolving the HPP site/device to a NexusAI site.
+            event = normalize_message(message)
+            if event_sink:
+                mapped = event_sink(event)
+                if mapped:
+                    accepted += 1
+                else:
+                    skipped += 1
+            else:
+                skipped += 1
+        except Exception as exc:
+            errors.append(str(exc)[:300])
+            LOG.exception("Failed to process HPP alarm message.")
+
+    # Only acknowledge the HPP batch after processing all messages. Otherwise HPP may
+    # re-send the batch, which is preferable to silently losing an alarm.
+    if batch_id and not errors:
+        acknowledge(batch_id)
+
+    return {
+        "batch_id": batch_id,
+        "received": len(messages),
+        "accepted": accepted,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+
+def _worker_loop(event_sink: Callable[[dict], Any] | None) -> None:
+    LOG.info("NexusAI HPP alarm worker started.")
+    failures = 0
+    while not _STOP.is_set():
+        try:
+            result = poll_messages()
+            summary = _process_batch(result, event_sink)
+            failures = 0
+            if summary["received"]:
+                LOG.info("HPP batch %s: %s", summary["batch_id"], summary)
+        except Exception:
+            failures += 1
+            delay = min(60, 2 ** min(failures, 6))
+            LOG.exception("HPP alarm worker error; retrying in %ss.", delay)
+            _STOP.wait(delay)
+
+
+def start_worker(event_sink: Callable[[dict], Any] | None) -> bool:
+    global _WORKER
+    if _WORKER and _WORKER.is_alive():
+        return False
+    if not configured():
+        return False
+    _STOP.clear()
+    _WORKER = threading.Thread(
+        target=_worker_loop, args=(event_sink,),
+        name="nexusai-hpp-alarms", daemon=True
+    )
+    _WORKER.start()
+    return True
+
+
+def stop_worker() -> None:
+    _STOP.set()
+
+
 def install(app: FastAPI, event_sink: Callable[[dict], Any] | None = None) -> None:
     @app.get("/api/hpp/status")
     async def hpp_status(x_nexusai_admin_key: str | None = Header(default=None)):
         _admin_guard(x_nexusai_admin_key)
         return {
             "configured": configured(),
-            "provider": "Hik-Partner Pro OpenAPI",
+            "provider": "Hik-Partner Pro OpenAPI V2.15.500",
+            "alarm_worker": bool(_WORKER and _WORKER.is_alive()),
             "security_box_required": False,
-            "capabilities": ["site_management", "device_management", "camera_channels", "alarm_subscription", "alarm_long_poll", "alarm_picture_url"],
+            "capabilities": [
+                "site_management", "device_management", "camera_channels",
+                "alarm_subscription", "alarm_long_poll", "alarm_offset",
+                "alarm_picture_url"
+            ],
         }
 
     @app.post("/api/hpp/test-auth")
     async def hpp_test_auth(x_nexusai_admin_key: str | None = Header(default=None)):
         _admin_guard(x_nexusai_admin_key)
         if not configured():
-            raise HTTPException(status_code=503, detail="Configure HPP_API_BASE_URL, HPP_APP_KEY and HPP_SECRET_KEY first.")
+            raise HTTPException(status_code=503, detail="Set HPP_APP_KEY and HPP_SECRET_KEY on the server first.")
         try:
             token = get_token()
-            return {"authenticated": True, "expires_at_ms": token.get("expireTime"), "area_domain": token.get("areaDomain")}
+            return {
+                "authenticated": True,
+                "expires_at_ms": token.get("expireTime"),
+                "area_domain": token.get("areaDomain"),
+            }
         except HppError as exc:
             raise HTTPException(status_code=502, detail=str(exc))
 
@@ -273,28 +413,29 @@ def install(app: FastAPI, event_sink: Callable[[dict], Any] | None = None) -> No
         _admin_guard(x_nexusai_admin_key)
         try:
             result = poll_messages()
-            messages = result.get("data") or []
-            if isinstance(messages, dict):
-                messages = messages.get("messages") or messages.get("alarmMessages") or []
-            normalized = []
-            for message in messages:
-                if not isinstance(message, dict):
-                    continue
-                event = normalize_message(message)
-                normalized.append(event)
-                if event_sink:
-                    try:
-                        event_sink(event)
-                    except Exception:
-                        LOG.exception("Failed to persist HPP event.")
-            return {"received": len(normalized), "events": normalized, "raw": result}
+            return _process_batch(result, event_sink)
         except HppError as exc:
             raise HTTPException(status_code=502, detail=str(exc))
 
-    @app.post("/api/hpp/alarms/picture-url")
+    @app.post("/api/hpp/alarms/offset")
+    async def hpp_alarm_offset(payload: dict, x_nexusai_admin_key: str | None = Header(default=None)):
+        _admin_guard(x_nexusai_admin_key)
+        try:
+            return acknowledge(str(payload.get("batchId", "")))
+        except HppError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+
+    @app.post("/api/hpp/alarm/picture-url")
     async def hpp_alarm_picture_url(payload: HppPictureRequest, x_nexusai_admin_key: str | None = Header(default=None)):
         _admin_guard(x_nexusai_admin_key)
         try:
             return picture_url(payload.file_path)
         except HppError as exc:
             raise HTTPException(status_code=502, detail=str(exc))
+
+    @app.on_event("startup")
+    async def hpp_startup():
+        enabled = os.getenv("HPP_ALARM_WORKER_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+        if enabled and configured():
+            start_worker(event_sink)
+
