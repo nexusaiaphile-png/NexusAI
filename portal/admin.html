@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NexusAI Command Centre</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#040a10;color:#eef8f6;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:1200px;margin:auto;padding:28px 18px 60px}.brand{display:flex;align-items:center;gap:12px}.logo{width:50px;height:50px;border-radius:15px;display:grid;place-items:center;background:#07151d;border:1px solid #1b4d4a;color:#25f5c5;font-weight:950;font-size:27px}.eyebrow{font-size:11px;letter-spacing:2px;color:#25f5c5;font-weight:900}.brand h1{margin:3px 0;font-size:20px}.grid{display:grid;grid-template-columns:1fr 1.4fr;gap:18px;margin-top:24px}.card{background:#08131b;border:1px solid #18353b;border-radius:18px;padding:20px}h2{margin-top:0}label{display:block;color:#a9bcba;font-size:13px;margin-top:12px}input{width:100%;margin-top:6px;padding:12px;border-radius:10px;border:1px solid #24434a;background:#061018;color:#fff;font:inherit}button{border:0;border-radius:11px;padding:12px 15px;background:#25f5c5;color:#03110e;font-weight:900;cursor:pointer;margin-top:14px}button.secondary{background:#10222b;color:#eaf6f4;border:1px solid #24434a}.status{min-height:22px;margin-top:12px;color:#9eb2b1}.site{padding:15px;background:#071119;border:1px solid #17333a;border-radius:14px;margin-top:10px}.sitehead{display:flex;justify-content:space-between;gap:10px}.online{color:#25f5c5}.offline{color:#ffb347}.links{display:grid;gap:7px;margin-top:10px}.linkrow{display:flex;gap:8px;align-items:center}.linkrow input{margin:0;flex:1;font-size:12px}.small{font-size:12px;color:#91a7a8;line-height:1.5}.hidden{display:none}.success{padding:14px;border-radius:12px;background:#0a211c;color:#8ff2d0;margin-top:12px;word-break:break-all}@media(max-width:850px){.grid{grid-template-columns:1fr}}
+</style></head><body><main class="wrap">
+<header class="brand"><div class="logo">N</div><div><div class="eyebrow">NEXUSAI COMMAND CENTRE</div><h1>Remote Customer Onboarding</h1></div></header>
+<div class="grid">
+<section class="card"><h2>Add customer site</h2><div class="small">Create the Durban/Johannesburg/etc. site from Bergville. NexusAI generates the customer's private dashboard, notification-app link and Security Box installer links.</div>
+<label>Business / Store name<input id="business" placeholder="Durban SPAR"></label>
+<label>Store address<input id="address" placeholder="Durban, KwaZulu-Natal"></label>
+<label>Contact person<input id="contact"></label>
+<label>Contact phone<input id="phone"></label>
+<label>Contact email<input id="email" type="email"></label>
+<label>Expected camera count<input id="count" type="number" min="0" value="0"></label>
+<button id="create">CREATE NEXUSAI SITE</button><div id="status" class="status"></div><div id="result" class="success hidden"></div></section>
+<section class="card"><h2>Customer sites</h2><button class="secondary" id="refresh">REFRESH SITES</button><div id="sites" class="status">Enter your admin key to load sites.</div></section>
+</div></main>
+<script>
+const keyName="nexusai_admin_key";const key=()=>localStorage.getItem(keyName)||"";const $=id=>document.getElementById(id);
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+async function api(path,opt={}){opt.headers={...(opt.headers||{}),"X-NexusAI-Admin-Key":key(),"Content-Type":"application/json"};const r=await fetch(path,opt);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.detail||"NexusAI request failed.");return d}
+function copy(v){navigator.clipboard?.writeText(v);alert("Link copied.");}
+async function load(){
+ if(!key()){const k=prompt("Enter NexusAI admin key");if(k)localStorage.setItem(keyName,k);else return}
+ $("sites").textContent="Loading...";
+ try{const d=await api("/api/admin/sites");$("sites").innerHTML=(d.sites||[]).map(s=>'<div class="site"><div class="sitehead"><strong>'+esc(s.business_name)+'</strong><span class="'+(s.edge_agent==="ONLINE"?"online":"offline")+'">'+esc(s.edge_agent)+'</span></div><div class="small">'+esc(s.store_address||"")+" • "+esc(s.site_id)+" • "+esc(s.camera_count_live)+" cameras detected</div><div class="links"><div class="linkrow"><input readonly value="https://getnexusai.co.za/client/?token=••••••••"><button class="secondary" onclick="links('+JSON.stringify(s.site_id)+')">GET LINKS</button></div></div></div>').join("")||'<div class="small">No customer sites yet.</div>'}catch(e){$("sites").innerHTML='<span>'+esc(e.message)+'</span>'}
+}
+async function links(siteId){
+ try{const d=await api("/api/admin/sites/"+encodeURIComponent(siteId)+"/links");const text="Customer Portal: "+d.customer_portal_url+"\nNexusAI App: "+d.notification_app_url+"\nWindows Security Box: "+d.security_box_installer.windows+"\nMac Security Box: "+d.security_box_installer.macos;await navigator.clipboard?.writeText(text);alert(text+"\n\nLinks copied.");}catch(e){alert(e.message)}
+}
+$("create").onclick=async()=>{
+ $("create").disabled=true;$("status").textContent="Creating secure customer site...";
+ try{const d=await api("/api/admin/sites",{method:"POST",body:JSON.stringify({business_name:$("business").value.trim(),store_address:$("address").value.trim(),contact_name:$("contact").value.trim(),contact_phone:$("phone").value.trim(),contact_email:$("email").value.trim(),camera_count:Number($("count").value)||0})});
+ $("result").classList.remove("hidden");$("result").innerHTML="<strong>Site created.</strong><br><br>Customer Portal: <a href='"+esc(d.customer_portal_url)+"' target='_blank'>OPEN PORTAL</a><br>Notification App: <a href='"+esc(d.notification_app_url)+"' target='_blank'>OPEN APP</a><br><br><button class='secondary' onclick='copy("+JSON.stringify("Customer Portal: "+d.customer_portal_url+"\nNotification App: "+d.notification_app_url+"\nWindows Security Box: "+d.installer_links.windows+"\nMac Security Box: "+d.installer_links.macos)+")'>COPY ALL LINKS</button>";$("status").textContent="✓ Site created. Send the customer their portal and app links.";await load()}catch(e){$("status").textContent=e.message}finally{$("create").disabled=false}
+};
+$("refresh").onclick=load;load();
+</script></body></html>
