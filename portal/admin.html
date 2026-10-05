@@ -14,7 +14,7 @@
 <label>Expected camera count<input id="count" type="number" min="0" value="0"></label>
 <button id="create">CREATE NEXUSAI SITE</button><div id="status" class="status"></div><div id="result" class="success hidden"></div></section>
 <section class="card"><h2>Customer sites</h2><button class="secondary" id="refresh">REFRESH SITES</button><div id="sites" class="status">Enter your admin key to load sites.</div></section>
-</div></main>
+<section class="card" style="margin-top:18px"><h2>Hik-Partner Pro Integration</h2><div class="small">Official Hikvision cloud integration. No customer Security Box is required for this integration path. Partner credentials stay on NexusAI Cloud.</div><div class="links"><button id="hppStatus">CHECK HPP CONNECTION</button><button class="secondary" id="hppAuth">TEST HPP AUTHENTICATION</button><button class="secondary" id="hppSites">LOAD HIK-PARTNER PRO SITES</button></div><pre id="hppResult" class="success hidden" style="white-space:pre-wrap"></pre></section></main>
 <script>
 const keyName="nexusai_admin_key";const key=()=>localStorage.getItem(keyName)||"";const $=id=>document.getElementById(id);
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
@@ -33,5 +33,12 @@ $("create").onclick=async()=>{
  try{const d=await api("/api/admin/sites",{method:"POST",body:JSON.stringify({business_name:$("business").value.trim(),store_address:$("address").value.trim(),contact_name:$("contact").value.trim(),contact_phone:$("phone").value.trim(),contact_email:$("email").value.trim(),camera_count:Number($("count").value)||0})});
  $("result").classList.remove("hidden");$("result").innerHTML="<strong>Site created.</strong><br><br>Customer Portal: <a href='"+esc(d.customer_portal_url)+"' target='_blank'>OPEN PORTAL</a><br>Notification App: <a href='"+esc(d.notification_app_url)+"' target='_blank'>OPEN APP</a><br><br><button class='secondary' onclick='copy("+JSON.stringify("Customer Portal: "+d.customer_portal_url+"\nNotification App: "+d.notification_app_url+"\nWindows Security Box: "+d.installer_links.windows+"\nMac Security Box: "+d.installer_links.macos)+")'>COPY ALL LINKS</button>";$("status").textContent="✓ Site created. Send the customer their portal and app links.";await load()}catch(e){$("status").textContent=e.message}finally{$("create").disabled=false}
 };
-$("refresh").onclick=load;load();
+$("refresh").onclick=load;
+async function hpp(path,opt={}){
+ const d=await api(path,opt); $("hppResult").classList.remove("hidden"); $("hppResult").textContent=JSON.stringify(d,null,2); return d;
+}
+$("hppStatus").onclick=async()=>{try{await hpp("/api/hpp/status")}catch(e){$("hppResult").classList.remove("hidden");$("hppResult").textContent=e.message}};
+$("hppAuth").onclick=async()=>{try{await hpp("/api/hpp/test-auth",{method:"POST"})}catch(e){$("hppResult").classList.remove("hidden");$("hppResult").textContent=e.message}};
+$("hppSites").onclick=async()=>{try{await hpp("/api/hpp/sites/search",{method:"POST",body:JSON.stringify({page:1,pageSize:50,search:""})})}catch(e){$("hppResult").classList.remove("hidden");$("hppResult").textContent=e.message}};
+load();
 </script></body></html>
