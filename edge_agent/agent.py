@@ -23,7 +23,10 @@ from urllib.parse import parse_qs, quote
 import requests
 from requests.auth import HTTPDigestAuth
 from dotenv import load_dotenv
-from capability_engine import detect_capabilities
+try:
+    from edge_agent.capability_engine import detect_capabilities
+except ImportError:
+    from capability_engine import detect_capabilities
 
 load_dotenv()
 
