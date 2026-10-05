@@ -747,6 +747,7 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
             if not isinstance(requested_channels,list) or len(requested_channels)>256:
                 self._send_json(400, {"error":"channels must be a list with at most 256 entries"}); return
             result=verify_camera(cfg)
+            cfg["capabilities"] = result.get("capabilities", {})
             if result.get("verified"):
                 if self.path == "/activate":
                     available=result.get("channels") or []
@@ -891,6 +892,7 @@ def main():
     cfg=camera_config()
     if all([cfg["camera_ip"],cfg["username"],cfg["password"]]):
         verification=verify_camera(cfg)
+        cfg["capabilities"] = verification.get("capabilities", {})
         if verification.get("verified"):
             post_backend("/api/edge/verify",{"site_id":SITE_ID,**verification})
             monitor_device(cfg,verification.get("channels",[]))
