@@ -783,7 +783,7 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
                 endpoint="confirm" if self.path.endswith("confirm") else "decline"
                 try:
                     r=requests.post(f"{API_BASE_URL}/api/edge/commands/{int(p['command_id'])}/{endpoint}",
-                                    params={"site_id":SITE_ID},headers=headers(),timeout=12)
+                                    params={"site_id":SITE_ID,"device_id":DEVICE_ID},headers=headers(),timeout=12)
                     if r.status_code not in (200,201):
                         self._send_json(502,{"error":"NexusAI Cloud rejected the pairing request."}); return
                     with PAIRING_LOCK: PENDING_PAIRING.clear()
