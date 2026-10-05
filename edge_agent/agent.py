@@ -12,11 +12,12 @@ import threading
 import re
 import ssl
 import sys
+import webbrowser
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote
 
 import requests
 from requests.auth import HTTPDigestAuth
@@ -27,7 +28,7 @@ load_dotenv()
 
 API_BASE_URL = os.getenv("NEXUSAI_API_URL", "https://getnexusai.co.za").rstrip("/")
 EDGE_AGENT_TOKEN = os.getenv("NEXUSAI_EDGE_TOKEN", "")
-EDGE_AGENT_VERSION = "1.11.0"
+EDGE_AGENT_VERSION = "1.12.0"
 MAX_MONITORS = int(os.getenv("NEXUSAI_MAX_MONITORS", "32"))
 SNAPSHOT_MAX_BYTES = int(os.getenv("NEXUSAI_SNAPSHOT_MAX_BYTES", str(2 * 1024 * 1024)))
 SCAN_SUBNETS = [x.strip() for x in os.getenv("NEXUSAI_SCAN_SUBNETS", "").split(",") if x.strip()]
@@ -50,6 +51,8 @@ SADP_PORT = 37020
 SADP_TIMEOUT_SECONDS = 2.5
 MAX_SCAN_HOSTS = 4096
 DISCOVERY_LOCK = threading.Lock()
+PAIRING_LOCK = threading.Lock()
+PENDING_PAIRING = {}
 
 # Load a locally persisted site pairing so an Edge Agent restart does not reset the site.
 try:
@@ -118,6 +121,58 @@ def auth(cfg): return HTTPDigestAuth(cfg["username"], cfg["password"])
 def headers():
     return {"Authorization": f"Bearer {EDGE_AGENT_TOKEN}", "Content-Type": "application/json",
             "User-Agent": f"NexusAI-Edge-Agent/{EDGE_AGENT_VERSION}"}
+
+def get_backend(path, params=None):
+    if not EDGE_AGENT_TOKEN: return None
+    try:
+        r=requests.get(f"{API_BASE_URL}{path}",params=params or {},headers=headers(),timeout=12)
+        if r.status_code in (401,403): return None
+        r.raise_for_status(); return r.json()
+    except requests.RequestException as exc:
+        logging.warning("NexusAI command polling failed: %s",exc); return None
+
+def complete_command(command_id, success, error=""):
+    try:
+        requests.post(f"{API_BASE_URL}/api/edge/commands/{int(command_id)}/complete",
+                      params={"site_id":SITE_ID,"success":str(bool(success)).lower(),"error":error[:400]},
+                      headers=headers(),timeout=12)
+    except requests.RequestException: pass
+
+def handle_pairing_command(command):
+    with PAIRING_LOCK:
+        if PENDING_PAIRING: return
+        approval=secrets.token_urlsafe(24)
+        PENDING_PAIRING.update({"command_id":int(command["id"]),"approval_token":approval,"site_id":SITE_ID})
+    url=f"http://127.0.0.1:{LOCAL_AGENT_PORT}/pairing?token={quote(approval)}"
+    logging.info("NexusAI pairing request received for %s",SITE_ID)
+    try: webbrowser.open(url,new=1)
+    except Exception: logging.warning("Open pairing page manually: %s",url)
+
+def handle_credentials_command(command):
+    payload=command.get("payload") or {}
+    username=str(payload.get("username","")).strip(); password=str(payload.get("password",""))
+    location=str(payload.get("location","Security Site")).strip()[:200] or "Security Site"
+    if not username or not password:
+        complete_command(command["id"],False,"Credential payload was empty"); return
+    try:
+        secure_store.set_hikvision_credentials(SITE_ID,username,password)
+        os.environ["CAM_USER"]=username; os.environ["CAM_PASS"]=password; os.environ["LOCATION"]=location
+        requested_ip=str(payload.get("nvr_ip") or "").strip(); requested_port=int(payload.get("nvr_port") or 80)
+        threading.Thread(target=discover_with_credentials,args=(username,password,location,requested_ip,requested_port),
+                         daemon=True,name="nexusai-remote-credential-discovery").start()
+        complete_command(command["id"],True)
+    except Exception as exc:
+        logging.exception("NexusAI could not apply remote CCTV credentials"); complete_command(command["id"],False,str(exc))
+
+def command_poll_loop():
+    while True:
+        try:
+            data=get_backend("/api/edge/commands",{"site_id":SITE_ID})
+            for command in (data or {}).get("commands",[]):
+                if command.get("type")=="PAIR_REQUEST": handle_pairing_command(command)
+                elif command.get("type")=="SET_CCTV_CREDENTIALS": handle_credentials_command(command)
+        except Exception: logging.exception("NexusAI managed deployment polling failed")
+        time.sleep(5)
 
 def post_backend(path, payload):
     if not EDGE_AGENT_TOKEN:
