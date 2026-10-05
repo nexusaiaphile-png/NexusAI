@@ -31,6 +31,9 @@ PUSH_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="nexusai-pu
 
 EDGE_SITES: dict[str, dict] = {}
 EDGE_EVENTS: list[dict] = []
+# A Security Box heartbeats every 30 seconds. Allow temporary network/cloud latency
+# without making the Admin Command Centre falsely show the site as offline.
+EDGE_ONLINE_TIMEOUT_SECONDS = max(180, int(os.getenv("NEXUSAI_EDGE_ONLINE_TIMEOUT", "180")))
 ACTIVATION_RATE: dict[str, list[float]] = {}
 ACTIVATION_RATE_LOCK = threading.Lock()
 SITE_ID_RE = re.compile(r"^site-[A-Za-z0-9._-]{6,100}$")
@@ -777,11 +780,23 @@ def save_customer(data: dict):
                 """,(data["site_id"],data["business_name"],data.get("store_address",""),data.get("contact_name",""),data.get("contact_phone",""),data.get("contact_email",""),int(data.get("camera_count") or 0),time.time()))
                 conn.commit()
 
+def site_is_online(site: dict | None) -> bool:
+    if not site:
+        return False
+    try:
+        received_at = float(site.get("received_at") or 0)
+    except (TypeError, ValueError):
+        return False
+    return received_at > 0 and time.time() - received_at <= EDGE_ONLINE_TIMEOUT_SECONDS
+
+
 def admin_site_summary(site_id: str):
     customer=load_customer(site_id) or {"site_id":site_id,"business_name":"NexusAI Site","store_address":"","contact_name":"","contact_phone":"","contact_email":"","camera_count":0,"status":"ACTIVE"}
-    site=EDGE_SITES.get(site_id) or load_site(site_id) or {"site_id":site_id,"status":"WAITING","agent_version":"","received_at":0,"cameras":[]}
+    # Read the persisted heartbeat first. Browser refreshes and cloud process restarts
+    # must never depend on the in-memory EDGE_SITES dictionary.
+    site=load_site(site_id) or EDGE_SITES.get(site_id) or {"site_id":site_id,"status":"WAITING","agent_version":"","received_at":0,"cameras":[]}
     cameras=load_cameras(site_id)
-    return {**customer,"edge_agent":"ONLINE" if site.get("received_at") and time.time()-float(site.get("received_at",0))<=90 else "OFFLINE",
+    return {**customer,"edge_agent":"ONLINE" if site_is_online(site) else "OFFLINE",
             "site_status":site.get("status","WAITING"),"agent_version":site.get("agent_version",""),"cameras":cameras,
             "camera_count_live":len(cameras)}
 
@@ -1902,10 +1917,9 @@ async def portal_status(site_id: str = "", x_nexusai_site_code: str | None = Hea
         site = load_site(site_id)
     if not site:
         return {"site_id": site_id, "edge_agent": "OFFLINE", "status": "WAITING", "cameras": []}
-    age = time.time() - float(site.get("received_at", 0))
     return {
         "site_id": site_id,
-        "edge_agent": "ONLINE" if age <= 90 else "OFFLINE",
+        "edge_agent": "ONLINE" if site_is_online(site) else "OFFLINE",
         "status": site.get("status", "UNKNOWN"),
         "agent_version": site.get("agent_version"),
         "cameras": site.get("cameras", []),
