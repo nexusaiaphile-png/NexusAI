@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#06131d"><title>NexusAI Customer Dashboard</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#040a10;color:#eef8f6;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:1100px;margin:auto;padding:28px 18px 60px}.brand{display:flex;align-items:center;gap:12px}.logo{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:#07151d;border:1px solid #1b4d4a;color:#25f5c5;font-weight:950;font-size:25px}.eyebrow{font-size:11px;letter-spacing:2px;color:#25f5c5;font-weight:900}.brand strong{font-size:19px}.hero{margin-top:28px;padding:24px;border:1px solid #18353b;border-radius:20px;background:#08131b}.hero h1{font-size:34px;margin:8px 0}.muted{color:#9eb2b1;line-height:1.5}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:16px}.stat,.card{background:#08131b;border:1px solid #18353b;border-radius:16px;padding:17px}.stat b{display:block;font-size:26px;margin-top:5px}.stat span{font-size:12px;color:#91a7a8}.section{margin-top:22px}.section h2{margin-bottom:10px}.cameras{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.camera{padding:15px;border-radius:14px;background:#071119;border:1px solid #17333a}.camtop{display:flex;justify-content:space-between;gap:10px}.online{color:#25f5c5}.offline{color:#ffb347}.small{font-size:12px;color:#91a7a8;margin-top:6px}.event{margin-top:10px;padding:13px;border-left:3px solid #25f5c5;background:#071119;border-radius:10px}.event strong{display:block}.event small{display:block;color:#91a7a8;margin-top:5px}.btn{display:inline-block;border:0;border-radius:11px;padding:12px 15px;background:#25f5c5;color:#03110e;font-weight:900;text-decoration:none;margin:6px 6px 0 0;cursor:pointer}.btn.secondary{background:#10222b;color:#eaf6f4;border:1px solid #24434a}.notice{padding:12px;border-radius:12px;background:#0c1d25;color:#a9bcba;margin-top:12px}.error{color:#ff9d9d}.hidden{display:none}@media(max-width:800px){.grid{grid-template-columns:repeat(2,1fr)}.cameras{grid-template-columns:1fr 1fr}}@media(max-width:520px){.grid,.cameras{grid-template-columns:1fr}}
+</style></head>
+<body><main class="wrap">
+<header class="brand"><div class="logo">N</div><div><div class="eyebrow">NEXUSAI SECURITY</div><strong id="business">Customer Dashboard</strong></div></header>
+<section class="hero"><div class="eyebrow">PROTECTED SITE</div><h1 id="siteName">Connecting…</h1><p class="muted" id="address"></p><div id="connection" class="notice">Connecting to NexusAI Cloud…</div>
+<a id="appLink" class="btn secondary" href="/app/">OPEN NEXUSAI ALERT APP</a></section>
+<div class="grid"><div class="stat"><span>CAMERAS</span><b id="cameraCount">0</b></div><div class="stat"><span>ONLINE</span><b id="onlineCount">0</b></div><div class="stat"><span>PROTECTED</span><b id="protectedCount">0</b></div><div class="stat"><span>AGENT</span><b id="agent">OFFLINE</b></div></div>
+<section class="section"><h2>Your Cameras</h2><div id="cameras" class="cameras"></div></section>
+<section class="section"><h2>Security Events</h2><div class="card"><div id="events"><div class="small">Loading events…</div></div></div></section>
+<section class="section"><div class="card"><div class="eyebrow">NEXUSAI SUPPORT</div><p class="muted">Your NexusAI team can remotely monitor the connection and help manage your protected site.</p><button class="btn secondary" onclick="location.reload()">REFRESH DASHBOARD</button></div></section>
+</main>
+<script>
+const token=(new URLSearchParams(location.search).get("token")||"").trim();
+const $=id=>document.getElementById(id);
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+async function load(){
+ if(!token){$("connection").innerHTML='<span class="error">Customer access link is missing.</span>';return}
+ try{
+  const s=await fetch("/api/customer/session?token="+encodeURIComponent(token)+"&_="+Date.now(),{cache:"no-store"}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.detail||"Customer access is invalid.");return d});
+  $("business").textContent=s.business_name||"Customer Dashboard";$("siteName").textContent=s.business_name||"NexusAI Site";$("address").textContent=s.store_address||"";
+  $("connection").textContent=s.edge_agent==="ONLINE"?"NEXUSAI SECURITY SYSTEM ONLINE":"NEXUSAI SECURITY SYSTEM OFFLINE";
+  $("connection").className="notice "+(s.edge_agent==="ONLINE"?"online":"offline");
+  $("agent").textContent=s.edge_agent||"OFFLINE";
+  $("cameraCount").textContent=s.cameras?.length||0;
+  $("onlineCount").textContent=(s.cameras||[]).filter(c=>String(c.status||"").toUpperCase()!=="OFFLINE").length;
+  $("protectedCount").textContent=(s.cameras||[]).filter(c=>c.verified||c.status==="PROTECTED").length;
+  $("cameras").innerHTML=(s.cameras||[]).map((c,i)=>'<div class="camera"><div class="camtop"><strong>'+esc(c.camera_name||("Camera "+(i+1)))+'</strong><span class="'+(String(c.status).toUpperCase()==="OFFLINE"?"offline":"online")+'">'+esc(c.status||"ONLINE")+'</span></div><div class="small">'+esc(c.location||"Security camera")+'</div><div class="small">Channel: '+esc(c.channel_id||"—")+'</div><div class="small">Capabilities: '+esc(Object.values(c.capabilities?.capabilities||{}).filter(x=>x.available).length)+' verified</div></div>').join("")||'<div class="notice">Waiting for the NexusAI Security Box to discover cameras.</div>';
+  $("appLink").href="/app/?site_id="+encodeURIComponent(s.site_id)+"&install_token="+encodeURIComponent("");
+  await loadEvents();
+ }catch(e){$("connection").innerHTML='<span class="error">'+esc(e.message)+'</span>'}
+}
+async function loadEvents(){
+ try{
+  const d=await fetch("/api/customer/events?token="+encodeURIComponent(token)+"&limit=30",{cache:"no-store"}).then(r=>r.json());
+  $("events").innerHTML=(d.events||[]).map(e=>'<div class="event"><strong>'+esc(e.event||"SECURITY EVENT")+'</strong><small>'+esc(e.camera_name||"Camera")+' • '+esc(e.location||"")+' • '+esc(e.severity||"")+' • '+esc(e.timestamp||"")+'</small>'+(e.snapshot_url?'<div><a class="btn secondary" target="_blank" href="'+esc(e.snapshot_url)+'">VIEW SNAPSHOT</a></div>':"")+'</div>').join("")||'<div class="small">No security events recorded yet.</div>';
+ }catch(_){$("events").innerHTML='<div class="small">Events are temporarily unavailable.</div>'}
+}
+load();setInterval(load,10000);
+</script></body></html>
