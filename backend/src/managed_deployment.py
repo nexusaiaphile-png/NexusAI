@@ -116,7 +116,12 @@ def _finish(cid,site_id,status):
     try:
         cur=c.cursor()
         q="UPDATE nexusai_deployment_commands SET status=%s,completed_at=%s WHERE id=%s AND site_id=%s" if _db_url() else "UPDATE nexusai_deployment_commands SET status=?,completed_at=? WHERE id=? AND site_id=?"
-        cur.execute(q,(status,now,cid,site_id)); c.commit()
+        cur.execute(q,(status,now,cid,site_id))
+        # Credential payloads are one-time secrets: remove ciphertext after acknowledgement.
+        if status in ("COMPLETED","FAILED","DECLINED","CANCELLED"):
+            dq="UPDATE nexusai_deployment_commands SET payload_json=NULL WHERE id=%s AND site_id=%s" if _db_url() else "UPDATE nexusai_deployment_commands SET payload_json=NULL WHERE id=? AND site_id=?"
+            cur.execute(dq,(cid,site_id))
+        c.commit()
     finally: c.close()
 
 class PairRequest(BaseModel):
@@ -156,11 +161,13 @@ async def edge_commands(site_id:str,device_id:str="",x_nexusai_edge_token:str|No
     return {"site_id":site_id,"commands":out}
 
 @router.post("/edge/commands/{command_id}/confirm")
-async def confirm_pair(command_id:int,site_id:str,x_nexusai_edge_token:str|None=Header(default=None,alias="X-NexusAI-Edge-Token")):
+async def confirm_pair(command_id:int,site_id:str,device_id:str="",x_nexusai_edge_token:str|None=Header(default=None,alias="X-NexusAI-Edge-Token")):
     _edge(site_id,x_nexusai_edge_token)
     commands=_commands(site_id); match=next((x for x in commands if x["id"]==command_id and x["command_type"]=="PAIR_REQUEST"),None)
     if not match: raise HTTPException(404,"Pairing request not found or expired.")
-    _finish(command_id,site_id,"COMPLETED"); _set_paired(site_id)
+    expected_device=_deployment(site_id)["device_id"]
+    if expected_device and device_id and not secrets.compare_digest(expected_device,device_id): raise HTTPException(403,"Security Box identity mismatch.")
+    _finish(command_id,site_id,"COMPLETED"); _set_paired(site_id,device_id=device_id or expected_device)
     return {"confirmed":True,"site_id":site_id,"status":"PAIRED"}
 
 @router.post("/edge/commands/{command_id}/decline")
