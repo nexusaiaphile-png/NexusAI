@@ -12,7 +12,23 @@
 <div class="field"><label>CONTACT NAME</label><input id="contact"></div><div class="field"><label>PHONE</label><input id="phone"></div>
 <div class="field"><label>EMAIL</label><input id="email" type="email"></div><div class="field"><label>EXPECTED CAMERAS</label><input id="cams" type="number" min="0"></div>
 <div style="align-self:end"><button onclick="createSite()">CREATE SITE</button></div></div><div id="createStatus" class="status"></div><div id="createdLinks" class="status"></div></section>
-<section class="card"><h2>Customer Sites</h2><p class="muted">Use CONNECT SITE to remotely manage onboarding. NexusAI does not pretend to reach a private CCTV LAN from the cloud. The customer runs Security Box on a computer connected to that CCTV network; the box creates the secure outbound bridge to NexusAI Cloud.</p><div id="sites"></div></section>
+<section class="card"><h2>Customer Sites</h2><p class="muted">Hik-Partner Pro is the primary Hikvision integration. Security Box is retained only as a fallback when HPP cannot provide a required capability.</p><div id="sites"></div></section>
+<section class="card">
+<h2>Hik-Partner Pro</h2>
+<p class="muted">Primary Hikvision cloud integration. HPP credentials stay on the NexusAI server.</p>
+<div class="row">
+<button onclick="hppAuth()">TEST HPP AUTH</button>
+<button class="secondary" onclick="hppSites()">LOAD HPP SITES</button>
+</div>
+<div id="hppStatus" class="status">Not checked.</div>
+<pre id="hppOutput" style="white-space:pre-wrap;max-height:260px;overflow:auto;color:#bfe9df;background:#061016;padding:12px;border-radius:10px"></pre>
+<div class="row" style="margin-top:10px">
+<div class="field"><label>HPP DEVICE SERIAL</label><input id="hppSerial" placeholder="Hikvision device serial"></div>
+<div class="field"><label>NEXUSAI SITE ID</label><input id="hppSite" placeholder="site-..."></div>
+<div style="align-self:end"><button onclick="hppMap()">MAP DEVICE</button></div>
+</div>
+<div id="hppMapStatus" class="status"></div>
+</section>
 <section id="connectPanel" class="card hidden"><div class="sitehead"><div><h2 id="connectTitle">Connect Site</h2><div id="connectMeta" class="muted"></div></div><button class="secondary" onclick="$('connectPanel').classList.add('hidden')">CLOSE</button></div><div id="connectStatus" class="status"></div><div id="connectDetails"></div></section>
 </section></main>
 <script>
@@ -44,6 +60,20 @@ try{
  $("connectDetails").innerHTML='<div class="card"><b>1. Install NexusAI Security Box</b><p class="muted">Run the installer on a Windows or Mac computer at the customer site. That computer must be on the same network as the Hikvision NVR/cameras.</p><div class="links"><a href="'+esc(d.links.windows_security_box)+'">Windows installer</a><a href="'+esc(d.links.macos_security_box)+'">Mac installer</a></div><p class="muted">Activation code: <b>'+esc(d.activation_code)+'</b></p></div><div class="card"><b>2. Connect CCTV</b><p class="muted">Once Security Box shows ONLINE, open the customer protection portal and enter the Hikvision/NVR credentials there. Credentials remain on the customer computer.</p><div class="links"><a href="'+esc(d.links.customer_setup)+'" target="_blank">OPEN CUSTOMER CCTV SETUP</a><a href="'+esc(d.links.customer_portal)+'" target="_blank">OPEN CUSTOMER DASHBOARD</a></div></div><div class="card"><b>3. Customer notifications</b><p class="muted">After CCTV is protected, give the customer the notification app link.</p><div class="links"><a href="'+esc(d.links.notification_app)+'" target="_blank">OPEN NEXUSAI NOTIFICATION APP</a></div></div><div class="card"><b>Current cameras</b><div class="muted">'+esc(st.camera_count_live||0)+' camera(s) reported by Security Box.</div></div>';
  if(online) await loadSites();
 }catch(e){$("connectStatus").textContent=e.message;}
+}
+async function hppAuth(){
+ $("hppStatus").textContent="Testing HPP authentication…";
+ try{let r=await fetch("/api/hpp/test-auth",{method:"POST",headers:{"X-NexusAI-Admin-Key":key}});let d=await r.json();if(!r.ok)throw Error(d.detail||"HPP authentication failed");$("hppStatus").textContent="HPP AUTHENTICATED • regional API domain received";$("hppOutput").textContent=JSON.stringify(d,null,2)}catch(e){$("hppStatus").textContent=e.message}
+}
+async function hppSites(){
+ $("hppStatus").textContent="Loading HPP sites…";
+ try{let r=await fetch("/api/hpp/sites/search",{method:"POST",headers:headers(),body:JSON.stringify({page:1,pageSize:100,search:""})});let d=await r.json();if(!r.ok)throw Error(d.detail||"Could not load HPP sites");$("hppStatus").textContent="HPP sites loaded";$("hppOutput").textContent=JSON.stringify(d,null,2)}catch(e){$("hppStatus").textContent=e.message}
+}
+async function hppMap(){
+ const serial=$("hppSerial").value.trim(),site=$("hppSite").value.trim();
+ if(!serial||!site){$("hppMapStatus").textContent="Device serial and NexusAI site ID are required.";return}
+ $("hppMapStatus").textContent="Saving device mapping…";
+ try{let r=await fetch("/api/hpp/mappings",{method:"POST",headers:headers(),body:JSON.stringify({hpp_site_id:"",hpp_device_serial:serial,nexusai_site_id:site})});let d=await r.json();if(!r.ok)throw Error(d.detail||"Could not save mapping");$("hppMapStatus").textContent="HPP device mapped to "+site}catch(e){$("hppMapStatus").textContent=e.message}
 }
 if(key)login();
 </script></body></html>
