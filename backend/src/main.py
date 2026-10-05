@@ -62,6 +62,7 @@ class EdgeCamera(BaseModel):
     channel_id: str | None = None
     device_type: str | None = None
     status: str = Field(default="ONLINE", max_length=32)
+    capabilities: dict = Field(default_factory=dict)
 
 
 class EdgeHeartbeat(BaseModel):
@@ -85,6 +86,7 @@ class EdgeVerification(BaseModel):
     error: str | None = None
     device_type: str | None = None
     channels: list[dict] = Field(default_factory=list)
+    capabilities: dict = Field(default_factory=dict)
 
 
 class EdgeEvent(BaseModel):
