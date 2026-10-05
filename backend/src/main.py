@@ -40,7 +40,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 app = FastAPI(
     title="NexusAI Security Cloud",
     description="NexusAI Hikvision security cloud and native mobile push notification service.",
-    version="3.2.0",
+    version="3.3.0",
 )
 
 app.add_middleware(
@@ -877,12 +877,12 @@ async def protect_app_js():
 
 @app.get("/admin", include_in_schema=False)
 async def nexusai_admin_portal():
-    return FileResponse(PORTAL_DIR / "admin.html", media_type="text/html")
+    return FileResponse(PORTAL_DIR / "admin" / "index.html", media_type="text/html")
 
 @app.get("/client", include_in_schema=False)
 @app.get("/client/", include_in_schema=False)
 async def nexusai_client_portal():
-    return FileResponse(PORTAL_DIR / "client.html", media_type="text/html")
+    return FileResponse(PORTAL_DIR / "client" / "index.html", media_type="text/html")
 
 @app.get("/app", include_in_schema=False)
 @app.get("/app/", include_in_schema=False)
@@ -1643,7 +1643,7 @@ async def health():
     return {
         "status": "healthy",
         "service": "NexusAI Cloud",
-        "version": "3.2.0",
+        "version": "3.3.0",
         "push": "configured" if push_configured() else "awaiting-vapid-keys",
     }
 
