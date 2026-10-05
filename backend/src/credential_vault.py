@@ -1,12 +1,12 @@
 """NexusAI encrypted command payloads."""
-import os, json
+import os, json, base64, hashlib
 from cryptography.fernet import Fernet, InvalidToken
 
 def _key():
-    value=os.getenv("NEXUSAI_CREDENTIAL_ENCRYPTION_KEY","").strip()
-    if not value:
-        raise RuntimeError("NEXUSAI_CREDENTIAL_ENCRYPTION_KEY is not configured")
-    return Fernet(value.encode())
+    root=os.getenv("NEXUSAI_APP_LINK_SECRET","").strip()
+    if not root: raise RuntimeError("NEXUSAI_APP_LINK_SECRET is not configured")
+    key=base64.urlsafe_b64encode(hashlib.sha256(("nexusai-credential-vault:"+root).encode()).digest())
+    return Fernet(key)
 def seal(payload):
     return _key().encrypt(json.dumps(payload,separators=(",",":")).encode()).decode()
 def open_sealed(value):
