@@ -47,6 +47,15 @@ LOCAL_AGENT_TLS_CERT = os.getenv("LOCAL_AGENT_TLS_CERT", "").strip()
 LOCAL_AGENT_TLS_KEY = os.getenv("LOCAL_AGENT_TLS_KEY", "").strip()
 SITE_CONFIG_PATH = Path(os.getenv("SITE_CONFIG_PATH", str(Path.home() / ".nexusai_site.json")))
 LOCAL_ALLOWED_ORIGINS = {"https://getnexusai.co.za", "https://www.getnexusai.co.za"}
+DEVICE_ID_PATH = SITE_CONFIG_PATH.with_name("device-id")
+try:
+    DEVICE_ID = DEVICE_ID_PATH.read_text(encoding="utf-8").strip() if DEVICE_ID_PATH.exists() else ""
+    if not DEVICE_ID:
+        DEVICE_ID = "box-" + uuid.uuid4().hex
+        DEVICE_ID_PATH.parent.mkdir(parents=True, exist_ok=True)
+        DEVICE_ID_PATH.write_text(DEVICE_ID, encoding="utf-8")
+except OSError:
+    DEVICE_ID = "box-" + uuid.uuid4().hex
 SADP_MULTICAST = "239.255.255.250"
 SADP_PORT = 37020
 SADP_TIMEOUT_SECONDS = 2.5
@@ -168,7 +177,7 @@ def handle_credentials_command(command):
 def command_poll_loop():
     while True:
         try:
-            data=get_backend("/api/edge/commands",{"site_id":SITE_ID})
+            data=get_backend("/api/edge/commands",{"site_id":SITE_ID,"device_id":DEVICE_ID})
             for command in (data or {}).get("commands",[]):
                 if command.get("type")=="PAIR_REQUEST": handle_pairing_command(command)
                 elif command.get("type")=="SET_CCTV_CREDENTIALS": handle_credentials_command(command)
