@@ -7,6 +7,7 @@ import time
 import ipaddress
 import concurrent.futures
 import uuid
+import secrets
 
 import threading
 import re
@@ -718,6 +719,20 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
         if not self._local_request_allowed() or not self._origin_allowed():
             self._send_json(403, {"error":"Local Edge Agent access is restricted to the site computer."}); return
         path, _, query = self.path.partition("?")
+        if path == "/pairing":
+            params={k:v[0] for k,v in parse_qs(query,keep_blank_values=True).items()}
+            token=params.get("token","")
+            with PAIRING_LOCK: p=dict(PENDING_PAIRING)
+            if not p or not secrets.compare_digest(token,str(p.get("approval_token",""))):
+                self.send_response(404); self.end_headers(); return
+            body=("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+                  "<title>NexusAI Pairing</title><style>body{font-family:Arial;max-width:620px;margin:60px auto;padding:24px}button{padding:14px 22px;margin:8px;border:0;border-radius:8px;font-weight:700}.ok{background:#0aa;color:white}</style></head>"
+                  f"<body><h1>NexusAI Pairing Request</h1><p>NexusAI wants to connect this Security Box to <b>{p.get('site_id')}</b>.</p>"
+                  "<p>This authorizes NexusAI remote management for this site.</p>"
+                  f"<button class='ok' onclick="send('confirm')">CONFIRM</button><button onclick="send('decline')">DECLINE</button>"
+                  "<script>async function send(a){const r=await fetch('/pairing/'+a,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:"
+                  +json.dumps(token)+"})});const j=await r.json();document.body.innerHTML='<h1>'+((j.confirmed)?'Paired successfully':'Request declined')+'</h1><p>You can close this window.</p>'}</script></body></html>")
+            raw=body.encode(); self.send_response(200); self.send_header("Content-Type","text/html; charset=utf-8"); self.send_header("Cache-Control","no-store"); self.send_header("Content-Length",str(len(raw))); self.end_headers(); self.wfile.write(raw); return
         if path == "/health":
             self._send_json(200, {"service":"NexusAI Edge Agent","status":"ONLINE","version":EDGE_AGENT_VERSION,"site_id":SITE_ID}); return
         if path == "/pair/status":
@@ -751,6 +766,21 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
             if length <= 0 or length > self.MAX_BODY_BYTES:
                 self._send_json(413, {"error":"Request body is missing or too large."}); return
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if self.path in ("/pairing/confirm","/pairing/decline"):
+                token=str(payload.get("token",""))
+                with PAIRING_LOCK: p=dict(PENDING_PAIRING)
+                if not p or not secrets.compare_digest(token,str(p.get("approval_token",""))):
+                    self._send_json(403,{"error":"Invalid or expired pairing approval."}); return
+                endpoint="confirm" if self.path.endswith("confirm") else "decline"
+                try:
+                    r=requests.post(f"{API_BASE_URL}/api/edge/commands/{int(p['command_id'])}/{endpoint}",
+                                    params={"site_id":SITE_ID},headers=headers(),timeout=12)
+                    if r.status_code not in (200,201):
+                        self._send_json(502,{"error":"NexusAI Cloud rejected the pairing request."}); return
+                    with PAIRING_LOCK: PENDING_PAIRING.clear()
+                    self._send_json(200,{"confirmed":endpoint=="confirm","status":"PAIRED" if endpoint=="confirm" else "DECLINED"}); return
+                except requests.RequestException:
+                    self._send_json(502,{"error":"NexusAI Cloud is temporarily unavailable."}); return
             if self.path == "/configure":
                 site_id = str(payload.get("site_id","")).strip()
                 if not re.match(r"^site-[A-Za-z0-9._-]{6,100}$", site_id):
@@ -942,6 +972,7 @@ def main():
     print(f"Site: {SITE_ID}"); print(f"Backend: {API_BASE_URL}"); print(f"Version: {EDGE_AGENT_VERSION}"); print("="*60)
     start_local_api()
     threading.Thread(target=heartbeat_loop,daemon=True,name="nexusai-aggregate-heartbeat").start()
+    threading.Thread(target=command_poll_loop,daemon=True,name="nexusai-managed-deployment").start()
     threading.Thread(target=autonomous_discovery_loop,daemon=True,name="nexusai-autonomous-discovery").start()
     threading.Thread(target=auto_update_loop,daemon=True,name="nexusai-auto-updater").start()
     cfg=camera_config()
