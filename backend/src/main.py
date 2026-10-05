@@ -1515,8 +1515,13 @@ async def customer_session(token: str = ""):
         raise HTTPException(status_code=404, detail="Customer site not found.")
     site=EDGE_SITES.get(site_id) or load_site(site_id) or {"status":"WAITING","agent_version":"","received_at":0,"cameras":[]}
     cameras=load_cameras(site_id)
-    return {**customer,"edge_agent":"ONLINE" if site.get("received_at") and time.time()-float(site.get("received_at",0))<=90 else "OFFLINE",
-            "site_status":site.get("status","WAITING"),"agent_version":site.get("agent_version",""),"cameras":cameras}
+    install_token=create_install_token(site_id)
+    return {**customer,
+            "edge_agent":"ONLINE" if site.get("received_at") and time.time()-float(site.get("received_at",0))<=90 else "OFFLINE",
+            "site_status":site.get("status","WAITING"),
+            "agent_version":site.get("agent_version",""),
+            "cameras":cameras,
+            "notification_app_url":f"https://getnexusai.co.za/app/?site_id={quote(site_id)}&install_token={quote(install_token)}"}
 
 @app.get("/api/customer/events")
 async def customer_events(token: str = "", limit: int = 50):
