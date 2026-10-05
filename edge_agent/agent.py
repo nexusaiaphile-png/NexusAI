@@ -26,7 +26,7 @@ load_dotenv()
 
 API_BASE_URL = os.getenv("NEXUSAI_API_URL", "https://getnexusai.co.za").rstrip("/")
 EDGE_AGENT_TOKEN = os.getenv("NEXUSAI_EDGE_TOKEN", "")
-EDGE_AGENT_VERSION = "1.9.1"
+EDGE_AGENT_VERSION = "1.10.0"
 MAX_MONITORS = int(os.getenv("NEXUSAI_MAX_MONITORS", "32"))
 SNAPSHOT_MAX_BYTES = int(os.getenv("NEXUSAI_SNAPSHOT_MAX_BYTES", str(2 * 1024 * 1024)))
 SCAN_SUBNETS = [x.strip() for x in os.getenv("NEXUSAI_SCAN_SUBNETS", "").split(",") if x.strip()]
@@ -69,14 +69,41 @@ logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
 
 EVENT_NAMES = {
+    # Critical security / loss-prevention events
     "weapon": ("WEAPON DETECTED", "CRITICAL"), "gun": ("WEAPON DETECTED", "CRITICAL"),
     "firearm": ("WEAPON DETECTED", "CRITICAL"), "knife": ("WEAPON DETECTED", "CRITICAL"),
-    "threat": ("THREAT DETECTED", "CRITICAL"), "theft": ("THEFT DETECTED", "CRITICAL"),
-    "stealing": ("THEFT DETECTED", "CRITICAL"), "shoplifting": ("THEFT DETECTED", "CRITICAL"),
-    "objectremoval": ("OBJECT REMOVAL DETECTED", "HIGH"), "intrusion": ("INTRUSION DETECTED", "HIGH"),
-    "linedetection": ("LINE CROSSING DETECTED", "HIGH"), "linecrossing": ("LINE CROSSING DETECTED", "HIGH"),
-    "regionentrance": ("AREA ENTRY DETECTED", "HIGH"), "regionexiting": ("AREA EXIT DETECTED", "MEDIUM"),
-    "loitering": ("LOITERING DETECTED", "MEDIUM"), "motion": ("MOTION DETECTED", "LOW"),
+    "weaponfire": ("WEAPON DETECTED", "CRITICAL"), "threat": ("THREAT DETECTED", "CRITICAL"),
+    "theft": ("THEFT DETECTED", "CRITICAL"), "stealing": ("THEFT DETECTED", "CRITICAL"),
+    "shoplifting": ("THEFT DETECTED", "CRITICAL"), "objectremoval": ("OBJECT REMOVAL DETECTED", "HIGH"),
+    "unattendedbaggage": ("UNATTENDED OBJECT DETECTED", "HIGH"), "unattendedobject": ("UNATTENDED OBJECT DETECTED", "HIGH"),
+
+    # Perimeter and movement analytics
+    "intrusion": ("INTRUSION DETECTED", "HIGH"), "linedetection": ("LINE CROSSING DETECTED", "HIGH"),
+    "linecrossing": ("LINE CROSSING DETECTED", "HIGH"), "regionentrance": ("AREA ENTRY DETECTED", "HIGH"),
+    "regionexiting": ("AREA EXIT DETECTED", "MEDIUM"), "loitering": ("LOITERING DETECTED", "MEDIUM"),
+    "peoplegathering": ("PEOPLE GATHERING DETECTED", "MEDIUM"), "crowd": ("CROWD DETECTED", "MEDIUM"),
+    "fastmovement": ("FAST MOVEMENT DETECTED", "MEDIUM"), "rapidmovement": ("FAST MOVEMENT DETECTED", "MEDIUM"),
+    "parking": ("PARKING EVENT DETECTED", "MEDIUM"),
+
+    # Target analytics supplied by compatible Hikvision devices
+    "humandetection": ("HUMAN DETECTED", "MEDIUM"), "persondetection": ("PERSON DETECTED", "MEDIUM"),
+    "vehicle": ("VEHICLE DETECTED", "LOW"), "vehicledetection": ("VEHICLE DETECTED", "LOW"),
+    "face": ("FACE DETECTED", "LOW"), "facialdetection": ("FACE DETECTED", "LOW"),
+    "anpr": ("LICENSE PLATE DETECTED", "MEDIUM"), "licenseplate": ("LICENSE PLATE DETECTED", "MEDIUM"),
+    "licenseplatenumber": ("LICENSE PLATE DETECTED", "MEDIUM"),
+
+    # Camera and recorder health events
+    "videoloss": ("VIDEO LOSS DETECTED", "HIGH"), "videolost": ("VIDEO LOSS DETECTED", "HIGH"),
+    "tamper": ("CAMERA TAMPER DETECTED", "HIGH"), "tampering": ("CAMERA TAMPER DETECTED", "HIGH"),
+    "videoexception": ("VIDEO EXCEPTION DETECTED", "HIGH"), "networkdisconnect": ("CAMERA NETWORK DISCONNECT", "HIGH"),
+    "networkexception": ("NETWORK EXCEPTION DETECTED", "HIGH"), "illegalinput": ("ILLEGAL INPUT DETECTED", "HIGH"),
+    "illegallogin": ("ILLEGAL LOGIN DETECTED", "HIGH"), "hddfull": ("STORAGE FULL DETECTED", "HIGH"),
+    "hdderror": ("STORAGE ERROR DETECTED", "HIGH"), "diskfull": ("STORAGE FULL DETECTED", "HIGH"),
+    "diskerror": ("STORAGE ERROR DETECTED", "HIGH"), "defocus": ("CAMERA DEFOCUS DETECTED", "MEDIUM"),
+    "scenechange": ("SCENE CHANGE DETECTED", "MEDIUM"), "audioexception": ("AUDIO EXCEPTION DETECTED", "MEDIUM"),
+    "audioabnormal": ("AUDIO ABNORMALITY DETECTED", "MEDIUM"), "pir": ("PIR MOTION DETECTED", "MEDIUM"),
+
+    "motion": ("MOTION DETECTED", "LOW"),
 }
 
 def camera_config():
@@ -197,8 +224,7 @@ def discover_sadp_devices(timeout=SADP_TIMEOUT_SECONDS):
                 continue
         deadline = time.time() + float(timeout)
         while time.time() < deadline:
-            try:
-                raw, peer = sock.recvfrom(65535)
+            try:                raw, peer = sock.recvfrom(65535)
             except socket.timeout:
                 break
             except OSError:
@@ -397,8 +423,7 @@ def capture_snapshot(cfg):
 
 def _xml_values(raw_event):
     values = {}
-    try:
-        root = ET.fromstring(raw_event)
+    try:        root = ET.fromstring(raw_event)
         for node in root.iter():
             key = node.tag.split("}")[-1]
             if node.text and node.text.strip():
@@ -597,7 +622,6 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
     def _local_request_allowed(self):
         host = (self.client_address[0] if self.client_address else "").split("%", 1)[0]
         return host in {"127.0.0.1", "::1", "localhost"}
-
     def _send_json(self, status, payload):
         body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
@@ -797,8 +821,7 @@ def heartbeat_loop():
         time.sleep(HEARTBEAT_SECONDS)
 
 def discover_with_credentials(username, password, location="Security Site", manual_ip="", manual_port=80):
-    """Run one guarded discovery pass and start monitors for verified Hikvision devices."""
-    if not username or not password:
+    """Run one guarded discovery pass and start monitors for verified Hikvision devices."""    if not username or not password:
         return []
     if not DISCOVERY_LOCK.acquire(blocking=False):
         return []
