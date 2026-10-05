@@ -1486,7 +1486,7 @@ async def admin_create_site(request: AdminCreateSiteRequest, x_nexusai_admin_key
         "notification_app_url":f"https://getnexusai.co.za/app/?site_id={quote(site_id)}&install_token={quote(install_token)}",
         "installer_links": {
             "windows":f"https://getnexusai.co.za/downloads/security-box/windows.ps1?installer_token={quote(create_installer_token(site_id))}",
-            "macos":f"https://getnexusai.co.za/downloads/security-box/macos.sh?installer_token={quote(create_installer_token(site_id))}"
+            "macos":f"https://getnexusai.co.za/downloads/security-box/macos.pkg?installer_token={quote(create_installer_token(site_id))}&arch=arm64"
         }
     }
 
@@ -1540,7 +1540,7 @@ async def admin_site_links(site_id: str, x_nexusai_admin_key: str | None = Heade
         "notification_app_url":f"https://getnexusai.co.za/app/?site_id={quote(site_id)}&install_token={quote(install_token)}",
         "security_box_installer": {
             "windows":f"https://getnexusai.co.za/downloads/security-box/windows.ps1?installer_token={quote(create_installer_token(site_id))}",
-            "macos":f"https://getnexusai.co.za/downloads/security-box/macos.sh?installer_token={quote(create_installer_token(site_id))}"
+            "macos":f"https://getnexusai.co.za/downloads/security-box/macos.pkg?installer_token={quote(create_installer_token(site_id))}&arch=arm64"
         }
     }
 
