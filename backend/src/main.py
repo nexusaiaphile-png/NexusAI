@@ -1971,3 +1971,10 @@ async def nexusai_root():
 
 # Keep the portal mounted last so API routes stay reachable.
 app.mount("/portal", StaticFiles(directory=PORTAL_DIR, html=True), name="portal")
+
+# Managed Deployment: secure site-scoped pairing and remote Security Box control.
+try:
+    from managed_deployment import install as install_managed_deployment
+    install_managed_deployment(app)
+except Exception:
+    logging.exception("Managed Deployment control plane failed to load.")
