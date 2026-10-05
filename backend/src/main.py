@@ -292,6 +292,25 @@ def init_db():
                     used_at REAL
                 );
                 CREATE INDEX IF NOT EXISTS idx_nexusai_installer_site ON nexusai_installer_tokens(site_id);
+                CREATE TABLE IF NOT EXISTS nexusai_customers (
+                    site_id TEXT PRIMARY KEY,
+                    business_name TEXT NOT NULL,
+                    store_address TEXT,
+                    contact_name TEXT,
+                    contact_phone TEXT,
+                    contact_email TEXT,
+                    camera_count INTEGER NOT NULL DEFAULT 0,
+                    created_at REAL NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'ACTIVE'
+                );
+                CREATE TABLE IF NOT EXISTS nexusai_customer_tokens (
+                    token_hash TEXT PRIMARY KEY,
+                    site_id TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1
+                );
+                CREATE INDEX IF NOT EXISTS idx_nexusai_customer_tokens_site ON nexusai_customer_tokens(site_id);
+
             """)
             conn.commit()
 
