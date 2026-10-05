@@ -875,6 +875,10 @@ async def protect_app_js():
 
 
 
+@app.get("/admin", include_in_schema=False)
+async def nexusai_admin_portal():
+    return FileResponse(PORTAL_DIR / "admin.html", media_type="text/html")
+
 @app.get("/client", include_in_schema=False)
 @app.get("/client/", include_in_schema=False)
 async def nexusai_client_portal():
