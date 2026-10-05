@@ -60,6 +60,18 @@ def _deployment(site_id):
         if not r: return {"site_id":site_id,"device_id":None,"paired":False,"paired_at":None,"last_seen":None}
         return {"site_id":r[0],"device_id":r[1],"paired":bool(r[2]),"paired_at":r[3],"last_seen":r[4]}
     finally: c.close()
+def _register_device(site_id,device_id):
+    _schema(); now=time.time(); c=_conn()
+    try:
+        cur=c.cursor()
+        if _db_url():
+            cur.execute("""INSERT INTO nexusai_deployments(site_id,device_id,paired,last_seen) VALUES(%s,%s,FALSE,%s)
+                ON CONFLICT(site_id) DO UPDATE SET device_id=COALESCE(nexusai_deployments.device_id,EXCLUDED.device_id),last_seen=EXCLUDED.last_seen""",(site_id,device_id,now))
+        else:
+            cur.execute("""INSERT INTO nexusai_deployments(site_id,device_id,paired,last_seen) VALUES(?,?,0,?)
+                ON CONFLICT(site_id) DO UPDATE SET device_id=COALESCE(nexusai_deployments.device_id,excluded.device_id),last_seen=excluded.last_seen""",(site_id,device_id,now))
+        c.commit()
+    finally: c.close()
 def _set_paired(site_id,device_id=None):
     _schema(); now=time.time(); c=_conn()
     try:
@@ -131,8 +143,10 @@ async def deployment_status(site_id:str,x_nexusai_admin_key:str|None=Header(defa
     return {"deployment":d,"pending_commands":[{"id":x["id"],"type":x["command_type"],"status":x["status"],"expires_at":x["expires_at"]} for x in _commands(site_id)]}
 
 @router.get("/edge/commands")
-async def edge_commands(site_id:str,x_nexusai_edge_token:str|None=Header(default=None,alias="X-NexusAI-Edge-Token")):
+async def edge_commands(site_id:str,device_id:str="",x_nexusai_edge_token:str|None=Header(default=None,alias="X-NexusAI-Edge-Token")):
     _edge(site_id,x_nexusai_edge_token)
+    if device_id:
+        _set_paired(site_id,device_id=device_id) if _deployment(site_id)["paired"] else _register_device(site_id,device_id)
     out=[]
     for x in _commands(site_id):
         out.append({"id":x["id"],"type":x["command_type"],"payload":open_sealed(x["payload_json"]) if x["payload_json"] else {},"expires_at":x["expires_at"]})
@@ -140,7 +154,10 @@ async def edge_commands(site_id:str,x_nexusai_edge_token:str|None=Header(default
 
 @router.post("/edge/commands/{command_id}/confirm")
 async def confirm_pair(command_id:int,site_id:str,x_nexusai_edge_token:str|None=Header(default=None,alias="X-NexusAI-Edge-Token")):
-    _edge(site_id,x_nexusai_edge_token); _finish(command_id,site_id,"COMPLETED"); _set_paired(site_id)
+    _edge(site_id,x_nexusai_edge_token)
+    commands=_commands(site_id); match=next((x for x in commands if x["id"]==command_id and x["command_type"]=="PAIR_REQUEST"),None)
+    if not match: raise HTTPException(404,"Pairing request not found or expired.")
+    _finish(command_id,site_id,"COMPLETED"); _set_paired(site_id)
     return {"confirmed":True,"site_id":site_id,"status":"PAIRED"}
 
 @router.post("/edge/commands/{command_id}/decline")
