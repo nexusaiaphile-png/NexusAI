@@ -3,6 +3,7 @@ from __future__ import annotations
 import os, secrets, sqlite3, time, hmac, hashlib
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
+from credential_vault import seal, open_sealed
 
 router = APIRouter(prefix="/api")
 
@@ -89,7 +90,7 @@ def _commands(site_id):
 def _new_command(site_id,kind,payload=None,ttl=600):
     _schema(); now=time.time(); c=_conn()
     try:
-        cur=c.cursor(); body=__import__("json").dumps(payload or {},separators=(",",":"))
+        cur=c.cursor(); body=seal(payload or {}) if payload is not None else None
         if _db_url():
             cur.execute("""INSERT INTO nexusai_deployment_commands(site_id,command_type,payload_json,status,created_at,expires_at)
                 VALUES(%s,%s,%s,'PENDING',%s,%s) RETURNING id""",(site_id,kind,body,now,now+ttl)); cid=cur.fetchone()[0]
@@ -109,6 +110,13 @@ def _finish(cid,site_id,status):
 class PairRequest(BaseModel):
     device_id: str | None = Field(default=None,max_length=200)
 
+class CredentialsRequest(BaseModel):
+    username: str = Field(...,min_length=1,max_length=128)
+    password: str = Field(...,min_length=1,max_length=512)
+    location: str = Field(default="Security Site",max_length=200)
+    nvr_ip: str | None = Field(default=None,max_length=64)
+    nvr_port: int = Field(default=80,ge=1,le=65535)
+
 @router.post("/admin/deployments/{site_id}/pair")
 async def request_pair(site_id:str, body:PairRequest, x_nexusai_admin_key:str|None=Header(default=None)):
     _admin(x_nexusai_admin_key)
@@ -127,7 +135,7 @@ async def edge_commands(site_id:str,x_nexusai_edge_token:str|None=Header(default
     _edge(site_id,x_nexusai_edge_token)
     out=[]
     for x in _commands(site_id):
-        out.append({"id":x["id"],"type":x["command_type"],"payload":__import__("json").loads(x["payload_json"] or "{}"),"expires_at":x["expires_at"]})
+        out.append({"id":x["id"],"type":x["command_type"],"payload":open_sealed(x["payload_json"]) if x["payload_json"] else {},"expires_at":x["expires_at"]})
     return {"site_id":site_id,"commands":out}
 
 @router.post("/edge/commands/{command_id}/confirm")
@@ -139,5 +147,19 @@ async def confirm_pair(command_id:int,site_id:str,x_nexusai_edge_token:str|None=
 async def decline_pair(command_id:int,site_id:str,x_nexusai_edge_token:str|None=Header(default=None,alias="X-NexusAI-Edge-Token")):
     _edge(site_id,x_nexusai_edge_token); _finish(command_id,site_id,"DECLINED")
     return {"declined":True,"site_id":site_id}
+
+@router.post("/admin/deployments/{site_id}/credentials")
+async def queue_credentials(site_id:str, body:CredentialsRequest, x_nexusai_admin_key:str|None=Header(default=None)):
+    _admin(x_nexusai_admin_key)
+    if not _deployment(site_id)["paired"]:
+        raise HTTPException(409,"Security Box must be paired before CCTV credentials can be delivered.")
+    cid=_new_command(site_id,"SET_CCTV_CREDENTIALS",body.model_dump(),900)
+    return {"site_id":site_id,"command_id":cid,"status":"QUEUED","expires_in":900}
+
+@router.post("/edge/commands/{command_id}/complete")
+async def complete_command(command_id:int, site_id:str, success:bool=False, error:str="", x_nexusai_edge_token:str|None=Header(default=None,alias="X-NexusAI-Edge-Token")):
+    _edge(site_id,x_nexusai_edge_token)
+    _finish(command_id,site_id,"COMPLETED" if success else "FAILED")
+    return {"completed":True,"site_id":site_id,"status":"COMPLETED" if success else "FAILED"}
 
 def install(app): app.include_router(router)
