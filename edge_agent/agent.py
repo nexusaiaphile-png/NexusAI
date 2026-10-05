@@ -21,12 +21,13 @@ from urllib.parse import parse_qs
 import requests
 from requests.auth import HTTPDigestAuth
 from dotenv import load_dotenv
+from capability_engine import detect_capabilities
 
 load_dotenv()
 
 API_BASE_URL = os.getenv("NEXUSAI_API_URL", "https://getnexusai.co.za").rstrip("/")
 EDGE_AGENT_TOKEN = os.getenv("NEXUSAI_EDGE_TOKEN", "")
-EDGE_AGENT_VERSION = "1.10.0"
+EDGE_AGENT_VERSION = "1.11.0"
 MAX_MONITORS = int(os.getenv("NEXUSAI_MAX_MONITORS", "32"))
 SNAPSHOT_MAX_BYTES = int(os.getenv("NEXUSAI_SNAPSHOT_MAX_BYTES", str(2 * 1024 * 1024)))
 SCAN_SUBNETS = [x.strip() for x in os.getenv("NEXUSAI_SCAN_SUBNETS", "").split(",") if x.strip()]
@@ -396,6 +397,11 @@ def verify_camera(cfg):
             result["channels"] = channels
             if any(t in result["device_type"].upper() for t in ("NVR", "DVR")): result["device_type"] = "NVR"
         result["verified"] = True; result["nexusai"] = "CONNECTED"
+        try:
+            result["capabilities"] = detect_capabilities(cfg)
+        except Exception as exc:
+            logging.warning("NexusAI capability detection failed for %s: %s", cfg.get("camera_ip"), exc)
+            result["capabilities"] = {"engine":"NexusAI Capability Engine","version":"1.0.0","status":"ERROR","supported_count":0,"total_capabilities":0,"capabilities":{},"note":"Capability detection failed; security monitoring is unaffected."}
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code == 401:
             result["camera"] = "DETECTED"; result["credentials"] = "REJECTED"; result["error"] = "Incorrect camera/NVR username or password"
@@ -518,11 +524,13 @@ def heartbeat(cfg=None, verification=None):
                 "location": cfg["location"], "verified": True,
                 "device_id": f"{cfg['camera_ip']}:{cfg['camera_port']}", "device_ip": cfg["camera_ip"],
                 "channel_id": str(channel.get("channel_id")), "device_type": verification.get("device_type") if verification else "HIKVISION_DEVICE",
+                "capabilities": (verification or {}).get("capabilities", {}),
             })
         if not cameras:
             cameras.append({"camera_id":cfg["camera_id"],"camera_name":cfg["camera_name"],"location":cfg["location"],
                              "verified":bool(verification and verification.get("verified")),"device_id":f"{cfg['camera_ip']}:{cfg['camera_port']}",
-                             "device_ip":cfg["camera_ip"],"channel_id":None,"device_type":verification.get("device_type") if verification else "HIKVISION_DEVICE"})
+                             "device_ip":cfg["camera_ip"],"channel_id":None,"device_type":verification.get("device_type") if verification else "HIKVISION_DEVICE",
+                             "capabilities": (verification or {}).get("capabilities", {})})
     else:
         for session_key,item in ACTIVE_CONFIGS.items():
             monitor_state = MONITOR_STATUS.get(session_key, {})
@@ -561,7 +569,7 @@ def monitor_device(cfg, channels=None):
         if session_key in ACTIVE_SESSIONS: return False, "ALREADY_ACTIVE"
         if len(ACTIVE_SESSIONS) >= MAX_MONITORS: return False, "MONITOR_LIMIT_REACHED"
         ACTIVE_SESSIONS[session_key] = True
-        ACTIVE_CONFIGS[session_key] = {"cfg":dict(cfg),"channels":list(channels or []),"cameras":[]}
+        ACTIVE_CONFIGS[session_key] = {"cfg":dict(cfg),"channels":list(channels or []),"cameras":[], "capabilities": cfg.get("capabilities", {})}
     channel_map = {str(c["channel_id"]): c for c in (channels or [])}
     for channel in (channels or []):
         ACTIVE_CONFIGS[session_key]["cameras"].append({
@@ -570,6 +578,7 @@ def monitor_device(cfg, channels=None):
             "location": cfg["location"], "verified": True,
             "device_id": f"{cfg['camera_ip']}:{cfg['camera_port']}", "device_ip": cfg["camera_ip"],
             "channel_id": str(channel.get("channel_id")), "device_type": "HIKVISION_DEVICE",
+            "capabilities": ACTIVE_CONFIGS[session_key].get("capabilities", {}),
         })
     def worker():
         reconnect_delay = RECONNECT_SECONDS
@@ -660,6 +669,12 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"service":"NexusAI Edge Agent","site_id":SITE_ID,"status":"ONLINE"}); return
         if path == "/inventory":
             self._send_json(200, local_inventory()); return
+        if path == "/capabilities":
+            capabilities = []
+            with ACTIVE_SESSIONS_LOCK:
+                for item in ACTIVE_CONFIGS.values():
+                    capabilities.append(item.get("capabilities", {}))
+            self._send_json(200, {"service":"NexusAI Capability Engine","status":"ONLINE","devices":capabilities}); return
         if path == "/setup/status":
             username = os.getenv("CAM_USER", "").strip()
             password = os.getenv("CAM_PASS", "")
