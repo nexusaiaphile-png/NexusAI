@@ -67,8 +67,8 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$RUNNER_TEMP/build.keychain-db"
       - name: Import Developer ID Installer certificate
         env:
-          CERT_BASE64: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_P12_BASE64 }}
-          CERT_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
+          CERT_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           test -n "$CERT_BASE64"
           echo "$CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/installer.p12"
