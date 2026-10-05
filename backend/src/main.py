@@ -1049,60 +1049,14 @@ Write-Host "NexusAI Security Box is installed and running."
     return PlainTextResponse(script.replace("__TOKEN__", token), media_type="text/plain", headers={"Content-Disposition":'attachment; filename="NexusAI-SecurityBox-Installer.ps1"',"Cache-Control":"no-store"})
 
 @app.get("/downloads/security-box/macos.sh", include_in_schema=False)
-async def security_box_macos_installer(installer_token: str):
+async def security_box_macos_legacy_redirect(installer_token: str):
+    """Compatibility route for old links: send customers to the native Mac PKG."""
     token = _validate_installer_download_token(installer_token)
-    script = r'''#!/bin/sh
-set -eu
-if [ "$(id -u)" -ne 0 ]; then
-  exec sudo "$0"
-fi
-ROOT="/Library/Application Support/NexusAI/SecurityBox"
-mkdir -p "$ROOT"
-PY="/usr/local/bin/python3"
-if [ ! -x "$PY" ]; then
-  PKG="/tmp/NexusAI-Python-3.13.16.pkg"
-  curl -fL "https://www.python.org/ftp/python/3.13.16/python-3.13.16-macos11.pkg" -o "$PKG"
-  installer -pkg "$PKG" -target /
-  rm -f "$PKG"
-fi
-mkdir -p "$ROOT/edge_agent"
-for NAME in agent.py security_box.py secure_store.py setup_security_box.py; do
-  curl -fL "https://getnexusai.co.za/downloads/security-box/source/$NAME" -o "$ROOT/edge_agent/$NAME"
-done
-"$PY" -m pip install --disable-pip-version-check --quiet requests python-dotenv
-"$PY" "$ROOT/edge_agent/setup_security_box.py" --installer-token "__TOKEN__"
-EXEC="$ROOT/NexusAI-SecurityBox"
-cat > "$EXEC" <<'PYEOF'
-#!/usr/bin/env python3
-from edge_agent.security_box import run
-raise SystemExit(run())
-PYEOF
-chmod 755 "$EXEC"
-PLIST="/Library/LaunchDaemons/za.co.getnexusai.securitybox.plist"
-cat > "$PLIST" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
- "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>za.co.getnexusai.securitybox</string>
-<key>ProgramArguments</key><array><string>$EXEC</string></array>
-<key>RunAtLoad</key><true/>
-<key>KeepAlive</key><true/>
-<key>ProcessType</key><string>Background</string>
-<key>StandardOutPath</key><string>/Library/Application Support/NexusAI/SecurityBox/security-box.stdout.log</string>
-<key>StandardErrorPath</key><string>/Library/Application Support/NexusAI/SecurityBox/security-box.stderr.log</string>
-</dict></plist>
-EOF
-chmod 644 "$PLIST"
-chown root:wheel "$PLIST"
-launchctl bootout system "$PLIST" 2>/dev/null || true
-launchctl bootstrap system "$PLIST"
-launchctl enable system/za.co.getnexusai.securitybox
-launchctl kickstart -k system/za.co.getnexusai.securitybox
-echo "NexusAI Security Box is installed and running."
-'''
-    return PlainTextResponse(script.replace("__TOKEN__", token), media_type="text/plain", headers={"Content-Disposition":'attachment; filename="NexusAI-SecurityBox-Installer.sh"',"Cache-Control":"no-store"})
-
+    return RedirectResponse(
+        url=f"/downloads/security-box/macos.pkg?installer_token={quote(token)}&arch=arm64",
+        status_code=302,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/downloads/edge-agent/agent.py", include_in_schema=False)
