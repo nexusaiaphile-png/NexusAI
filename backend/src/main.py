@@ -51,6 +51,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def nexusai_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
 
 class EdgeCamera(BaseModel):
     camera_id: str = Field(..., min_length=1, max_length=128)
@@ -1562,6 +1573,36 @@ async def customer_session(token: str = ""):
 async def customer_events(token: str = "", limit: int = 50):
     site_id=require_customer_token(token)
     return {"site_id":site_id,"events":load_events(site_id,max(1,min(int(limit),100)),None)}
+
+@app.get("/api/customer/snapshots/{event_id}")
+async def customer_snapshot(event_id: int, token: str = ""):
+    site_id = require_customer_token(token)
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT snapshot_mime,snapshot_filename,snapshot_data FROM nexusai_events WHERE id=%s AND site_id=%s",
+                        (event_id, site_id),
+                    )
+                    row = cur.fetchone()
+        else:
+            with _sqlite() as conn:
+                row = conn.execute(
+                    "SELECT snapshot_mime,snapshot_filename,snapshot_data FROM nexusai_events WHERE id=? AND site_id=?",
+                    (event_id, site_id),
+                ).fetchone()
+    if not row or not row[2]:
+        raise HTTPException(status_code=404, detail="Snapshot not found.")
+    return Response(
+        content=bytes(row[2]),
+        media_type=row[0] or "image/jpeg",
+        headers={
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": f'inline; filename="{row[1] or "snapshot.jpg"}"',
+        },
+    )
 
 @app.post("/api/push/activate")
 async def push_activate(request: SiteActivationRequest, http_request: Request):
