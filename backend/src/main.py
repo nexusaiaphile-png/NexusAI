@@ -713,31 +713,47 @@ def dispatch_push_alert(event: dict):
 
 
 def _hpp_mapping(hpp_site_id: str, hpp_device_serial: str = "") -> str | None:
-    """Resolve an HPP site/device to a NexusAI customer site."""
+    """Resolve an HPP alarm to a NexusAI customer. Device serial is the primary key."""
     hpp_site_id = str(hpp_site_id or "").strip()
     hpp_device_serial = str(hpp_device_serial or "").strip()
-    if not hpp_site_id and not hpp_device_serial:
+    if not hpp_device_serial and not hpp_site_id:
         return None
     with DB_LOCK:
         if database_url():
             import psycopg
             with psycopg.connect(database_url()) as conn:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        """SELECT nexusai_site_id FROM nexusai_hpp_mappings
-                           WHERE hpp_site_id=%s AND (hpp_device_serial=%s OR hpp_device_serial='') 
-                           ORDER BY CASE WHEN hpp_device_serial=%s THEN 0 ELSE 1 END LIMIT 1""",
-                        (hpp_site_id, hpp_device_serial, hpp_device_serial),
-                    )
+                    if hpp_device_serial:
+                        cur.execute(
+                            """SELECT nexusai_site_id FROM nexusai_hpp_mappings
+                               WHERE hpp_device_serial=%s
+                               ORDER BY created_at DESC LIMIT 1""",
+                            (hpp_device_serial,),
+                        )
+                    else:
+                        cur.execute(
+                            """SELECT nexusai_site_id FROM nexusai_hpp_mappings
+                               WHERE hpp_site_id=%s
+                               ORDER BY created_at DESC LIMIT 1""",
+                            (hpp_site_id,),
+                        )
                     row = cur.fetchone()
         else:
             with _sqlite() as conn:
-                row = conn.execute(
-                    """SELECT nexusai_site_id FROM nexusai_hpp_mappings
-                       WHERE hpp_site_id=? AND (hpp_device_serial=? OR hpp_device_serial='')
-                       ORDER BY CASE WHEN hpp_device_serial=? THEN 0 ELSE 1 END LIMIT 1""",
-                    (hpp_site_id, hpp_device_serial, hpp_device_serial),
-                ).fetchone()
+                if hpp_device_serial:
+                    row = conn.execute(
+                        """SELECT nexusai_site_id FROM nexusai_hpp_mappings
+                           WHERE hpp_device_serial=?
+                           ORDER BY created_at DESC LIMIT 1""",
+                        (hpp_device_serial,),
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        """SELECT nexusai_site_id FROM nexusai_hpp_mappings
+                           WHERE hpp_site_id=?
+                           ORDER BY created_at DESC LIMIT 1""",
+                        (hpp_site_id,),
+                    ).fetchone()
     return str(row[0]) if row else None
 
 
@@ -745,8 +761,8 @@ def _save_hpp_mapping(hpp_site_id: str, hpp_device_serial: str, nexusai_site_id:
     hpp_site_id = str(hpp_site_id or "").strip()
     hpp_device_serial = str(hpp_device_serial or "").strip()
     nexusai_site_id = validate_site_id(nexusai_site_id)
-    if not hpp_site_id:
-        raise HTTPException(status_code=400, detail="HPP site ID is required.")
+    if not hpp_device_serial and not hpp_site_id:
+        raise HTTPException(status_code=400, detail="HPP device serial or HPP site ID is required.")
     now = time.time()
     with DB_LOCK:
         if database_url():
@@ -776,24 +792,20 @@ def _save_hpp_mapping(hpp_site_id: str, hpp_device_serial: str, nexusai_site_id:
 
 
 def _hpp_event_sink(event: dict) -> bool:
-    hpp_site_id = str(event.get("hpp_site_id") or "")
     serial = str(event.get("hpp_device_serial") or "")
-    site_id = _hpp_mapping(hpp_site_id, serial)
+    site_id = _hpp_mapping(str(event.get("hpp_site_id") or ""), serial)
     if not site_id:
         raise RuntimeError(
-            f"No NexusAI mapping for HPP site={hpp_site_id!r}, device={serial!r}. "
-            "Create the mapping before enabling production alarms."
+            f"No NexusAI mapping for HPP device={serial!r}. "
+            "Map the HPP device serial to a NexusAI site before production alarms."
         )
     event["site_id"] = site_id
-    # HPP owns the event transport; NexusAI's existing persistence and notification
-    # pipeline remains the single event path, preventing duplicate alarm systems.
     event.pop("hpp_site_id", None)
     event_id = persist_event(event)
     EDGE_EVENTS.insert(0, dict(event))
     del EDGE_EVENTS[200:]
     PUSH_EXECUTOR.submit(dispatch_push_alert, event)
     return bool(event_id)
-
 
 def _customer_token_hash(token: str) -> str:
     return hashlib.sha256(str(token).encode("utf-8")).hexdigest()
