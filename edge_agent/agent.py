@@ -742,7 +742,7 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
                   "<title>NexusAI Pairing</title><style>body{font-family:Arial;max-width:620px;margin:60px auto;padding:24px}button{padding:14px 22px;margin:8px;border:0;border-radius:8px;font-weight:700}.ok{background:#0aa;color:white}</style></head>"
                   f"<body><h1>NexusAI Pairing Request</h1><p>NexusAI wants to connect this Security Box to <b>{p.get('site_id')}</b>.</p>"
                   "<p>This authorizes NexusAI remote management for this site.</p>"
-                  f"<button class='ok' onclick="send('confirm')">CONFIRM</button><button onclick="send('decline')">DECLINE</button>"
+                  f"<button class='ok' onclick='send(\"confirm\")'>CONFIRM</button><button onclick='send(\"decline\")'>DECLINE</button>"
                   "<script>async function send(a){const r=await fetch('/pairing/'+a,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:"
                   +json.dumps(token)+"})});const j=await r.json();document.body.innerHTML='<h1>'+((j.confirmed)?'Paired successfully':'Request declined')+'</h1><p>You can close this window.</p>'}</script></body></html>")
             raw=body.encode(); self.send_response(200); self.send_header("Content-Type","text/html; charset=utf-8"); self.send_header("Cache-Control","no-store"); self.send_header("Content-Length",str(len(raw))); self.end_headers(); self.wfile.write(raw); return
