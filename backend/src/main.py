@@ -2058,10 +2058,6 @@ async def hpp_mapping_create(payload: dict, x_nexusai_admin_key: str | None = He
     return {"saved": True}
 
 
-@app.get("/", include_in_schema=False)
-async def nexusai_root():
-    return FileResponse(PORTAL_DIR / "qr-admin.html", media_type="text/html", headers={"Cache-Control":"no-store"})
-
 # Keep the portal mounted last so API routes stay reachable.
 app.mount("/portal", StaticFiles(directory=PORTAL_DIR, html=True), name="portal")
 
