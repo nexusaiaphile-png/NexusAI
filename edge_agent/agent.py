@@ -497,7 +497,8 @@ def capture_snapshot(cfg):
 
 def _xml_values(raw_event):
     values = {}
-    try:        root = ET.fromstring(raw_event)
+    try:
+        root = ET.fromstring(raw_event)
         for node in root.iter():
             key = node.tag.split("}")[-1]
             if node.text and node.text.strip():
