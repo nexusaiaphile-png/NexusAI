@@ -10,6 +10,8 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.13"
+      - key: NEXUSAI_ADMIN_KEY
+        sync: false
       - key: NEXUSAI_EDGE_TOKEN
         sync: false
       - key: DATABASE_URL
@@ -22,3 +24,9 @@ services:
         sync: false
       - key: NEXUSAI_APP_LINK_SECRET
         sync: false
+      - key: HPP_APP_KEY
+        sync: false
+      - key: HPP_SECRET_KEY
+        sync: false
+      - key: HPP_ALARM_WORKER_ENABLED
+        value: "true"
