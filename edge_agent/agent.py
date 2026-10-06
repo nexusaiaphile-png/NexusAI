@@ -935,7 +935,8 @@ def heartbeat_loop():
         time.sleep(HEARTBEAT_SECONDS)
 
 def discover_with_credentials(username, password, location="Security Site", manual_ip="", manual_port=80):
-    """Run one guarded discovery pass and start monitors for verified Hikvision devices."""    if not username or not password:
+    """Run one guarded discovery pass and start monitors for verified Hikvision devices."""
+    if not username or not password:
         return []
     if not DISCOVERY_LOCK.acquire(blocking=False):
         return []
