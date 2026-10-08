@@ -46,6 +46,11 @@
 const $=id=>document.getElementById(id);let key=localStorage.getItem("nexusai_admin_key")||"";
 $("key").value=key;
 function headers(){return {"X-NexusAI-Admin-Key":key,"Content-Type":"application/json"}}
+async function readApiResponse(r){
+  const text=await r.text();
+  try{return text?JSON.parse(text):{}}
+  catch(_){throw Error("NexusAI server returned a non-JSON error ("+r.status+"): "+text.slice(0,300))}
+}
 function esc(v){return String(v??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
 async function login(){key=$("key").value.trim();if(!key)return;$("loginStatus").textContent="Checking access…";try{let r=await fetch("/api/admin/sites",{headers:{"X-NexusAI-Admin-Key":key}});let d=await r.json();if(!r.ok)throw Error(d.detail||"Access denied");localStorage.setItem("nexusai_admin_key",key);$("login").classList.add("hidden");$("dashboard").classList.remove("hidden");render(d.sites||[])}catch(e){$("loginStatus").textContent=e.message}}
 async function loadSites(){if(!key)return login();let r=await fetch("/api/admin/sites",{headers:{"X-NexusAI-Admin-Key":key},cache:"no-store"});let d=await r.json();if(!r.ok){$("loginStatus").textContent=d.detail||"Access denied";$("dashboard").classList.add("hidden");$("login").classList.remove("hidden");return}render(d.sites||[])}
@@ -76,7 +81,7 @@ async function loadAuthorizedHppSites(){
  $("hppConnectStatus").textContent="Loading authorised Hikvision sites…";
  try{
    let r=await fetch("/api/admin/hpp/authorized-sites",{headers:{"X-NexusAI-Admin-Key":key},cache:"no-store"});
-   let d=await r.json(); if(!r.ok) throw Error(d.detail||"Could not load authorised sites");
+   let d=await readApiResponse(r); if(!r.ok) throw Error(d.detail||"Could not load authorised sites");
    const select=$("hppAuthorizedSite");
    select.innerHTML='<option value="">Select a Hikvision site</option>';
    (d.sites||[]).forEach(s=>{
@@ -95,7 +100,7 @@ async function connectAuthorizedHppSite(){
  $("hppConnectStatus").textContent="Connecting Hikvision site to NexusAI…";
  try{
    let r=await fetch("/api/admin/hpp/connect-site",{method:"POST",headers:headers(),body:JSON.stringify({hpp_site_id:hppSite,nexusai_site_id:nexusSite})});
-   let d=await r.json(); if(!r.ok) throw Error(d.detail||"Could not connect Hikvision site");
+   let d=await readApiResponse(r); if(!r.ok) throw Error(d.detail||"Could not connect Hikvision site");
    $("hppConnectStatus").textContent=d.hpp_site_name+" connected • "+d.mapped_device_count+" device(s) mapped.";
    await loadSites();
  }catch(e){$("hppConnectStatus").textContent=e.message}
@@ -103,17 +108,17 @@ async function connectAuthorizedHppSite(){
 
 async function hppAuth(){
  $("hppStatus").textContent="Testing HPP authentication…";
- try{let r=await fetch("/api/hpp/test-auth",{method:"POST",headers:{"X-NexusAI-Admin-Key":key}});let d=await r.json();if(!r.ok)throw Error(d.detail||"HPP authentication failed");$("hppStatus").textContent="HPP AUTHENTICATED • regional API domain received";$("hppOutput").textContent=JSON.stringify(d,null,2)}catch(e){$("hppStatus").textContent=e.message}
+ try{let r=await fetch("/api/hpp/test-auth",{method:"POST",headers:{"X-NexusAI-Admin-Key":key}});let d=await readApiResponse(r);if(!r.ok)throw Error(d.detail||"HPP authentication failed");$("hppStatus").textContent="HPP AUTHENTICATED • regional API domain received";$("hppOutput").textContent=JSON.stringify(d,null,2)}catch(e){$("hppStatus").textContent=e.message}
 }
 async function hppSites(){
  $("hppStatus").textContent="Loading HPP sites…";
- try{let r=await fetch("/api/hpp/sites/search",{method:"POST",headers:headers(),body:JSON.stringify({page:1,pageSize:100,search:""})});let d=await r.json();if(!r.ok)throw Error(d.detail||"Could not load HPP sites");$("hppStatus").textContent="HPP sites loaded";$("hppOutput").textContent=JSON.stringify(d,null,2)}catch(e){$("hppStatus").textContent=e.message}
+ try{let r=await fetch("/api/hpp/sites/search",{method:"POST",headers:headers(),body:JSON.stringify({page:1,pageSize:100,search:""})});let d=await readApiResponse(r);if(!r.ok)throw Error(d.detail||"Could not load HPP sites");$("hppStatus").textContent="HPP sites loaded";$("hppOutput").textContent=JSON.stringify(d,null,2)}catch(e){$("hppStatus").textContent=e.message}
 }
 async function hppMap(){
  const serial=$("hppSerial").value.trim(),site=$("hppSite").value.trim();
  if(!serial||!site){$("hppMapStatus").textContent="Device serial and NexusAI site ID are required.";return}
  $("hppMapStatus").textContent="Saving device mapping…";
- try{let r=await fetch("/api/hpp/mappings",{method:"POST",headers:headers(),body:JSON.stringify({hpp_site_id:"",hpp_device_serial:serial,nexusai_site_id:site})});let d=await r.json();if(!r.ok)throw Error(d.detail||"Could not save mapping");$("hppMapStatus").textContent="HPP device mapped to "+site}catch(e){$("hppMapStatus").textContent=e.message}
+ try{let r=await fetch("/api/hpp/mappings",{method:"POST",headers:headers(),body:JSON.stringify({hpp_site_id:"",hpp_device_serial:serial,nexusai_site_id:site})});let d=await readApiResponse(r);if(!r.ok)throw Error(d.detail||"Could not save mapping");$("hppMapStatus").textContent="HPP device mapped to "+site}catch(e){$("hppMapStatus").textContent=e.message}
 }
 if(key)login();
 </script></body></html>
