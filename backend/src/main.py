@@ -265,6 +265,16 @@ def init_db():
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_hpp_mappings_site ON nexusai_hpp_mappings(nexusai_site_id)")
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS nexusai_hpp_sites (
+                        hpp_site_id TEXT PRIMARY KEY,
+                        nexusai_site_id TEXT NOT NULL UNIQUE,
+                        hpp_site_name TEXT,
+                        connected_at DOUBLE PRECISION NOT NULL,
+                        metadata_json TEXT
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_hpp_sites_nexusai ON nexusai_hpp_sites(nexusai_site_id)")
 
                 conn.commit()
     else:
@@ -334,6 +344,14 @@ def init_db():
                     active INTEGER NOT NULL DEFAULT 1
                 );
                 CREATE INDEX IF NOT EXISTS idx_nexusai_customer_tokens_site ON nexusai_customer_tokens(site_id);
+                CREATE TABLE IF NOT EXISTS nexusai_hpp_sites (
+                    hpp_site_id TEXT PRIMARY KEY,
+                    nexusai_site_id TEXT NOT NULL UNIQUE,
+                    hpp_site_name TEXT,
+                    connected_at REAL NOT NULL,
+                    metadata_json TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_nexusai_hpp_sites_nexusai ON nexusai_hpp_sites(nexusai_site_id);
 
             """)
             conn.commit()
@@ -789,6 +807,100 @@ def _save_hpp_mapping(hpp_site_id: str, hpp_device_serial: str, nexusai_site_id:
                     (hpp_site_id, hpp_device_serial, nexusai_site_id, now),
                 )
                 conn.commit()
+
+
+def _hpp_site_devices(payload: dict) -> list[dict]:
+    data = payload.get("data") or {}
+    if isinstance(data, dict):
+        items = data.get("list") or data.get("devices") or data.get("items") or []
+    else:
+        items = []
+    return [item for item in items if isinstance(item, dict)]
+
+
+def _hpp_device_serial(device: dict) -> str:
+    for key in ("deviceSerial", "serialNumber", "serial", "deviceSn", "sn"):
+        value = device.get(key)
+        if value:
+            return str(value).strip()
+    return ""
+
+
+def _hpp_site_name(site: dict) -> str:
+    for key in ("siteName", "name", "site_name", "title"):
+        value = site.get(key)
+        if value:
+            return str(value).strip()
+    return "Hikvision Site"
+
+
+def _save_hpp_site(hpp_site_id: str, nexusai_site_id: str, site_name: str, metadata: dict):
+    hpp_site_id = str(hpp_site_id or "").strip()
+    nexusai_site_id = validate_site_id(nexusai_site_id)
+    if not hpp_site_id:
+        raise HTTPException(status_code=400, detail="HPP site ID is required.")
+    now = time.time()
+    payload = json.dumps(metadata or {}, separators=(",", ":"))
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """INSERT INTO nexusai_hpp_sites
+                           (hpp_site_id,nexusai_site_id,hpp_site_name,connected_at,metadata_json)
+                           VALUES(%s,%s,%s,%s,%s)
+                           ON CONFLICT(hpp_site_id) DO UPDATE SET
+                             nexusai_site_id=EXCLUDED.nexusai_site_id,
+                             hpp_site_name=EXCLUDED.hpp_site_name,
+                             connected_at=EXCLUDED.connected_at,
+                             metadata_json=EXCLUDED.metadata_json""",
+                        (hpp_site_id, nexusai_site_id, site_name[:200], now, payload),
+                    )
+                conn.commit()
+        else:
+            with _sqlite() as conn:
+                conn.execute(
+                    """INSERT INTO nexusai_hpp_sites
+                       (hpp_site_id,nexusai_site_id,hpp_site_name,connected_at,metadata_json)
+                       VALUES(?,?,?,?,?)
+                       ON CONFLICT(hpp_site_id) DO UPDATE SET
+                         nexusai_site_id=excluded.nexusai_site_id,
+                         hpp_site_name=excluded.hpp_site_name,
+                         connected_at=excluded.connected_at,
+                         metadata_json=excluded.metadata_json""",
+                    (hpp_site_id, nexusai_site_id, site_name[:200], now, payload),
+                )
+                conn.commit()
+
+
+def _load_hpp_site_connection(nexusai_site_id: str) -> dict | None:
+    site_id = validate_site_id(nexusai_site_id)
+    with DB_LOCK:
+        if database_url():
+            import psycopg
+            with psycopg.connect(database_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT hpp_site_id,nexusai_site_id,hpp_site_name,connected_at,metadata_json FROM nexusai_hpp_sites WHERE nexusai_site_id=%s",
+                        (site_id,),
+                    )
+                    row = cur.fetchone()
+        else:
+            with _sqlite() as conn:
+                row = conn.execute(
+                    "SELECT hpp_site_id,nexusai_site_id,hpp_site_name,connected_at,metadata_json FROM nexusai_hpp_sites WHERE nexusai_site_id=?",
+                    (site_id,),
+                ).fetchone()
+    if not row:
+        return None
+    return {
+        "hpp_site_id": row[0],
+        "nexusai_site_id": row[1],
+        "hpp_site_name": row[2],
+        "connected_at": row[3],
+        "metadata": json.loads(row[4]) if row[4] else {},
+    }
 
 
 def _hpp_event_sink(event: dict) -> bool:
@@ -1435,6 +1547,81 @@ def create_or_resolve_site(activation_code: str | None = None) -> tuple[str, str
                     except sqlite3.IntegrityError:
                         conn.rollback()
             raise HTTPException(status_code=500, detail="Could not create a NexusAI site. Please try again.")
+
+
+class HppConnectSiteRequest(BaseModel):
+    hpp_site_id: str = Field(..., min_length=1, max_length=200)
+    nexusai_site_id: str = Field(..., min_length=8, max_length=100)
+
+
+@app.post("/api/admin/hpp/connect-site")
+async def admin_hpp_connect_site(
+    request: HppConnectSiteRequest,
+    x_nexusai_admin_key: str | None = Header(default=None),
+):
+    require_admin_key(x_nexusai_admin_key)
+    site_id = validate_site_id(request.nexusai_site_id)
+    try:
+        sites_payload = search_sites(1, 100, "")
+        raw_sites = (sites_payload.get("data") or {}).get("list") or []
+        selected = next(
+            (s for s in raw_sites if isinstance(s, dict) and str(
+                s.get("siteId") or s.get("id") or s.get("site_id") or ""
+            ) == request.hpp_site_id),
+            {"siteId": request.hpp_site_id, "siteName": "Hikvision Site"},
+        )
+        hpp_site_name = _hpp_site_name(selected)
+        devices_payload = list_devices(request.hpp_site_id, 1, 1000)
+        devices = _hpp_site_devices(devices_payload)
+        mapped = 0
+        for device in devices:
+            serial = _hpp_device_serial(device)
+            if serial:
+                _save_hpp_mapping(request.hpp_site_id, serial, site_id)
+                mapped += 1
+        _save_hpp_site(request.hpp_site_id, site_id, hpp_site_name, selected)
+        return {
+            "connected": True,
+            "nexusai_site_id": site_id,
+            "hpp_site_id": request.hpp_site_id,
+            "hpp_site_name": hpp_site_name,
+            "device_count": len(devices),
+            "mapped_device_count": mapped,
+            "message": "Authorized Hikvision site connected to NexusAI.",
+        }
+    except HppError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.get("/api/admin/sites/{site_id}/hpp")
+async def admin_hpp_site(site_id: str, x_nexusai_admin_key: str | None = Header(default=None)):
+    require_admin_key(x_nexusai_admin_key)
+    connection = _load_hpp_site_connection(validate_site_id(site_id))
+    return {"connected": bool(connection), "connection": connection}
+
+
+@app.get("/api/admin/hpp/authorized-sites")
+async def admin_hpp_authorized_sites(x_nexusai_admin_key: str | None = Header(default=None)):
+    require_admin_key(x_nexusai_admin_key)
+    try:
+        payload = search_sites(1, 100, "")
+        data = payload.get("data") or {}
+        sites = data.get("list") or []
+        normalized = []
+        for site in sites:
+            if not isinstance(site, dict):
+                continue
+            site_id = str(site.get("siteId") or site.get("id") or site.get("site_id") or "").strip()
+            if not site_id:
+                continue
+            normalized.append({
+                "hpp_site_id": site_id,
+                "name": _hpp_site_name(site),
+                "raw": site,
+            })
+        return {"sites": normalized}
+    except HppError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
 
 @app.post("/api/portal/activate")
