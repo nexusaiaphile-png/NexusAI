@@ -12,6 +12,17 @@
 <div class="field"><label>CONTACT NAME</label><input id="contact"></div><div class="field"><label>PHONE</label><input id="phone"></div>
 <div class="field"><label>EMAIL</label><input id="email" type="email"></div><div class="field"><label>EXPECTED CAMERAS</label><input id="cams" type="number" min="0"></div>
 <div style="align-self:end"><button onclick="createSite()">CREATE SITE</button></div></div><div id="createStatus" class="status"></div><div id="createdLinks" class="status"></div></section>
+<section class="card">
+<h2>Add Hikvision Site</h2>
+<p class="muted">After the customer has authorised NexusAI as a service provider in Hikvision, load the authorised sites here. Choose a site and connect it to a NexusAI customer site.</p>
+<div class="row">
+<div class="field"><label>NEXUSAI SITE ID</label><input id="hppConnectNexusSite" placeholder="site-..."></div>
+<div class="field"><label>HIKVISION SITE</label><select id="hppAuthorizedSite" style="width:100%;padding:12px;border-radius:10px;border:1px solid #29434a;background:#061016;color:white"><option value="">Load authorised sites</option></select></div>
+<div style="align-self:end"><button class="secondary" onclick="loadAuthorizedHppSites()">LOAD AUTHORISED SITES</button></div>
+<div style="align-self:end"><button onclick="connectAuthorizedHppSite()">CONNECT SITE</button></div>
+</div>
+<div id="hppConnectStatus" class="status"></div>
+</section>
 <section class="card"><h2>Customer Sites</h2><p class="muted">Hik-Partner Pro is the primary Hikvision integration. Security Box is retained only as a fallback when HPP cannot provide a required capability.</p><div id="sites"></div></section>
 <section class="card">
 <h2>Hik-Partner Pro</h2>
@@ -61,6 +72,35 @@ try{
  if(online) await loadSites();
 }catch(e){$("connectStatus").textContent=e.message;}
 }
+async function loadAuthorizedHppSites(){
+ $("hppConnectStatus").textContent="Loading authorised Hikvision sites…";
+ try{
+   let r=await fetch("/api/admin/hpp/authorized-sites",{headers:{"X-NexusAI-Admin-Key":key},cache:"no-store"});
+   let d=await r.json(); if(!r.ok) throw Error(d.detail||"Could not load authorised sites");
+   const select=$("hppAuthorizedSite");
+   select.innerHTML='<option value="">Select a Hikvision site</option>';
+   (d.sites||[]).forEach(s=>{
+     const o=document.createElement("option");
+     o.value=s.hpp_site_id;
+     o.textContent=s.name+" • "+s.hpp_site_id;
+     select.appendChild(o);
+   });
+   $("hppConnectStatus").textContent=(d.sites||[]).length+" authorised Hikvision site(s) available.";
+ }catch(e){$("hppConnectStatus").textContent=e.message}
+}
+async function connectAuthorizedHppSite(){
+ const nexusSite=$("hppConnectNexusSite").value.trim();
+ const hppSite=$("hppAuthorizedSite").value;
+ if(!nexusSite||!hppSite){$("hppConnectStatus").textContent="Select a Hikvision site and enter the NexusAI site ID.";return}
+ $("hppConnectStatus").textContent="Connecting Hikvision site to NexusAI…";
+ try{
+   let r=await fetch("/api/admin/hpp/connect-site",{method:"POST",headers:headers(),body:JSON.stringify({hpp_site_id:hppSite,nexusai_site_id:nexusSite})});
+   let d=await r.json(); if(!r.ok) throw Error(d.detail||"Could not connect Hikvision site");
+   $("hppConnectStatus").textContent=d.hpp_site_name+" connected • "+d.mapped_device_count+" device(s) mapped.";
+   await loadSites();
+ }catch(e){$("hppConnectStatus").textContent=e.message}
+}
+
 async function hppAuth(){
  $("hppStatus").textContent="Testing HPP authentication…";
  try{let r=await fetch("/api/hpp/test-auth",{method:"POST",headers:{"X-NexusAI-Admin-Key":key}});let d=await r.json();if(!r.ok)throw Error(d.detail||"HPP authentication failed");$("hppStatus").textContent="HPP AUTHENTICATED • regional API domain received";$("hppOutput").textContent=JSON.stringify(d,null,2)}catch(e){$("hppStatus").textContent=e.message}
