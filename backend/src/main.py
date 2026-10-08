@@ -1562,6 +1562,7 @@ async def admin_hpp_connect_site(
     require_admin_key(x_nexusai_admin_key)
     site_id = validate_site_id(request.nexusai_site_id)
     try:
+        from hpp_integration import search_sites, list_devices, HppError
         sites_payload = search_sites(1, 100, "")
         raw_sites = (sites_payload.get("data") or {}).get("list") or []
         selected = next(
@@ -1604,6 +1605,7 @@ async def admin_hpp_site(site_id: str, x_nexusai_admin_key: str | None = Header(
 async def admin_hpp_authorized_sites(x_nexusai_admin_key: str | None = Header(default=None)):
     require_admin_key(x_nexusai_admin_key)
     try:
+        from hpp_integration import search_sites, HppError
         payload = search_sites(1, 100, "")
         data = payload.get("data") or {}
         sites = data.get("list") or []
