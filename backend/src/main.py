@@ -2245,6 +2245,27 @@ async def hpp_mapping_create(payload: dict, x_nexusai_admin_key: str | None = He
     return {"saved": True}
 
 
+# HPP auth endpoint is registered directly here as a safety net so an import/startup
+# problem in the optional HPP installer cannot turn the admin test into a misleading 404.
+@app.post("/api/hpp/test-auth", include_in_schema=False)
+async def hpp_test_auth_direct(x_nexusai_admin_key: str | None = Header(default=None)):
+    require_admin_key(x_nexusai_admin_key)
+    try:
+        from hpp_integration import configured as hpp_configured, get_token as hpp_get_token, HppError
+        if not hpp_configured():
+            raise HTTPException(status_code=503, detail="Set HPP_APP_KEY and HPP_SECRET_KEY on the server first.")
+        token = hpp_get_token()
+        return {
+            "authenticated": True,
+            "expires_at_ms": token.get("expireTime"),
+            "area_domain": token.get("areaDomain"),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging.exception("Direct HPP authentication test failed.")
+        raise HTTPException(status_code=502, detail=f"HPP integration is not available: {str(exc)[:500]}")
+
 # Keep the portal mounted last so API routes stay reachable.
 app.mount("/portal", StaticFiles(directory=PORTAL_DIR, html=True), name="portal")
 
