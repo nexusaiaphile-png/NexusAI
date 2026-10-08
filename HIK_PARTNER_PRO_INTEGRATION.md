@@ -66,6 +66,20 @@ All HPP admin routes require `X-NexusAI-Admin-Key`.
 - `GET /api/hpp/mappings`
 - `POST /api/hpp/mappings`
 
+## Multi-site onboarding foundation
+
+The NexusAI Command Centre now has an **Add Hikvision Site** workflow for the multi-site model discussed with Hikvision support:
+
+1. Customer authorizes NexusAI through the Hikvision service-provider flow.
+2. NexusAI administrator loads the authorized Hikvision sites from HPP.
+3. Administrator selects the authorized Hikvision site and an existing NexusAI customer site.
+4. NexusAI connects the HPP site to that customer record.
+5. NexusAI queries the HPP device list for that site.
+6. Each discovered Hikvision device serial is mapped automatically to the NexusAI site.
+7. Future HPP alarms can therefore be resolved to the correct NexusAI customer without installing Security Box.
+
+The implementation deliberately does **not** implement or fake the Hikvision customer-consent screen. The actual authorization step remains in Hikvision's platform as directed by Hikvision support; NexusAI starts consuming the site after authorization is granted.
+
 ## Customer mapping
 
 HPP alarm messages identify the Hikvision device serial. NexusAI therefore maps:
