@@ -2285,3 +2285,11 @@ try:
     install_managed_deployment(app)
 except Exception:
     logging.exception("Managed Deployment control plane failed to load.")
+
+// NexusAI Retail Intelligence: POS transaction and camera-evidence correlation.
+// This is a separate module so HPP authentication/alarm processing remains unchanged.
+try:
+    from backend.src.retail_intelligence import install as install_retail_intelligence
+    install_retail_intelligence(app)
+except Exception:
+    logging.exception("NexusAI Retail Intelligence routes failed to load.")
