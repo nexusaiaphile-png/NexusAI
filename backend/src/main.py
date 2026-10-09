@@ -914,6 +914,13 @@ def _hpp_event_sink(event: dict) -> bool:
     event["site_id"] = site_id
     event.pop("hpp_site_id", None)
     event_id = persist_event(event)
+    # Feed mapped checkout-camera alarms into Retail Intelligence without allowing
+    # an optional retail adapter error to interrupt the existing HPP alert path.
+    try:
+        from backend.src.retail_intelligence import ingest_hpp_event
+        ingest_hpp_event(event)
+    except Exception:
+        logging.exception("Retail Intelligence could not ingest HPP camera event.")
     EDGE_EVENTS.insert(0, dict(event))
     del EDGE_EVENTS[200:]
     PUSH_EXECUTOR.submit(dispatch_push_alert, event)
@@ -2285,3 +2292,11 @@ try:
     install_managed_deployment(app)
 except Exception:
     logging.exception("Managed Deployment control plane failed to load.")
+
+# NexusAI Retail Intelligence: POS transaction and camera-evidence correlation.
+# This is a separate module so HPP authentication/alarm processing remains unchanged.
+try:
+    from backend.src.retail_intelligence import install as install_retail_intelligence
+    install_retail_intelligence(app)
+except Exception:
+    logging.exception("NexusAI Retail Intelligence routes failed to load.")

@@ -1,0 +1,27 @@
+name: Retail Intelligence tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, feature/retail-intelligence-integration]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies and test tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pytest httpx
+      - name: Compile Python source
+        run: python -m compileall -q backend
+      - name: Run Retail Intelligence tests
+        run: python -m pytest -q tests/test_retail_intelligence.py
