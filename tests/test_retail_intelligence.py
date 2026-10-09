@@ -112,7 +112,7 @@ def test_vision_sku_mismatch_creates_reviewable_incident(api):
     result = response.json()
     assert result["incident_created"] is True
     assert result["status"] == "OPEN"
-    assert "human review required" in result["warning"].lower()
+    assert "not a confirmed fraud finding" in result["warning"].lower()
 
     incidents = api.get("/api/retail/incidents", headers=ADMIN_HEADERS)
     assert incidents.status_code == 200
