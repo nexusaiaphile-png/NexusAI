@@ -191,3 +191,47 @@ def test_hpp_bridge_maps_event_and_keeps_snapshot_reference(api, monkeypatch):
         "event": "MOTION",
         "hpp_data": {"pictureUrl": "https://example.invalid/snapshot.jpg"},
     }) is True
+
+def test_multi_site_burst_keeps_transactions_isolated(api):
+    timestamp = "2026-10-09T10:30:00Z"
+    expected_id = "receipt-3-2"
+    for store in range(1, 6):
+        for lane in range(1, 5):
+            response = api.post(
+                "/api/retail/pos/transactions",
+                headers=POS_HEADERS,
+                json={
+                    "site_id": f"store-{store:03d}",
+                    "lane_id": f"lane-{lane:02d}",
+                    "transaction_id": f"receipt-{store}-{lane}",
+                    "timestamp": timestamp,
+                    "items": [{"sku": f"SKU-{store}-{lane}", "item_name": "Test item"}],
+                },
+            )
+            assert response.status_code == 200
+
+    response = api.post(
+        "/api/retail/camera-events",
+        headers=POS_HEADERS,
+        json={
+            "site_id": "store-003",
+            "lane_id": "lane-02",
+            "camera_id": "camera-003-02",
+            "event_id": "event-store-3-lane-2",
+            "timestamp": "2026-10-09T10:30:02Z",
+            "event_type": "CHECKOUT_ACTIVITY",
+        },
+    )
+    assert response.status_code == 200
+    candidates = response.json()["candidate_transactions"]
+    assert [candidate["transaction_id"] for candidate in candidates] == [expected_id]
+
+
+def test_repeated_pos_transaction_does_not_duplicate_match(api):
+    assert add_transaction(api).status_code == 200
+    assert add_transaction(api).status_code == 200
+    response = add_camera_event(api)
+    assert response.status_code == 200
+    assert len(response.json()["candidate_transactions"]) == 1
+    assert response.json()["candidate_transactions"][0]["transaction_id"] == "receipt-1001"
+
