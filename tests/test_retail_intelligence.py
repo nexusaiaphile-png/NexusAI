@@ -172,6 +172,7 @@ def test_hpp_bridge_maps_event_and_keeps_snapshot_reference(api, monkeypatch):
         "camera_id": "SERIAL123-Ch 1",
         "hpp_device_serial": "SERIAL123",
         "hpp_channel": "1",
+        "event_id": "hpp-event-unique",
         "timestamp": "2026-10-09T10:30:00Z",
         "event": "MOTION",
         "hpp_data": {"pictureUrl": "https://example.invalid/snapshot.jpg"},
