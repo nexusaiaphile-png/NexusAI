@@ -95,8 +95,8 @@ def test_missing_pos_token_is_rejected(api):
 
 
 def test_vision_sku_mismatch_creates_reviewable_incident(api):
-    add_transaction()
-    add_camera_event()
+    add_transaction(api)
+    add_camera_event(api)
     response = api.post(
         "/api/retail/vision-results",
         headers=POS_HEADERS,
@@ -121,8 +121,8 @@ def test_vision_sku_mismatch_creates_reviewable_incident(api):
 
 
 def test_low_confidence_does_not_create_incident(api):
-    add_transaction()
-    add_camera_event()
+    add_transaction(api)
+    add_camera_event(api)
     response = api.post(
         "/api/retail/vision-results",
         headers=POS_HEADERS,
@@ -139,7 +139,7 @@ def test_low_confidence_does_not_create_incident(api):
 
 
 def test_vision_result_rejects_site_or_lane_mismatch(api):
-    add_transaction()
+    add_transaction(api)
     add_camera_event(api, lane_id="lane-02")
     response = api.post(
         "/api/retail/vision-results",
