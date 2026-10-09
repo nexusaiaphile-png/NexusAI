@@ -73,6 +73,56 @@ def _utc(dt):
     if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc).isoformat()
 
+
+def ingest_hpp_event(event: dict) -> bool:
+    """Bridge normalized HPP alarms into the retail camera-event table.
+
+    Configure NEXUSAI_RETAIL_CAMERA_LANE_MAP as JSON, with keys of
+    "nexusai_site_id|camera_id" and values of the matching POS lane ID.
+    Events without an explicit mapping are intentionally ignored.
+    """
+    raw_map = os.getenv("NEXUSAI_RETAIL_CAMERA_LANE_MAP", "").strip()
+    if not raw_map:
+        return False
+    try:
+        lane_map = json.loads(raw_map)
+    except Exception as exc:
+        raise RuntimeError("NEXUSAI_RETAIL_CAMERA_LANE_MAP must be valid JSON.") from exc
+    if not isinstance(lane_map, dict):
+        raise RuntimeError("NEXUSAI_RETAIL_CAMERA_LANE_MAP must be a JSON object.")
+
+    site_id = str(event.get("site_id") or "").strip()
+    camera_id = str(event.get("camera_id") or "").strip()
+    serial = str(event.get("hpp_device_serial") or "").strip()
+    channel = str(event.get("hpp_channel") or "").strip()
+    lane_id = (lane_map.get(f"{site_id}|{camera_id}")
+               or lane_map.get(f"{site_id}|{serial}|{channel}")
+               or lane_map.get(f"{site_id}|{serial}")
+               or lane_map.get(camera_id))
+    if not lane_id or not site_id or not camera_id:
+        return False
+
+    timestamp = str(event.get("timestamp") or datetime.now(timezone.utc).isoformat())
+    event_key = str(event.get("event_id") or "")
+    if not event_key:
+        import hashlib
+        stable = "|".join([site_id, camera_id, timestamp, str(event.get("event") or "")])
+        event_key = "hpp-" + hashlib.sha256(stable.encode("utf-8")).hexdigest()[:48]
+    hpp_data = event.get("hpp_data") if isinstance(event.get("hpp_data"), dict) else {}
+    picture_url = (event.get("snapshot_url") or hpp_data.get("pictureUrl")
+                   or hpp_data.get("picture") or hpp_data.get("filePath") or hpp_data.get("url"))
+    c, pg = _db()
+    try:
+        _q(c, pg, "INSERT INTO retail_camera_events VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(event_id) DO NOTHING",
+           ("hpp-" + uuid.uuid4().hex, site_id, str(lane_id), camera_id, event_key,
+            _utc(datetime.fromisoformat(timestamp.replace("Z", "+00:00"))),
+            str(picture_url) if picture_url else None,
+            str(event.get("event") or "HIKVISION_ALARM"), time.time()))
+        c.commit()
+        return True
+    finally:
+        c.close()
+
 def install(app: FastAPI):
     _init()
     @app.get("/api/retail/status")
