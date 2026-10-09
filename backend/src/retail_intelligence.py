@@ -159,7 +159,7 @@ def install(app: FastAPI):
         c,pg=_db()
         try:
             rows=_q(c,pg,"SELECT id,site_id,lane_id,transaction_id,event_id,status,summary,evidence_json,created_at,updated_at FROM retail_incidents WHERE status=? ORDER BY created_at DESC LIMIT ?",
-                    (status,max(1,min(limit,200))).fetchall()
+                    (status,max(1,min(limit,200)))).fetchall()
             return {"incidents":[{"id":r[0],"site_id":r[1],"lane_id":r[2],"transaction_id":r[3],"event_id":r[4],
                 "status":r[5],"summary":r[6],"evidence":json.loads(r[7]),"created_at":r[8],"updated_at":r[9]} for r in rows]}
         finally: c.close()
