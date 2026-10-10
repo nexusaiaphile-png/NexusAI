@@ -147,14 +147,8 @@ async def execute_autonomous_code_patch(file_path: str, error_message: str, trac
                 await send_alert("🧠 Diagnosing Exception", "Detected unhandled currency string symbol in transaction payload. Patching validation matrix...", 0x3498DB)
                 
                 old_logic = 'float(payload["total_amount"])'
-                safe_patch_logic = (
-                    'try:\n'
-                    '        float(payload["total_amount"])\n'
-                    '    except ValueError:\n'
-                    '        # Patched autonomously: strips currency symbols and formatting anomalies\n'
-                    '        clean_amount = "".join(c for c in payload["total_amount"] if c.isdigit() or c == ".")\n'
-                    '        float(clean_amount)'
-                )
+                # Spacing Safe Fix: One line code parser transformation
+                safe_patch_logic = 'float(str(payload["total_amount"]).replace("R", "").strip())'
                 
                 if old_logic in raw_content:
                     patched_content = raw_content.replace(old_logic, safe_patch_logic)
@@ -173,9 +167,8 @@ async def execute_autonomous_code_patch(file_path: str, error_message: str, trac
             
             put_res = await client.put(url, headers=headers, json=payload)
             
-            # Pure numeric validation list to completely protect against markdown text hiding bugs
-            success_status_codes = [200, 201]
-            if put_res.status_code in success_status_codes:
+            # Formatted list check logic to verify connection feedback parameters
+            if put_res.status_code in:
                 await send_alert(
                     "✅ Codebase Repaired Successfully", 
                     f"Automated patch committed straight to branch `{GITHUB_BRANCH}`.\n\nRender is now executing an automated, hands-free server rebuild container!",
@@ -205,3 +198,7 @@ async def on_ready() -> None:
 async def status(interaction: discord.Interaction) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
     try:
+        data = await render_get(f"/services/{RENDER_SERVICE_ID}")
+        service = data.get("service", data) if isinstance(data, dict) else {}
+        details = service.get("serviceDetails", {})
+        url = details.get("url") if isinstance(details, dict) else None
