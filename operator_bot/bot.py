@@ -147,7 +147,6 @@ async def execute_autonomous_code_patch(file_path: str, error_message: str, trac
                 await send_alert("🧠 Diagnosing Exception", "Detected unhandled currency string symbol in transaction payload. Patching validation matrix...", 0x3498DB)
                 
                 old_logic = 'float(payload["total_amount"])'
-                # Spacing Safe Fix: One line code parser transformation
                 safe_patch_logic = 'float(str(payload["total_amount"]).replace("R", "").strip())'
                 
                 if old_logic in raw_content:
@@ -167,8 +166,9 @@ async def execute_autonomous_code_patch(file_path: str, error_message: str, trac
             
             put_res = await client.put(url, headers=headers, json=payload)
             
-            # Formatted list check logic to verify connection feedback parameters
-            if put_res.status_code in:
+            # Explicit tuple evaluation array to bypass formatting rules cleanly
+            success_codes = (200, 201)
+            if put_res.status_code in success_codes:
                 await send_alert(
                     "✅ Codebase Repaired Successfully", 
                     f"Automated patch committed straight to branch `{GITHUB_BRANCH}`.\n\nRender is now executing an automated, hands-free server rebuild container!",
@@ -202,3 +202,4 @@ async def status(interaction: discord.Interaction) -> None:
         service = data.get("service", data) if isinstance(data, dict) else {}
         details = service.get("serviceDetails", {})
         url = details.get("url") if isinstance(details, dict) else None
+        embed = discord.Embed(title="NexusAI Render Status", color=discord.Color.blue(), timestamp=datetime.now(timezone.utc))
