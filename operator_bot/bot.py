@@ -27,10 +27,10 @@ GITHUB_REPO_OWNER = os.getenv("GITHUB_REPO_OWNER", "nexusaiaphile-png").strip()
 GITHUB_REPO_NAME = os.getenv("GITHUB_REPO_NAME", "NexusAI").strip()
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "feature/devops-operator-safe-mode").strip()
 
-RENDER_API_BASE = "https://api.render.com/v1"
-GITHUB_API_BASE = "https://api.github.com"
+RENDER_API_BASE = "https://render.com"
+GITHUB_API_BASE = "https://github.com"
 
-# Ensure all structural layout dependencies are loaded cleanly
+# Ensure all structural dependencies are loaded cleanly
 required = [
     name for name, value in (
         ("NEXUSAI_DISCORD_BOT_TOKEN", DISCORD_TOKEN),
@@ -102,7 +102,7 @@ async def send_alert(title: str, description: str, color: int = 0x3498DB) -> boo
             "title": short(title, 240),
             "description": short(description, 3500),
             "color": color,
-            "footer": {"text": "NexusAI Operator • Safe Mode"},
+            "footer": {"text": "NexusAI Self-Healing Engine • Active Guard"},
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }]
     }
@@ -152,7 +152,7 @@ async def execute_autonomous_code_patch(file_path: str, error_message: str, trac
                     '        float(payload["total_amount"])\n'
                     '    except ValueError:\n'
                     '        # Patched autonomously: strips currency symbols and formatting anomalies\n'
-                    '        clean_amount = "".join(c for c in payload["total_amount"] if c.isdigit() or c == ".").\n'
+                    '        clean_amount = "".join(c for c in payload["total_amount"] if c.isdigit() or c == ".")\n'
                     '        float(clean_amount)'
                 )
                 
@@ -172,7 +172,10 @@ async def execute_autonomous_code_patch(file_path: str, error_message: str, trac
             }
             
             put_res = await client.put(url, headers=headers, json=payload)
-            if put_res.status_code in:
+            
+            # Pure numeric validation list to completely protect against markdown text hiding bugs
+            success_status_codes = [200, 201]
+            if put_res.status_code in success_status_codes:
                 await send_alert(
                     "✅ Codebase Repaired Successfully", 
                     f"Automated patch committed straight to branch `{GITHUB_BRANCH}`.\n\nRender is now executing an automated, hands-free server rebuild container!",
@@ -202,6 +205,3 @@ async def on_ready() -> None:
 async def status(interaction: discord.Interaction) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
     try:
-        data = await render_get(f"/services/{RENDER_SERVICE_ID}")
-        service = data.get("service", data) if isinstance(data, dict) else {}
-        details = service.get("serviceDetails", {})
