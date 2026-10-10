@@ -1,43 +1,58 @@
-# NexusAI DevOps Operator Bot — Safe Mode
+# NexusAI DevOps Operator Bot — Advanced Read-Only Mode
 
-This is an isolated Discord application for read-only monitoring of one Render service. It does not change service settings, deployments, environment variables, source code, or database records.
+This is a separate Discord application for owner-only operational checks. It can read metadata from one Render service and repository metadata from GitHub. It can optionally send test alerts to a Discord webhook. It does not change service settings, deployments, environment variables, source code, or database records.
 
 ## Commands
 
-- `/status` — reads service metadata from the Render API.
-- `/deploys` — reads the latest deployment records.
-- `/diagnose` — reports only checks actually performed. It does not fabricate POS, HPP, database, or latency metrics.
+- `/status` — reads service metadata from the configured Render service.
+- `/deploys` — reads recent deployment records.
+- `/diagnose` — reports the Render checks actually performed and optionally checks GitHub API access.
+- `/github` — reads repository metadata and recent commits on the configured operator branch.
+- `/test_alert` — sends a test embed to an optional Discord webhook.
+- `/simulate_crash` — tests the alert pipeline with a mock incident only; it does not monitor real worker crashes, touch production transactions, or modify code.
 
-All commands are restricted to the numeric Discord user ID configured in `NEXUSAI_DISCORD_OWNER_ID`. The bot fails closed if required settings are missing. Responses are ephemeral to the authorized operator.
+All commands are restricted to the numeric Discord user ID configured in `NEXUSAI_DISCORD_OWNER_ID`. The bot fails closed if required settings are missing. Command responses are ephemeral.
 
 ## Deploy as a separate Render Background Worker
 
-Do not replace or modify the existing NexusAI web service or HPP worker. Create a separate Background Worker from this repository with:
+Do not replace or modify the existing NexusAI web service, production Worker, or Hikvision integration. Use the existing operator worker or create a separate Background Worker from this repository with:
 
 - **Root Directory:** `operator_bot`
 - **Build Command:** `pip install -r requirements.txt`
 - **Start Command:** `python bot.py`
+- **Branch:** `feature/devops-operator-safe-mode`
 
-Add these environment variables in the new worker's Render Environment panel:
+## Required environment variables
 
-- `NEXUSAI_DISCORD_BOT_TOKEN` — Discord bot token; keep secret.
-- `NEXUSAI_DISCORD_OWNER_ID` — your numeric Discord user ID, not your username.
-- `RENDER_API_KEY` — a Render API key with only the permissions required to read the selected service.
-- `RENDER_SERVICE_ID` — the exact Render service ID to monitor.
+Set these in the Render operator worker's Environment panel. Never commit them to GitHub or send them in Discord.
 
-Never commit these values to GitHub or send them in Discord. If a credential has been exposed, rotate it.
+- `NEXUSAI_DISCORD_BOT_TOKEN` — Discord bot token.
+- `NEXUSAI_DISCORD_OWNER_ID` — numeric Discord user ID, not username.
+- `RENDER_API_KEY` — Render API key with only the permissions needed to read the target service.
+- `RENDER_SERVICE_ID` — exact ID of the Render service to inspect.
+
+## Optional environment variables
+
+- `GITHUB_TOKEN` — GitHub token with read-only access to the repository for `/github` and GitHub checks in `/diagnose`. Do not grant write permissions for this version.
+- `GITHUB_REPO_OWNER` — defaults to `nexusaiaphile-png`.
+- `GITHUB_REPO_NAME` — defaults to `NexusAI`.
+- `GITHUB_BRANCH` — defaults to `feature/devops-operator-safe-mode`.
+- `DISCORD_WEBHOOK_URL` — optional Discord webhook URL for test alerts. Keep it secret.
+- `LOG_LEVEL` — optional Python logging level; defaults to `INFO`.
 
 ## Discord setup
 
-1. Create an application and bot in the Discord Developer Portal.
-2. Enable the bot's application commands and install it in a private server where only you have access.
-3. Invite it with the `bot` and `applications.commands` scopes. It does not require the Message Content intent.
-4. Set the four environment variables above in the new Render worker.
-5. Run `/status`, `/deploys`, and `/diagnose` in the private server.
+1. Install the Discord application with the `bot` and `applications.commands` scopes.
+2. Message Content intent is not required for these slash commands.
+3. Configure the required environment variables above in Render.
+4. Redeploy and check Render logs for successful command synchronization.
+5. Test `/status`, `/deploys`, `/diagnose`, and `/github`. Use `/test_alert` only after configuring the webhook.
 
-## Important limits
+## Safety and limitations
 
-- Render service metadata and deployment history are not proof that the application, database, POS intake, HPP integration, or cameras are healthy.
-- This first version intentionally does not fetch runtime logs, modify environment variables, onboard stores, patch code, merge pull requests, or trigger deploys.
-- A Render Background Worker is a separate service and may require a paid Render plan depending on current plan availability. Confirm the cost in Render before creating it.
-- Deploy this branch as a separate worker only after reviewing the pull request. Existing NexusAI services are not changed by these files.
+- Render metadata and deployment history do not prove application, database, POS intake, HPP, or camera health.
+- The bot does not yet retrieve Render runtime logs or receive live crash events from the separate NexusAI Worker.
+- `/simulate_crash` is a mock alert test, not a production crash interceptor.
+- This version does not patch code, commit to GitHub, merge pull requests, modify environment variables, onboard stores, or trigger deployments. Future repair features should create a branch, run tests, and open a pull request for owner approval.
+- A Render Background Worker may require a paid plan depending on current Render plan availability. Confirm the current cost in Render.
+- If a credential has been exposed, revoke and rotate it.
