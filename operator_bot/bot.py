@@ -120,6 +120,39 @@ async def render_get(path: str, params: dict[str, str] | None = None) -> Any:
         return response.json()
 
 
+def render_service_url(data: Any) -> str:
+    """Extract the public URL from Render service metadata, if available."""
+    if not isinstance(data, dict):
+        return ""
+    service = data.get("service", data)
+    if not isinstance(service, dict):
+        return ""
+    details = service.get("serviceDetails") or {}
+    candidates = [details.get("url"), service.get("url"), service.get("serviceUrl")]
+    for candidate in candidates:
+        if not isinstance(candidate, str) or not candidate.strip():
+            continue
+        parsed = urlsplit(candidate.strip())
+        if parsed.scheme == "https" and parsed.netloc:
+            return candidate.strip().rstrip("/")
+    return ""
+
+
+async def probe_application_health(service_url: str) -> tuple[bool, str]:
+    """Read the configured public health endpoint; never sends writes or secrets."""
+    url = service_url.rstrip("/") + "/health"
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(10.0, connect=5.0), follow_redirects=False
+        ) as client:
+            response = await client.get(url, headers={"Accept": "application/json"})
+        if 200 <= response.status_code < 300:
+            return True, f"HTTP {response.status_code} from /health"
+        return False, f"HTTP {response.status_code} from /health"
+    except httpx.HTTPError as exc:
+        return False, f"request failed ({type(exc).__name__})"
+
+
 async def github_get(path: str, params: dict[str, str] | None = None) -> Any:
     headers = {
         "Accept": "application/vnd.github+json",
@@ -234,18 +267,32 @@ async def deploys(interaction: discord.Interaction) -> None:
         await interaction.followup.send("Could not read deployment history. Review the worker logs.", ephemeral=True)
 
 
-@bot.tree.command(name="diagnose", description="Run safe API connectivity checks.")
+@bot.tree.command(name="diagnose", description="Check Render API access and public application health.")
 @owner_check()
 async def diagnose(interaction: discord.Interaction) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
     lines = []
     try:
-        await render_get(f"/services/{RENDER_SERVICE_ID}")
-        lines.append("✅ Render API: service metadata request succeeded")
+        service_data = await render_get(f"/services/{RENDER_SERVICE_ID}")
+        service = service_data.get("service", service_data) if isinstance(service_data, dict) else {}
+        service_name = short(service.get("name", "Unknown"), 120)
+        service_type = short(service.get("type", "Unknown"), 80)
+        lines.append(f"✅ Render API: service metadata request succeeded")
+        lines.append(f"**Target:** {service_name} ({service_type})")
+        lines.append(f"**Service ID:** `{RENDER_SERVICE_ID}`")
+        service_url = render_service_url(service_data)
+        if service_url:
+            healthy, detail = await probe_application_health(service_url)
+            marker = "✅" if healthy else "❌"
+            lines.append(f"{marker} Application health: {detail}")
+            lines.append(f"**Public URL:** {service_url}")
+        else:
+            lines.append("⚠️ Application health: Render metadata did not expose a valid HTTPS service URL, so /health was not checked.")
     except httpx.HTTPStatusError as exc:
-        lines.append(f"❌ Render API: HTTP {exc.response.status_code}")
+        lines.append(f"❌ Render API: HTTP {exc.response.status_code} (check API key permissions and service ID)")
     except httpx.HTTPError as exc:
         lines.append(f"❌ Render API: connection error ({type(exc).__name__})")
+
     if GITHUB_TOKEN:
         try:
             await github_get(f"/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}")
@@ -256,9 +303,8 @@ async def diagnose(interaction: discord.Interaction) -> None:
             lines.append(f"❌ GitHub API: connection error ({type(exc).__name__})")
     else:
         lines.append("ℹ️ GitHub API: skipped (GITHUB_TOKEN is not configured)")
-    lines.append("ℹ️ Checks cover API connectivity only, not HPP, POS, camera, or database health.")
+    lines.append("ℹ️ This checks the public /health endpoint only; it does not prove HPP alarm delivery, push notifications, POS correlation, cameras, or database health.")
     await interaction.followup.send("\n".join(lines), ephemeral=True)
-
 
 @bot.tree.command(name="github", description="Read repository metadata and recent commits on the operator branch.")
 @owner_check()
