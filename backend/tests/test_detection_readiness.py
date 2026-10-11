@@ -60,7 +60,7 @@ class HppEventSinkReadinessTests(unittest.TestCase):
             return 42
 
         def fake_submit(fn, value):
-            call_order.append(("push_queued", value["id"]))
+            call_order.append(("push_queued", value["site_id"]))
             return object()
 
         with patch.object(main, "_hpp_mapping", return_value="site-test123"), \
@@ -69,8 +69,8 @@ class HppEventSinkReadinessTests(unittest.TestCase):
             result = main._hpp_event_sink(event)
 
         self.assertTrue(result)
-        self.assertEqual(call_order, [("persist", "site-test123"), ("push_queued", 42)])
-        self.assertEqual(main.EDGE_EVENTS[0]["id"], 42)
+        self.assertEqual(call_order, [("persist", "site-test123"), ("push_queued", "site-test123")])
+        self.assertNotIn("id", main.EDGE_EVENTS[0])
         self.assertEqual(main.EDGE_EVENTS[0]["site_id"], "site-test123")
         self.assertNotIn("hpp_site_id", main.EDGE_EVENTS[0])
 
