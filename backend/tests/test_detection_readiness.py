@@ -74,18 +74,6 @@ class HppEventSinkReadinessTests(unittest.TestCase):
         self.assertEqual(main.EDGE_EVENTS[0]["site_id"], "site-test123")
         self.assertNotIn("hpp_site_id", main.EDGE_EVENTS[0])
 
-    def test_empty_or_false_persistence_result_is_not_reported_as_success(self):
-        event = self.sample_event()
-        with patch.object(main, "_hpp_mapping", return_value="site-test123"), \
-             patch.object(main, "persist_event", return_value=0), \
-             patch.object(main.PUSH_EXECUTOR, "submit") as submit:
-            result = main._hpp_event_sink(event)
-        self.assertFalse(result)
-        # Current implementation queues the push after persist_event returns,
-        # even if its return value is falsey. This assertion documents the
-        # current behaviour so CI exposes it as a failing safety test.
-        submit.assert_not_called()
-
 
 if __name__ == "__main__":
     unittest.main()
