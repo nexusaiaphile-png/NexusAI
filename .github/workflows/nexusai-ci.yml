@@ -26,6 +26,12 @@ jobs:
           NEXUSAI_APP_LINK_SECRET: ci-test-secret
           NEXUSAI_EDGE_TOKEN: ci-edge-token
         run: python -c "import backend.src.main; print('NexusAI backend import OK')"
+      - name: Run HPP and Retail regression tests
+        env:
+          NEXUSAI_APP_LINK_SECRET: ci-test-secret
+          NEXUSAI_EDGE_TOKEN: ci-edge-token
+          NEXUSAI_ADMIN_KEY: unit-test-admin-key
+        run: python -m unittest discover -s backend/tests -p "test_*.py" -v
 
   validate-web:
     runs-on: ubuntu-latest
