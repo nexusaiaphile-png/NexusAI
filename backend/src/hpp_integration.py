@@ -35,6 +35,8 @@ _TOKEN: dict[str, Any] = {}
 _TOKEN_LOCK = threading.RLock()
 _WORKER: threading.Thread | None = None
 _STOP = threading.Event()
+# Serialize the long-poll + process + offset cycle so manual polling cannot race the worker.
+_ALARM_CYCLE_LOCK = threading.Lock()
 
 
 class HppError(RuntimeError):
@@ -312,8 +314,9 @@ def _worker_loop(event_sink: Callable[[dict], Any] | None) -> None:
     failures = 0
     while not _STOP.is_set():
         try:
-            result = poll_messages()
-            summary = _process_batch(result, event_sink)
+            with _ALARM_CYCLE_LOCK:
+                result = poll_messages()
+                summary = _process_batch(result, event_sink)
             failures = 0
             if summary["received"]:
                 LOG.info("HPP batch %s: %s", summary["batch_id"], summary)
@@ -411,11 +414,17 @@ def install(app: FastAPI, event_sink: Callable[[dict], Any] | None = None) -> No
     @app.post("/api/hpp/alarms/poll")
     async def hpp_alarm_poll(x_nexusai_admin_key: str | None = Header(default=None)):
         _admin_guard(x_nexusai_admin_key)
+        # The background worker is the normal queue owner. Reject a manual poll
+        # instead of issuing a second long-poll while the worker is processing a batch.
+        if not _ALARM_CYCLE_LOCK.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="HPP alarm polling is already in progress; retry after the current batch finishes.")
         try:
             result = poll_messages()
             return _process_batch(result, event_sink)
         except HppError as exc:
             raise HTTPException(status_code=502, detail=str(exc))
+        finally:
+            _ALARM_CYCLE_LOCK.release()
 
     @app.post("/api/hpp/alarms/offset")
     async def hpp_alarm_offset(payload: dict, x_nexusai_admin_key: str | None = Header(default=None)):
@@ -438,4 +447,3 @@ def install(app: FastAPI, event_sink: Callable[[dict], Any] | None = None) -> No
         enabled = os.getenv("HPP_ALARM_WORKER_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
         if enabled and configured():
             start_worker(event_sink)
-
