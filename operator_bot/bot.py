@@ -5,6 +5,9 @@ It never edits source code, deploys services, or changes production settings.
 """
 import logging
 import os
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from typing import Any
 
@@ -50,6 +53,34 @@ if OWNER_ID <= 0:
 intents = discord.Intents.none()
 intents.guilds = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+
+
+class HealthHandler(BaseHTTPRequestHandler):
+    """Minimal HTTP health endpoint for Render Web Service deployments."""
+
+    def do_GET(self) -> None:
+        if self.path not in ("/", "/health", "/healthz"):
+            self.send_error(404)
+            return
+        body = b'{"status":"ok","service":"nexusai-operator"}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        # Avoid noisy access logs; startup and bot errors go through logging.
+        return
+
+
+def start_health_server() -> None:
+    """Bind a tiny health endpoint to Render's assigned port."""
+    port = int(os.getenv("PORT", "10000"))
+    server = ThreadingHTTPServer(("0.0.0.0", port), HealthHandler)
+    thread = threading.Thread(target=server.serve_forever, name="health-server", daemon=True)
+    thread.start()
+    log.info("Health endpoint listening on 0.0.0.0:%s", port)
 
 
 def owner_check():
@@ -106,6 +137,10 @@ async def send_alert(title: str, description: str, color: int = 0x3498DB) -> boo
     """Send an optional Discord webhook alert."""
     if not DISCORD_WEBHOOK_URL:
         log.info("Alert not sent because DISCORD_WEBHOOK_URL is not configured.")
+        return False
+    parsed_url = urlsplit(DISCORD_WEBHOOK_URL)
+    if parsed_url.scheme != "https" or not parsed_url.netloc or not parsed_url.path.startswith("/api/webhooks/"):
+        log.warning("Discord webhook URL is invalid; expected a full https://discord.com/api/webhooks/... URL.")
         return False
     payload = {"embeds": [{
         "title": short(title, 240),
@@ -294,4 +329,5 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 
 
 if __name__ == "__main__":
+    start_health_server()
     bot.run(DISCORD_TOKEN, log_handler=None)
