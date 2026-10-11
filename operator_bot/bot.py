@@ -22,7 +22,7 @@ log = logging.getLogger("nexusai_operator")
 DISCORD_TOKEN = os.getenv("NEXUSAI_DISCORD_BOT_TOKEN", "").strip()
 OWNER_ID_RAW = os.getenv("NEXUSAI_DISCORD_OWNER_ID", "").strip()
 RENDER_API_KEY = os.getenv("RENDER_API_KEY", "").strip()
-RENDER_SERVICE_ID = os.getenv("RENDER_SERVICE_ID", "").strip()
+NEXUSAI_TARGET_RENDER_SERVICE_ID = os.getenv("NEXUSAI_TARGET_RENDER_SERVICE_ID", "").strip()
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 GITHUB_REPO_OWNER = os.getenv("GITHUB_REPO_OWNER", "nexusaiaphile-png").strip()
@@ -37,7 +37,7 @@ required = [
         ("NEXUSAI_DISCORD_BOT_TOKEN", DISCORD_TOKEN),
         ("NEXUSAI_DISCORD_OWNER_ID", OWNER_ID_RAW),
         ("RENDER_API_KEY", RENDER_API_KEY),
-        ("RENDER_SERVICE_ID", RENDER_SERVICE_ID),
+        ("NEXUSAI_TARGET_RENDER_SERVICE_ID", NEXUSAI_TARGET_RENDER_SERVICE_ID),
     ) if not value
 ]
 if required:
@@ -213,7 +213,7 @@ async def on_ready() -> None:
 async def status(interaction: discord.Interaction) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
     try:
-        data = await render_get(f"/services/{RENDER_SERVICE_ID}")
+        data = await render_get(f"/services/{NEXUSAI_TARGET_RENDER_SERVICE_ID}")
         service = data.get("service", data) if isinstance(data, dict) else {}
         name = service.get("name", "Configured service")
         service_type = service.get("type", "Unknown")
@@ -223,7 +223,7 @@ async def status(interaction: discord.Interaction) -> None:
         embed.add_field(name="Service", value=short(name, 200), inline=True)
         embed.add_field(name="Type", value=short(service_type, 100), inline=True)
         embed.add_field(name="Suspended", value=short(suspended, 100), inline=True)
-        embed.set_footer(text=f"Service ID: {RENDER_SERVICE_ID}")
+        embed.set_footer(text=f"Service ID: {NEXUSAI_TARGET_RENDER_SERVICE_ID}")
         await interaction.followup.send(embed=embed, ephemeral=True)
     except httpx.HTTPStatusError as exc:
         await interaction.followup.send(
@@ -243,7 +243,7 @@ async def status(interaction: discord.Interaction) -> None:
 async def deploys(interaction: discord.Interaction) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
     try:
-        data = await render_get(f"/services/{RENDER_SERVICE_ID}/deploys", {"limit": "5"})
+        data = await render_get(f"/services/{NEXUSAI_TARGET_RENDER_SERVICE_ID}/deploys", {"limit": "5"})
         records = data if isinstance(data, list) else data.get("deploys", data.get("data", []))
         if not records:
             await interaction.followup.send("Render returned no deployment records.", ephemeral=True)
@@ -273,13 +273,13 @@ async def diagnose(interaction: discord.Interaction) -> None:
     await interaction.response.defer(ephemeral=True, thinking=True)
     lines = []
     try:
-        service_data = await render_get(f"/services/{RENDER_SERVICE_ID}")
+        service_data = await render_get(f"/services/{NEXUSAI_TARGET_RENDER_SERVICE_ID}")
         service = service_data.get("service", service_data) if isinstance(service_data, dict) else {}
         service_name = short(service.get("name", "Unknown"), 120)
         service_type = short(service.get("type", "Unknown"), 80)
         lines.append(f"✅ Render API: service metadata request succeeded")
         lines.append(f"**Target:** {service_name} ({service_type})")
-        lines.append(f"**Service ID:** `{RENDER_SERVICE_ID}`")
+        lines.append(f"**Service ID:** `{NEXUSAI_TARGET_RENDER_SERVICE_ID}`")
         service_url = render_service_url(service_data)
         if service_url:
             healthy, detail = await probe_application_health(service_url)
