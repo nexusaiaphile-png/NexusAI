@@ -2348,7 +2348,7 @@ except Exception:
 
 # Managed Deployment: secure site-scoped pairing and remote Security Box control.
 try:
-    from managed_deployment import install as install_managed_deployment
+    from backend.src.managed_deployment import install as install_managed_deployment
     install_managed_deployment(app)
 except Exception:
     logging.exception("Managed Deployment control plane failed to load.")
