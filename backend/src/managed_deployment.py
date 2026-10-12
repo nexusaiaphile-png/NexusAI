@@ -3,7 +3,7 @@ from __future__ import annotations
 import os, secrets, sqlite3, time, hmac, hashlib
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
-from credential_vault import seal, open_sealed
+from backend.src.credential_vault import seal, open_sealed
 
 router = APIRouter(prefix="/api")
 
