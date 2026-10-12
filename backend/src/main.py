@@ -2283,5 +2283,13 @@ except Exception:
 try:
     from backend.src.managed_deployment import install as install_managed_deployment
     install_managed_deployment(app)
+
+# Retail Intelligence must be mounted explicitly; otherwise its POS/camera
+# correlation implementation exists in the repository but its API returns 404.
+try:
+    from backend.src.retail_intelligence import install as install_retail_intelligence
+    install_retail_intelligence(app)
+except Exception:
+    logging.exception("Retail Intelligence API failed to load.")
 except Exception:
     logging.exception("Managed Deployment control plane failed to load.")
