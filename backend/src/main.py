@@ -914,10 +914,14 @@ def _hpp_event_sink(event: dict) -> bool:
     event["site_id"] = site_id
     event.pop("hpp_site_id", None)
     event_id = persist_event(event)
+    if not event_id:
+        raise RuntimeError(
+            "HPP event persistence returned no event ID; refusing to publish the event or queue a push notification."
+        )
     EDGE_EVENTS.insert(0, dict(event))
     del EDGE_EVENTS[200:]
     PUSH_EXECUTOR.submit(dispatch_push_alert, event)
-    return bool(event_id)
+    return True
 
 def _customer_token_hash(token: str) -> str:
     return hashlib.sha256(str(token).encode("utf-8")).hexdigest()
