@@ -2063,7 +2063,7 @@ async def api_status():
         "nexusai": "ONLINE",
         "security_engine": "READY",
         "camera_verification": "EDGE_AGENT",
-        "notification_engine": "NEXUSAI_PUSH",
+        "notification_engine": "DISCORD_WEBHOOK" if discord_webhook_configured() else ("NEXUSAI_PUSH" if push_configured() else "UNCONFIGURED"),
         "whatsapp": "REMOVED",
         "api_version": "3.2.0",
     }
@@ -2227,7 +2227,7 @@ async def edge_event(
         "event": event.event,
         "severity": event.severity,
         "timestamp": event.timestamp,
-        "notification": "NEXUSAI_PUSH_QUEUED",
+        "notification": "NEXUSAI_ALERTS_QUEUED",
     }
 
 
