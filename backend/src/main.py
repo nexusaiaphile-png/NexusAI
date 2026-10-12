@@ -173,6 +173,15 @@ def init_db():
                         snapshot_data BYTEA
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS nexusai_qr_tokens (
+                        qr_token TEXT PRIMARY KEY,
+                        site_id TEXT NOT NULL UNIQUE,
+                        created_at DOUBLE PRECISION NOT NULL,
+                        last_used_at DOUBLE PRECISION,
+                        status TEXT NOT NULL DEFAULT 'ACTIVATED'
+                    )
+                """)
                 cur.execute("ALTER TABLE nexusai_qr_tokens ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ACTIVATED'")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_mime TEXT")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_filename TEXT")
@@ -211,15 +220,6 @@ def init_db():
                         site_id TEXT NOT NULL UNIQUE,
                         created_at DOUBLE PRECISION NOT NULL,
                         last_used_at DOUBLE PRECISION
-                    )
-                """)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS nexusai_qr_tokens (
-                        qr_token TEXT PRIMARY KEY,
-                        site_id TEXT NOT NULL UNIQUE,
-                        created_at DOUBLE PRECISION NOT NULL,
-                        last_used_at DOUBLE PRECISION,
-                        status TEXT NOT NULL DEFAULT 'ACTIVATED'
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_qr_site ON nexusai_qr_tokens(site_id)")
@@ -354,32 +354,33 @@ def init_db():
                 CREATE INDEX IF NOT EXISTS idx_nexusai_hpp_sites_nexusai ON nexusai_hpp_sites(nexusai_site_id);
 
             """)
+            qr_cols = {row[1] for row in conn.execute("PRAGMA table_info(nexusai_qr_tokens)").fetchall()}
+            if "status" not in qr_cols:
+                conn.execute("ALTER TABLE nexusai_qr_tokens ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVATED'")
+            event_cols = {row[1] for row in conn.execute("PRAGMA table_info(nexusai_events)").fetchall()}
+            if "snapshot_mime" not in event_cols:
+                conn.execute("ALTER TABLE nexusai_events ADD COLUMN snapshot_mime TEXT")
+            if "snapshot_filename" not in event_cols:
+                conn.execute("ALTER TABLE nexusai_events ADD COLUMN snapshot_filename TEXT")
+            if "snapshot_data" not in event_cols:
+                conn.execute("ALTER TABLE nexusai_events ADD COLUMN snapshot_data BLOB")
             conn.commit()
 
 
 @app.on_event("startup")
 def startup():
-    init_db()
-    if database_url():
-        import psycopg
-        with psycopg.connect(database_url()) as conn:
-            with conn.cursor() as cur:
-                cur.execute("ALTER TABLE nexusai_qr_tokens ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ACTIVATED'")
-                cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_mime TEXT")
-                cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_filename TEXT")
-                cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_data BYTEA")
-            conn.commit()
-    else:
-        with _sqlite() as conn:
-            qr_cols = {row[1] for row in conn.execute("PRAGMA table_info(nexusai_qr_tokens)").fetchall()}
-            if "status" not in qr_cols:
-                conn.execute("ALTER TABLE nexusai_qr_tokens ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVATED'")
-            cols = {row[1] for row in conn.execute("PRAGMA table_info(nexusai_events)").fetchall()}
-            if "snapshot_mime" not in cols: conn.execute("ALTER TABLE nexusai_events ADD COLUMN snapshot_mime TEXT")
-            if "snapshot_filename" not in cols: conn.execute("ALTER TABLE nexusai_events ADD COLUMN snapshot_filename TEXT")
-            if "snapshot_data" not in cols: conn.execute("ALTER TABLE nexusai_events ADD COLUMN snapshot_data BLOB")
-            conn.commit()
-    logging.info("NexusAI Cloud 3.1.0 started; database=%s", "postgres" if database_url() else "sqlite")
+    configured_database_url = database_url()
+    try:
+        init_db()
+    except Exception:
+        if configured_database_url:
+            logging.exception("NexusAI PostgreSQL initialization failed; startup aborted.")
+        else:
+            logging.exception("NexusAI SQLite initialization failed; startup aborted.")
+        raise
+
+    database_kind = "postgres" if configured_database_url else "sqlite"
+    logging.info("NexusAI Cloud 3.3.0 started; database=%s", database_kind)
 
 
 def push_configured() -> bool:
