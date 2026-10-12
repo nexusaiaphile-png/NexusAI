@@ -686,9 +686,76 @@ def deliver_push(endpoint: str, subscription: dict, payload: str) -> bool:
     return False
 
 
+def discord_webhook_configured() -> bool:
+    return bool(os.getenv("NEXUSAI_DISCORD_WEBHOOK_URL", "").strip())
+
+
+def deliver_discord_alert(event: dict) -> bool:
+    """Send one security event to the configured NexusAI Discord webhook."""
+    webhook_url = os.getenv("NEXUSAI_DISCORD_WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        return False
+
+    # Restrict outbound destinations to Discord; never accept a webhook URL from event data.
+    parsed = urlsplit(webhook_url)
+    if parsed.scheme != "https" or parsed.hostname not in {"discord.com", "discordapp.com"} or not parsed.path.startswith("/api/webhooks/"):
+        logging.error("NexusAI Discord webhook URL is invalid; expected an HTTPS Discord webhook URL.")
+        return False
+
+    def safe_text(value, limit=1024):
+        # Prevent accidental @everyone/@here/user mentions from event metadata.
+        return str(value if value is not None else "Unknown").replace("@", "@\u200b")[:limit]
+
+    severity = safe_text(event.get("severity", "UNKNOWN"), 32).upper()
+    color = 0xE53935 if severity in {"CRITICAL", "HIGH"} else 0xFB8C00 if severity in {"MEDIUM", "WARNING"} else 0x26A69A
+    embed = {
+        "title": safe_text(event.get("event", "NEXUSAI SECURITY ALERT"), 256),
+        "color": color,
+        "fields": [
+            {"name": "Severity", "value": severity or "UNKNOWN", "inline": True},
+            {"name": "Site ID", "value": safe_text(event.get("site_id"), 100), "inline": True},
+            {"name": "Camera", "value": safe_text(event.get("camera_name", event.get("camera_id", "Unknown camera")), 256), "inline": True},
+            {"name": "Location", "value": safe_text(event.get("location", "Unknown location"), 256), "inline": False},
+            {"name": "Source", "value": safe_text(event.get("source", "Unknown"), 100), "inline": True},
+            {"name": "Event time", "value": safe_text(event.get("timestamp", ""), 100), "inline": True},
+        ],
+        "footer": {"text": "NexusAI Security Monitoring"},
+    }
+    payload = json.dumps({
+        "username": "NexusAI Alerts",
+        "allowed_mentions": {"parse": []},
+        "embeds": [embed],
+    }, separators=(",", ":")).encode("utf-8")
+    request = UrlRequest(
+        webhook_url,
+        data=payload,
+        headers={"Content-Type": "application/json", "User-Agent": "NexusAI-Security-Alerts/1.0"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=5) as response:
+            if response.status in (200, 204):
+                logging.info("NexusAI Discord alert delivered for site %s, camera %s.",
+                             safe_text(event.get("site_id"), 100), safe_text(event.get("camera_id"), 128))
+                return True
+            logging.warning("NexusAI Discord webhook returned HTTP %s.", response.status)
+    except Exception as exc:
+        # Never log the webhook URL or request headers; the URL contains its secret token.
+        logging.warning("NexusAI Discord alert delivery failed: %s", str(exc)[:300])
+    return False
+
+
 def dispatch_push_alert(event: dict):
+    # Discord delivery is independent of browser push configuration.
+    if discord_webhook_configured():
+        if not deliver_discord_alert(event):
+            logging.error("NexusAI Discord alert was not delivered for site %s.", event.get("site_id"))
+    else:
+        logging.warning("NEXUSAI_DISCORD_WEBHOOK_URL is not configured; Discord alerts are disabled.")
+
+    # Keep existing Web Push as an optional parallel channel; it must not block Discord.
     if not push_configured():
-        logging.error("NexusAI push is not configured. Set VAPID keys and APP_LINK_SECRET on Render.")
+        logging.info("NexusAI Web Push is not configured; skipping mobile push delivery.")
         return
 
     subscriptions = load_push_subscriptions(event["site_id"])
