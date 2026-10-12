@@ -51,6 +51,16 @@ class HppEventSinkReadinessTests(unittest.TestCase):
         submit.assert_not_called()
         self.assertEqual(main.EDGE_EVENTS, [])
 
+    def test_missing_persisted_event_id_does_not_publish_or_queue_push(self):
+        event = self.sample_event()
+        with patch.object(main, "_hpp_mapping", return_value="site-test123"), \
+             patch.object(main, "persist_event", return_value=None), \
+             patch.object(main.PUSH_EXECUTOR, "submit") as submit:
+            with self.assertRaisesRegex(RuntimeError, "returned no event ID"):
+                main._hpp_event_sink(event)
+        submit.assert_not_called()
+        self.assertEqual(main.EDGE_EVENTS, [])
+
     def test_successful_event_is_persisted_before_push_is_queued(self):
         event = self.sample_event()
         call_order = []
