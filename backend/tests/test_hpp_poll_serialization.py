@@ -3,20 +3,18 @@
 These tests never call Hikvision, Render, customer data, or live notification services.
 """
 import asyncio
-import sys
 import unittest
 from unittest.mock import patch
 
 from fastapi import HTTPException
 
 from backend.src import main
+from backend.src import hpp_integration as hpp
 
 
 class HppPollSerializationTests(unittest.TestCase):
     def setUp(self):
-        self.hpp = sys.modules.get("hpp_integration")
-        if self.hpp is None:
-            self.skipTest("HPP integration module is not loaded in this test environment")
+        self.hpp = hpp
         self.route = next(
             route.endpoint
             for route in main.app.routes
