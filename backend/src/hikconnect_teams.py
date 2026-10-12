@@ -108,8 +108,13 @@ class HikConnectTeamsClient:
             if not force and self._token and time.time() < self._token_expiry - 300 and self._area_domain:
                 return {"authenticated": True, "area_domain": self._area_domain,
                         "expires_at": self._token_expiry}
+            token_base = os.getenv("HIKCONNECT_TEAMS_TOKEN_BASE_URL", "").strip().rstrip("/")
+            if not token_base:
+                raise HikConnectTeamsError(
+                    "Set HIKCONNECT_TEAMS_TOKEN_BASE_URL to the token host specified for your approved region."
+                )
             payload = self._post(
-                "https://api.hikcentralconnect.com",
+                token_base,
                 TOKEN_PATH,
                 {"appKey": self.app_key, "secretKey": self.secret_key},
             )
@@ -130,19 +135,13 @@ class HikConnectTeamsClient:
             return {"authenticated": True, "area_domain": area_domain, "expires_at": self._token_expiry}
 
     def _authorized_post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
-        info = self.authenticate()
+        self.authenticate()
         with self._lock:
             token, base = self._token, self._area_domain
-        try:
-            return self._post(base, path, body, token=token)
-        except HikConnectTeamsError as exc:
-            if "errorCode=" not in str(exc):
-                raise
-            # Re-authenticate once for a rejected/expired token, then retry once.
-            self.authenticate(force=True)
-            with self._lock:
-                token, base = self._token, self._area_domain
-            return self._post(base, path, body, token=token)
+        # Do not retry a failed request automatically: subscription, poll, and
+        # acknowledgement calls can have stateful side effects. Token refresh is
+        # performed before expiry; any vendor-specific expiry code should be added
+        # here only after it is confirmed in the official guide.
 
     def subscribe(self, event_types: list[int] | None = None, subscribe_mode: int = 0) -> dict[str, Any]:
         if subscribe_mode not in (0, 1):
@@ -231,8 +230,8 @@ def process_batch(result: dict[str, Any], event_sink: Callable[[dict[str, Any]],
         try:
             event = normalize_message(message)
             outcome = event_sink(event)
-            if outcome is False:
-                raise HikConnectTeamsError("Event sink did not confirm durable processing.")
+            if outcome is not True:
+                raise HikConnectTeamsError("Event sink must return True only after durable processing.")
             processed += 1
         except Exception as exc:
             failures.append(str(exc)[:250])
