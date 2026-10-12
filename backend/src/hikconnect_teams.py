@@ -20,6 +20,7 @@ from typing import Any, Callable
 
 LOG = logging.getLogger("nexusai.hikconnect_teams")
 
+TOKEN_BASE_URL = "https://hikcentralconnect.com"
 TOKEN_PATH = "/api/hccgw/platform/v1/token/get"
 SUBSCRIBE_PATH = "/api/hccgw/alarm/v1/mq/subscribe"
 MESSAGES_PATH = "/api/hccgw/alarm/v1/mq/messages"
@@ -108,13 +109,10 @@ class HikConnectTeamsClient:
             if not force and self._token and time.time() < self._token_expiry - 300 and self._area_domain:
                 return {"authenticated": True, "area_domain": self._area_domain,
                         "expires_at": self._token_expiry}
-            token_base = os.getenv("HIKCONNECT_TEAMS_TOKEN_BASE_URL", "").strip().rstrip("/")
-            if not token_base:
-                raise HikConnectTeamsError(
-                    "Set HIKCONNECT_TEAMS_TOKEN_BASE_URL to the token host specified for your approved region."
-                )
+            # Official IEU (Europe) developer-guide host. Keep credentials on this
+            # documented HTTPS origin instead of accepting an arbitrary env URL.
             payload = self._post(
-                token_base,
+                TOKEN_BASE_URL,
                 TOKEN_PATH,
                 {"appKey": self.app_key, "secretKey": self.secret_key},
             )
@@ -142,6 +140,7 @@ class HikConnectTeamsClient:
         # acknowledgement calls can have stateful side effects. Token refresh is
         # performed before expiry; any vendor-specific expiry code should be added
         # here only after it is confirmed in the official guide.
+        return self._post(base, path, body, token=token)
 
     def subscribe(self, event_types: list[int] | None = None, subscribe_mode: int = 0) -> dict[str, Any]:
         if subscribe_mode not in (0, 1):
