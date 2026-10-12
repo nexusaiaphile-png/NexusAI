@@ -2279,20 +2279,9 @@ try:
 except Exception:
     logging.exception("Hik-Partner Pro integration failed to load.")
 
-# Managed Deployment is an optional Security Box control plane. HPP-only
-# onboarding and alarm ingestion must remain available when that optional module
-# is not shipped with this deployment.
+# Import by package path because Render starts backend.src.main from the repository root.
 try:
-    from managed_deployment import install as install_managed_deployment
-except ModuleNotFoundError as exc:
-    if exc.name != "managed_deployment":
-        logging.exception("Managed Deployment dependency failed to load.")
-    else:
-        logging.warning(
-            "Optional Managed Deployment module is not installed; "
-            "Security Box pairing/control routes are unavailable. HPP routes remain enabled."
-        )
+    from backend.src.managed_deployment import install as install_managed_deployment
+    install_managed_deployment(app)
 except Exception:
     logging.exception("Managed Deployment control plane failed to load.")
-else:
-    install_managed_deployment(app)
