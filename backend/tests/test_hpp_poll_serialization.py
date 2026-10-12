@@ -21,6 +21,11 @@ class HppPollSerializationTests(unittest.TestCase):
             if getattr(route, "path", None) == "/api/hpp/alarms/poll"
         )
 
+    def test_retail_intelligence_routes_are_mounted(self):
+        paths = {getattr(route, "path", None) for route in main.app.routes}
+        self.assertIn("/api/retail/status", paths)
+        self.assertIn("/api/retail/pos/transactions", paths)
+
     def test_manual_poll_rejected_while_another_cycle_holds_lock(self):
         self.assertTrue(self.hpp._ALARM_CYCLE_LOCK.acquire(blocking=False))
         try:
