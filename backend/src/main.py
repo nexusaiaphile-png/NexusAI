@@ -173,6 +173,15 @@ def init_db():
                         snapshot_data BYTEA
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS nexusai_qr_tokens (
+                        qr_token TEXT PRIMARY KEY,
+                        site_id TEXT NOT NULL UNIQUE,
+                        created_at DOUBLE PRECISION NOT NULL,
+                        last_used_at DOUBLE PRECISION,
+                        status TEXT NOT NULL DEFAULT 'ACTIVATED'
+                    )
+                """)
                 cur.execute("ALTER TABLE nexusai_qr_tokens ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ACTIVATED'")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_mime TEXT")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_filename TEXT")
@@ -211,15 +220,6 @@ def init_db():
                         site_id TEXT NOT NULL UNIQUE,
                         created_at DOUBLE PRECISION NOT NULL,
                         last_used_at DOUBLE PRECISION
-                    )
-                """)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS nexusai_qr_tokens (
-                        qr_token TEXT PRIMARY KEY,
-                        site_id TEXT NOT NULL UNIQUE,
-                        created_at DOUBLE PRECISION NOT NULL,
-                        last_used_at DOUBLE PRECISION,
-                        status TEXT NOT NULL DEFAULT 'ACTIVATED'
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_qr_site ON nexusai_qr_tokens(site_id)")
