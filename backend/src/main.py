@@ -173,7 +173,6 @@ def init_db():
                         snapshot_data BYTEA
                     )
                 """)
-                cur.execute("ALTER TABLE nexusai_qr_tokens ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ACTIVATED'")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_mime TEXT")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_filename TEXT")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_data BYTEA")
@@ -222,6 +221,7 @@ def init_db():
                         status TEXT NOT NULL DEFAULT 'ACTIVATED'
                     )
                 """)
+                cur.execute("ALTER TABLE nexusai_qr_tokens ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ACTIVATED'")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_qr_site ON nexusai_qr_tokens(site_id)")
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS nexusai_installer_tokens (
