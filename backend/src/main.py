@@ -173,7 +173,6 @@ def init_db():
                         snapshot_data BYTEA
                     )
                 """)
-                cur.execute("ALTER TABLE nexusai_qr_tokens ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ACTIVATED'")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_mime TEXT")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_filename TEXT")
                 cur.execute("ALTER TABLE nexusai_events ADD COLUMN IF NOT EXISTS snapshot_data BYTEA")
@@ -222,6 +221,7 @@ def init_db():
                         status TEXT NOT NULL DEFAULT 'ACTIVATED'
                     )
                 """)
+                cur.execute("ALTER TABLE nexusai_qr_tokens ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ACTIVATED'")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_nexusai_qr_site ON nexusai_qr_tokens(site_id)")
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS nexusai_installer_tokens (
@@ -914,10 +914,14 @@ def _hpp_event_sink(event: dict) -> bool:
     event["site_id"] = site_id
     event.pop("hpp_site_id", None)
     event_id = persist_event(event)
+    if not event_id:
+        raise RuntimeError(
+            "HPP event persistence returned no event ID; refusing to publish the event or queue a push notification."
+        )
     EDGE_EVENTS.insert(0, dict(event))
     del EDGE_EVENTS[200:]
     PUSH_EXECUTOR.submit(dispatch_push_alert, event)
-    return bool(event_id)
+    return True
 
 def _customer_token_hash(token: str) -> str:
     return hashlib.sha256(str(token).encode("utf-8")).hexdigest()
@@ -2279,9 +2283,17 @@ try:
 except Exception:
     logging.exception("Hik-Partner Pro integration failed to load.")
 
-# Managed Deployment: secure site-scoped pairing and remote Security Box control.
+# Import by package path because Render starts backend.src.main from the repository root.
 try:
-    from managed_deployment import install as install_managed_deployment
+    from backend.src.managed_deployment import install as install_managed_deployment
     install_managed_deployment(app)
 except Exception:
     logging.exception("Managed Deployment control plane failed to load.")
+
+# Retail Intelligence must be mounted explicitly; otherwise its POS/camera
+# correlation implementation exists in the repository but its API returns 404.
+try:
+    from backend.src.retail_intelligence import install as install_retail_intelligence
+    install_retail_intelligence(app)
+except Exception:
+    logging.exception("Retail Intelligence API failed to load.")
