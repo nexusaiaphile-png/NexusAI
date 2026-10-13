@@ -971,6 +971,10 @@ def _load_hpp_site_connection(nexusai_site_id: str) -> dict | None:
 
 
 def _hpp_event_sink(event: dict) -> bool:
+    # Normalize retail labels before persistence and before Discord/Web Push dispatch.
+    # This is deterministic rule mapping, not a claim that generic motion is AI-detected.
+    from backend.src.retail_event_mapping import normalize_retail_event
+    event = normalize_retail_event(event)
     serial = str(event.get("hpp_device_serial") or "")
     site_id = _hpp_mapping(str(event.get("hpp_site_id") or ""), serial)
     if not site_id:
