@@ -44,9 +44,11 @@ def _connect():
 
 def _execute(conn, sql: str, params: tuple = ()):
     if _database_url():
-        with conn.cursor() as cur:
-            cur.execute(sql.replace("?", "%s"), params)
-            return cur
+        # Keep the cursor open until the caller fetches; the connection context
+        # owns cleanup and is closed in the caller's finally block.
+        cur = conn.cursor()
+        cur.execute(sql.replace("?", "%s"), params)
+        return cur
     return conn.execute(sql, params)
 
 
