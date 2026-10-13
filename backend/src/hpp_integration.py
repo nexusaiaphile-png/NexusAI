@@ -35,6 +35,8 @@ _TOKEN: dict[str, Any] = {}
 _TOKEN_LOCK = threading.RLock()
 _WORKER: threading.Thread | None = None
 _STOP = threading.Event()
+# One owner at a time for the HPP long-poll, event processing, and batch offset.
+_ALARM_CYCLE_LOCK = threading.Lock()
 
 
 class HppError(RuntimeError):
@@ -274,27 +276,27 @@ def _process_batch(result: dict, event_sink: Callable[[dict], Any] | None) -> di
     accepted = 0
     skipped = 0
     errors = []
-    for message in messages:
+    for index, message in enumerate(messages):
         if not isinstance(message, dict):
             skipped += 1
+            errors.append(f"Message {index} is not a JSON object; batch left unacknowledged.")
             continue
         try:
-            # event_sink is responsible for resolving the HPP site/device to a NexusAI site.
+            # event_sink must persist/accept the event before this batch can be offset.
             event = normalize_message(message)
-            if event_sink:
-                mapped = event_sink(event)
-                if mapped:
-                    accepted += 1
-                else:
-                    skipped += 1
+            if not event_sink:
+                raise RuntimeError("No HPP event sink is configured; batch left unacknowledged.")
+            mapped = event_sink(event)
+            if mapped:
+                accepted += 1
             else:
-                skipped += 1
+                raise RuntimeError("HPP event sink did not confirm persistence; batch left unacknowledged.")
         except Exception as exc:
             errors.append(str(exc)[:300])
-            LOG.exception("Failed to process HPP alarm message.")
+            LOG.exception("Failed to process HPP alarm message; HPP batch will not be acknowledged.")
 
-    # Only acknowledge the HPP batch after processing all messages. Otherwise HPP may
-    # re-send the batch, which is preferable to silently losing an alarm.
+    # At-least-once delivery: acknowledge only after every message is accepted.
+    # Any processing/acknowledgement error leaves the batch available for retry.
     if batch_id and not errors:
         acknowledge(batch_id)
 
@@ -312,8 +314,10 @@ def _worker_loop(event_sink: Callable[[dict], Any] | None) -> None:
     failures = 0
     while not _STOP.is_set():
         try:
-            result = poll_messages()
-            summary = _process_batch(result, event_sink)
+            # Serialize the full poll -> process -> acknowledge cycle with manual polls.
+            with _ALARM_CYCLE_LOCK:
+                result = poll_messages()
+                summary = _process_batch(result, event_sink)
             failures = 0
             if summary["received"]:
                 LOG.info("HPP batch %s: %s", summary["batch_id"], summary)
@@ -411,11 +415,16 @@ def install(app: FastAPI, event_sink: Callable[[dict], Any] | None = None) -> No
     @app.post("/api/hpp/alarms/poll")
     async def hpp_alarm_poll(x_nexusai_admin_key: str | None = Header(default=None)):
         _admin_guard(x_nexusai_admin_key)
+        # Never compete with the background worker for the same HPP queue.
+        if not _ALARM_CYCLE_LOCK.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="HPP alarm polling is already in progress; retry after the current batch finishes.")
         try:
             result = poll_messages()
             return _process_batch(result, event_sink)
         except HppError as exc:
             raise HTTPException(status_code=502, detail=str(exc))
+        finally:
+            _ALARM_CYCLE_LOCK.release()
 
     @app.post("/api/hpp/alarms/offset")
     async def hpp_alarm_offset(payload: dict, x_nexusai_admin_key: str | None = Header(default=None)):
