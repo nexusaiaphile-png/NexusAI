@@ -74,6 +74,17 @@ def init_schema() -> None:
             created_at DOUBLE PRECISION NOT NULL,
             UNIQUE(site_id, source_event_id)
         )""",
+        f"""CREATE TABLE IF NOT EXISTS nexusai_video_timeline_refs (
+            id {id_type},
+            site_id TEXT NOT NULL,
+            camera_id TEXT NOT NULL,
+            clip_start TEXT NOT NULL,
+            clip_end TEXT NOT NULL,
+            video_clip_url TEXT NOT NULL,
+            source_ref_id TEXT,
+            created_at DOUBLE PRECISION NOT NULL,
+            UNIQUE(site_id, source_ref_id)
+        )""",
         f"""CREATE TABLE IF NOT EXISTS nexusai_conversion_metrics (
             id {id_type},
             site_id TEXT NOT NULL,
@@ -99,6 +110,7 @@ def init_schema() -> None:
             UNIQUE(site_id, period_start, period_end, report_type)
         )""",
         "CREATE INDEX IF NOT EXISTS idx_pos_exceptions_site_time ON nexusai_pos_exceptions(site_id, occurred_at)",
+        "CREATE INDEX IF NOT EXISTS idx_video_timeline_lookup ON nexusai_video_timeline_refs(site_id, camera_id, clip_start, clip_end)",
         "CREATE INDEX IF NOT EXISTS idx_pos_exceptions_till_time ON nexusai_pos_exceptions(site_id, till_id, occurred_at)",
     ]
     with _DB_LOCK:
@@ -170,6 +182,28 @@ class TillExceptionIn(BaseModel):
         return value.upper()
 
 
+class VideoTimelineIn(BaseModel):
+    site_id: str = Field(min_length=8, max_length=100)
+    camera_id: str = Field(min_length=1, max_length=128)
+    clip_start: str = Field(min_length=10, max_length=80)
+    clip_end: str = Field(min_length=10, max_length=80)
+    video_clip_url: str = Field(min_length=10, max_length=2048)
+    source_ref_id: str | None = Field(default=None, max_length=200)
+
+    @field_validator("clip_start", "clip_end")
+    @classmethod
+    def validate_clip_times(cls, value: str) -> str:
+        return _iso(value)
+
+    @field_validator("video_clip_url")
+    @classmethod
+    def validate_video_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise ValueError("video_clip_url must be an HTTPS URL.")
+        return value
+
+
 class ConversionMetricIn(BaseModel):
     site_id: str = Field(min_length=8, max_length=100)
     camera_id: str | None = Field(default=None, max_length=128)
@@ -188,6 +222,22 @@ class ConversionMetricIn(BaseModel):
 
 def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
     now = time.time()
+    # Prefer an explicitly supplied clip reference; otherwise match an ingested
+    # camera timeline whose interval contains the POS event timestamp.
+    if event.camera_id and not (event.clip_start and event.clip_end and event.video_clip_url):
+        with _DB_LOCK:
+            conn = _connect()
+            try:
+                cur = _execute(conn, """SELECT clip_start, clip_end, video_clip_url
+                    FROM nexusai_video_timeline_refs
+                    WHERE site_id=? AND camera_id=? AND clip_start<=? AND clip_end>=?
+                    ORDER BY clip_start DESC LIMIT 1""",
+                    (event.site_id, event.camera_id, event.occurred_at, event.occurred_at))
+                clip = cur.fetchone()
+                if clip:
+                    event.clip_start, event.clip_end, event.video_clip_url = clip[0], clip[1], clip[2]
+            finally:
+                conn.close()
     # A till event is flagged from POS semantics, not inferred from video.
     needs_review = event.exception_type in {"refund", "no_sale", "void"} or (
         event.exception_type == "drawer_open" and event.active_transaction is not True
@@ -242,7 +292,12 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
     return {
         "exception_id": event_id,
         "flagged_for_review": needs_review,
-        "exception_type": event.exception_type,
+        "till_void_exception": {
+            "exception_type": event.exception_type,
+            "transaction_id": event.transaction_id,
+            "active_transaction": event.active_transaction,
+            "flagged_for_review": needs_review,
+        },
         "correlation_status": correlation_status,
         "camera_id": event.camera_id,
         "video_timeline": {
@@ -285,12 +340,14 @@ def _upsert_conversion_metric(metric: ConversionMetricIn) -> dict[str, Any]:
         finally:
             conn.close()
     return {
+        "conversion_loss": {
         "site_id": metric.site_id, "camera_id": metric.camera_id,
         "interval_start": metric.interval_start, "interval_end": metric.interval_end,
         "traffic_count": metric.traffic_count, "invoice_count": metric.invoice_count,
         "conversion_gap": gap, "estimated_conversion_loss": estimated_loss,
         "currency": metric.currency.upper(),
         "estimate_note": "Directional estimate; traffic and invoices must use aligned intervals and calibrated counting.",
+        },
     }
 
 
@@ -322,7 +379,8 @@ def _weekly_summary(site_id: str, start: str, end: str) -> dict[str, Any]:
         "exception_amount_total": float(row[2] or 0),
         "transactions_identified": int(row[3] or 0),
         "conversion_intervals": conversion,
-        "report_type": "weekly_transaction_correlation",
+        "report_type": "exception_reporting",
+        "exception_reporting": {"exception_count": int(row[0] or 0), "tills_affected": int(row[1] or 0)},
     }
 
 
@@ -378,6 +436,26 @@ def install_transaction_correlation(app: FastAPI) -> None:
             LOG.exception("POS exception ingestion failed.")
             raise HTTPException(status_code=500, detail="Could not persist POS transaction exception.") from exc
         return {"accepted": True, "engine": "transaction_correlation", **result}
+
+    @app.post("/api/retail/video-timeline")
+    async def ingest_video_timeline(payload: VideoTimelineIn,
+            x_nexusai_admin_key: str | None = Header(default=None)):
+        _admin_guard(x_nexusai_admin_key)
+        sql = """INSERT INTO nexusai_video_timeline_refs
+            (site_id,camera_id,clip_start,clip_end,video_clip_url,source_ref_id,created_at)
+            VALUES(?,?,?,?,?,?,?) ON CONFLICT(site_id, source_ref_id) DO UPDATE SET
+            camera_id=excluded.camera_id, clip_start=excluded.clip_start,
+            clip_end=excluded.clip_end, video_clip_url=excluded.video_clip_url,
+            created_at=excluded.created_at"""
+        with _DB_LOCK:
+            conn = _connect()
+            try:
+                _execute(conn, sql, (payload.site_id, payload.camera_id, payload.clip_start,
+                    payload.clip_end, payload.video_clip_url, payload.source_ref_id, time.time()))
+                conn.commit()
+            finally:
+                conn.close()
+        return {"accepted": True, "timeline_reference": payload.model_dump()}
 
     @app.post("/api/retail/conversion-metrics")
     async def ingest_conversion_metrics(payload: ConversionMetricIn,
