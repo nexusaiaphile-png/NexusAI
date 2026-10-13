@@ -52,9 +52,10 @@ def _execute(conn, sql: str, params: tuple = ()):
 
 def init_schema() -> None:
     """Create additive tables; existing security tables and data remain untouched."""
+    id_type = "BIGSERIAL PRIMARY KEY" if _database_url() else "INTEGER PRIMARY KEY AUTOINCREMENT"
     statements = [
-        """CREATE TABLE IF NOT EXISTS nexusai_pos_exceptions (
-            id BIGSERIAL PRIMARY KEY,
+        f"""CREATE TABLE IF NOT EXISTS nexusai_pos_exceptions (
+            id {id_type},
             site_id TEXT NOT NULL,
             till_id TEXT NOT NULL,
             exception_type TEXT NOT NULL,
@@ -73,8 +74,8 @@ def init_schema() -> None:
             created_at DOUBLE PRECISION NOT NULL,
             UNIQUE(site_id, source_event_id)
         )""",
-        """CREATE TABLE IF NOT EXISTS nexusai_conversion_metrics (
-            id BIGSERIAL PRIMARY KEY,
+        f"""CREATE TABLE IF NOT EXISTS nexusai_conversion_metrics (
+            id {id_type},
             site_id TEXT NOT NULL,
             camera_id TEXT,
             interval_start TEXT NOT NULL,
@@ -87,8 +88,8 @@ def init_schema() -> None:
             created_at DOUBLE PRECISION NOT NULL,
             UNIQUE(site_id, camera_id, interval_start, interval_end)
         )""",
-        """CREATE TABLE IF NOT EXISTS nexusai_owner_reports (
-            id BIGSERIAL PRIMARY KEY,
+        f"""CREATE TABLE IF NOT EXISTS nexusai_owner_reports (
+            id {id_type},
             site_id TEXT NOT NULL,
             period_start TEXT NOT NULL,
             period_end TEXT NOT NULL,
@@ -367,8 +368,6 @@ def _report_loop() -> None:
 
 
 def install_transaction_correlation(app: FastAPI) -> None:
-    init_schema()
-
     @app.post("/api/retail/transaction-exceptions")
     async def ingest_transaction_exception(payload: TillExceptionIn,
             x_nexusai_admin_key: str | None = Header(default=None)):
@@ -420,9 +419,12 @@ def install_transaction_correlation(app: FastAPI) -> None:
                     "amount_total": float(r[2] or 0), "footage_url": r[3], "currency": r[4]}
                     for r in rows]}
 
-    global _REPORT_WORKER
-    enabled = os.getenv("NEXUSAI_TRANSACTION_REPORT_WORKER_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
-    if enabled and not (_REPORT_WORKER and _REPORT_WORKER.is_alive()):
-        _REPORT_STOP.clear()
-        _REPORT_WORKER = threading.Thread(target=_report_loop, name="nexusai-weekly-owner-report", daemon=True)
-        _REPORT_WORKER.start()
+    @app.on_event("startup")
+    async def transaction_correlation_startup():
+        global _REPORT_WORKER
+        init_schema()
+        enabled = os.getenv("NEXUSAI_TRANSACTION_REPORT_WORKER_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+        if enabled and not (_REPORT_WORKER and _REPORT_WORKER.is_alive()):
+            _REPORT_STOP.clear()
+            _REPORT_WORKER = threading.Thread(target=_report_loop, name="nexusai-weekly-owner-report", daemon=True)
+            _REPORT_WORKER.start()
