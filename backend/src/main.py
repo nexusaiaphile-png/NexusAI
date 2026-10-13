@@ -970,11 +970,13 @@ def _load_hpp_site_connection(nexusai_site_id: str) -> dict | None:
     }
 
 
-def _hpp_event_sink(event: dict) -> bool:
-    # Normalize retail labels before persistence and before Discord/Web Push dispatch.
-    # This is deterministic rule mapping, not a claim that generic motion is AI-detected.
+def _hpp_event_sink(event: dict) -> bool | None:
+    # Strict retail-only gate runs before site lookup, persistence, history, or alerts.
     from backend.src.retail_event_mapping import normalize_retail_event
     event = normalize_retail_event(event)
+    if event is None:
+        logging.info("Retail Intelligence dropped unmatched HPP event before persistence/dispatch.")
+        return None
     serial = str(event.get("hpp_device_serial") or "")
     site_id = _hpp_mapping(str(event.get("hpp_site_id") or ""), serial)
     if not site_id:
@@ -2215,7 +2217,19 @@ async def edge_event(
     authorization: str | None = Header(default=None),
 ):
     require_edge_token(x_nexusai_edge_token, authorization, event.site_id)
-    event_data = event.model_dump()
+    from backend.src.retail_event_mapping import normalize_retail_event
+    event_data = normalize_retail_event(event.model_dump())
+    if event_data is None:
+        logging.info("Retail Intelligence dropped unmatched Edge event before persistence/dispatch.")
+        return {
+            "accepted": True,
+            "dropped": True,
+            "reason": "NON_RETAIL_EVENT",
+            "site_id": event.site_id,
+            "camera_id": event.camera_id,
+            "timestamp": event.timestamp,
+            "notification": "NON_RETAIL_EVENT_DROPPED",
+        }
     EDGE_EVENTS.insert(0, event_data)
     del EDGE_EVENTS[200:]
     persist_event(event_data)
