@@ -2340,11 +2340,21 @@ async def hpp_test_auth_direct(x_nexusai_admin_key: str | None = Header(default=
 _HIKCONNECT_TEST_LOCK = threading.Lock()
 _HIKCONNECT_TEST_LAST_RUN = 0.0
 
-@app.post("/api/hikconnect-teams/test-auth", include_in_schema=False)
+@app.api_route("/api/hikconnect-teams/test-auth", methods=["GET", "POST"], include_in_schema=False)
 async def hikconnect_teams_test_auth(
+    request: Request,
     response: Response,
     x_nexusai_admin_key: str | None = Header(default=None),
 ):
+    # Keep the endpoint's method contract explicit. GET is registered so an
+    # upstream/router that advertises GET cannot mask the intended POST route,
+    # but only POST may initiate the credential handshake.
+    if request.method != "POST":
+        raise HTTPException(
+            status_code=405,
+            detail="Method Not Allowed. Send a POST request.",
+            headers={"Allow": "POST"},
+        )
     require_admin_key(x_nexusai_admin_key)
     global _HIKCONNECT_TEST_LAST_RUN
     with _HIKCONNECT_TEST_LOCK:
