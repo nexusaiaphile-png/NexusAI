@@ -82,6 +82,17 @@ def init_schema() -> None:
             created_at DOUBLE PRECISION NOT NULL,
             UNIQUE(site_id, source_event_id)
         )""",
+        f"""CREATE TABLE IF NOT EXISTS nexusai_video_timeline_refs (
+            id {id_type},
+            site_id TEXT NOT NULL,
+            camera_id TEXT NOT NULL,
+            clip_start TEXT NOT NULL,
+            clip_end TEXT NOT NULL,
+            video_clip_url TEXT NOT NULL,
+            source_ref_id TEXT,
+            created_at DOUBLE PRECISION NOT NULL,
+            UNIQUE(site_id, source_ref_id)
+        )""",
         f"""CREATE TABLE IF NOT EXISTS nexusai_pos_exception_video_links (
             id {id_type},
             exception_id BIGINT NOT NULL,
@@ -99,17 +110,6 @@ def init_schema() -> None:
                 FOREIGN KEY (exception_id) REFERENCES nexusai_pos_exceptions(id) ON DELETE CASCADE,
             CONSTRAINT fk_pos_video_link_timeline
                 FOREIGN KEY (timeline_ref_id) REFERENCES nexusai_video_timeline_refs(id) ON DELETE RESTRICT
-        )""",
-        f"""CREATE TABLE IF NOT EXISTS nexusai_video_timeline_refs (
-            id {id_type},
-            site_id TEXT NOT NULL,
-            camera_id TEXT NOT NULL,
-            clip_start TEXT NOT NULL,
-            clip_end TEXT NOT NULL,
-            video_clip_url TEXT NOT NULL,
-            source_ref_id TEXT,
-            created_at DOUBLE PRECISION NOT NULL,
-            UNIQUE(site_id, source_ref_id)
         )""",
         f"""CREATE TABLE IF NOT EXISTS nexusai_conversion_metrics (
             id {id_type},
