@@ -64,6 +64,7 @@ def init_schema() -> None:
             currency TEXT NOT NULL DEFAULT 'ZAR',
             occurred_at TEXT NOT NULL,
             active_transaction BOOLEAN,
+            flagged_for_review BOOLEAN NOT NULL DEFAULT TRUE,
             camera_id TEXT,
             clip_start TEXT,
             clip_end TEXT,
@@ -248,14 +249,14 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
     metadata = json.dumps(event.metadata, separators=(",", ":"), default=str)
     sql = """INSERT INTO nexusai_pos_exceptions
         (site_id,till_id,exception_type,transaction_id,amount,currency,occurred_at,
-         active_transaction,camera_id,clip_start,clip_end,video_clip_url,source_event_id,
+         active_transaction,flagged_for_review,camera_id,clip_start,clip_end,video_clip_url,source_event_id,
          correlation_status,metadata_json,created_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(site_id, source_event_id) DO NOTHING"""
     params = (
         event.site_id, event.till_id, event.exception_type, event.transaction_id,
         event.amount, event.currency, event.occurred_at, event.active_transaction,
-        event.camera_id, event.clip_start, event.clip_end, event.video_clip_url,
+        needs_review, event.camera_id, event.clip_start, event.clip_end, event.video_clip_url,
         event.source_event_id, correlation_status, metadata, now,
     )
     with _DB_LOCK:
@@ -284,7 +285,7 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
             cur = _execute(conn, """SELECT COUNT(*), COALESCE(SUM(amount),0)
                 FROM nexusai_pos_exceptions
                 WHERE site_id=? AND till_id=? AND occurred_at>=? AND occurred_at<=?
-                AND exception_type IN ('refund','no_sale','void')""",
+                AND flagged_for_review=TRUE AND exception_type IN ('refund','no_sale','void')""",
                 (event.site_id, event.till_id, start, event.occurred_at))
             aggregate = cur.fetchone()
         finally:
@@ -358,7 +359,7 @@ def _weekly_summary(site_id: str, start: str, end: str) -> dict[str, Any]:
             cur = _execute(conn, """SELECT COUNT(*), COUNT(DISTINCT till_id),
                 COALESCE(SUM(amount),0), COUNT(DISTINCT transaction_id)
                 FROM nexusai_pos_exceptions WHERE site_id=? AND occurred_at>=? AND occurred_at<?
-                AND exception_type IN ('refund','no_sale','drawer_open','void')""",
+                AND flagged_for_review=TRUE AND exception_type IN ('refund','no_sale','drawer_open','void')""",
                 (site_id, start, end))
             row = cur.fetchone()
             cur2 = _execute(conn, """SELECT camera_id, interval_start, interval_end,
@@ -487,7 +488,7 @@ def install_transaction_correlation(app: FastAPI) -> None:
                 cur = _execute(conn, """SELECT till_id, COUNT(*), COALESCE(SUM(amount),0),
                     MAX(video_clip_url), MAX(currency) FROM nexusai_pos_exceptions
                     WHERE site_id=? AND occurred_at>=? AND occurred_at<?
-                    AND exception_type IN ('refund','no_sale','drawer_open','void')
+                    AND flagged_for_review=TRUE AND exception_type IN ('refund','no_sale','drawer_open','void')
                     GROUP BY till_id ORDER BY SUM(amount) DESC""", (site_id, start, end))
                 rows = cur.fetchall()
             finally:
