@@ -78,7 +78,7 @@ def init_schema() -> None:
             video_clip_url TEXT,
             source_event_id TEXT,
             correlation_status TEXT NOT NULL DEFAULT 'pending_video_reference',
-            metadata_json TEXT NOT NULL DEFAULT '{}',
+            metadata_json TEXT NOT NULL DEFAULT '{{}}',
             created_at DOUBLE PRECISION NOT NULL,
             UNIQUE(site_id, source_event_id)
         )""",
