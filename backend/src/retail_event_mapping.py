@@ -66,8 +66,8 @@ _SEVERITY_RANK = {
 }
 
 
-def normalize_retail_event(event: dict[str, Any]) -> dict[str, Any]:
-    """Normalize one event before database persistence and alert dispatch.
+def normalize_retail_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalize one event, returning None when it is not a core retail alert.
 
     Configure comma-separated, exact vendor alarm codes on the server:
       NEXUSAI_RETAIL_THEFT_EVENT_CODES
@@ -105,10 +105,6 @@ def normalize_retail_event(event: dict[str, Any]) -> dict[str, Any]:
             result["severity"] = current
         return result
 
-    result.setdefault("retail_intelligence", {
-        "label": None,
-        "rule": "no_specific_retail_rule_matched",
-        "original_event": original,
-        "version": "1.0",
-    })
-    return result
+    # Strict retail-only mode: unmatched hardware/security events are discarded.
+    # Returning None lets callers stop before persistence, history, or notifications.
+    return None
