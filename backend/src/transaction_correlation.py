@@ -1,0 +1,428 @@
+"""POS-first transaction correlation engine for NexusAI.
+
+POS exception events are the source of truth. Video is attached only by explicit
+camera/timeline references; this module does not classify generic camera motion
+as theft or any other crime.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import sqlite3
+import threading
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Literal
+from urllib.parse import urlsplit
+
+from fastapi import FastAPI, Header, HTTPException
+from pydantic import BaseModel, Field, field_validator
+
+LOG = logging.getLogger("nexusai.transaction_correlation")
+BASE_DIR = Path(__file__).resolve().parents[2]
+DB_PATH = Path(os.getenv("NEXUSAI_DB_PATH", str(BASE_DIR / "nexusai.db")))
+_DB_LOCK = threading.RLock()
+_REPORT_WORKER: threading.Thread | None = None
+_REPORT_STOP = threading.Event()
+
+
+def _database_url() -> str:
+    return os.getenv("DATABASE_URL", "").strip()
+
+
+def _connect():
+    if _database_url():
+        import psycopg
+        return psycopg.connect(_database_url())
+    conn = sqlite3.connect(DB_PATH, timeout=15)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=15000")
+    return conn
+
+
+def _execute(conn, sql: str, params: tuple = ()):
+    if _database_url():
+        with conn.cursor() as cur:
+            cur.execute(sql.replace("?", "%s"), params)
+            return cur
+    return conn.execute(sql, params)
+
+
+def init_schema() -> None:
+    """Create additive tables; existing security tables and data remain untouched."""
+    statements = [
+        """CREATE TABLE IF NOT EXISTS nexusai_pos_exceptions (
+            id BIGSERIAL PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            till_id TEXT NOT NULL,
+            exception_type TEXT NOT NULL,
+            transaction_id TEXT,
+            amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'ZAR',
+            occurred_at TEXT NOT NULL,
+            active_transaction BOOLEAN,
+            camera_id TEXT,
+            clip_start TEXT,
+            clip_end TEXT,
+            video_clip_url TEXT,
+            source_event_id TEXT,
+            correlation_status TEXT NOT NULL DEFAULT 'pending_video_reference',
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at DOUBLE PRECISION NOT NULL,
+            UNIQUE(site_id, source_event_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS nexusai_conversion_metrics (
+            id BIGSERIAL PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            camera_id TEXT,
+            interval_start TEXT NOT NULL,
+            interval_end TEXT NOT NULL,
+            traffic_count INTEGER NOT NULL,
+            invoice_count INTEGER NOT NULL,
+            average_basket_value NUMERIC(14,2) NOT NULL DEFAULT 0,
+            estimated_conversion_loss NUMERIC(14,2) NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'ZAR',
+            created_at DOUBLE PRECISION NOT NULL,
+            UNIQUE(site_id, camera_id, interval_start, interval_end)
+        )""",
+        """CREATE TABLE IF NOT EXISTS nexusai_owner_reports (
+            id BIGSERIAL PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            period_start TEXT NOT NULL,
+            period_end TEXT NOT NULL,
+            report_type TEXT NOT NULL,
+            summary_json TEXT NOT NULL,
+            created_at DOUBLE PRECISION NOT NULL,
+            UNIQUE(site_id, period_start, period_end, report_type)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_pos_exceptions_site_time ON nexusai_pos_exceptions(site_id, occurred_at)",
+        "CREATE INDEX IF NOT EXISTS idx_pos_exceptions_till_time ON nexusai_pos_exceptions(site_id, till_id, occurred_at)",
+    ]
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            for statement in statements:
+                _execute(conn, statement)
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def _admin_guard(key: str | None) -> None:
+    expected = os.getenv("NEXUSAI_ADMIN_KEY", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="NexusAI admin key is not configured.")
+    if not key or not __import__("secrets").compare_digest(key.strip(), expected):
+        raise HTTPException(status_code=401, detail="Invalid NexusAI admin key.")
+
+
+def _iso(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("Timestamp must be ISO-8601.") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+class TillExceptionIn(BaseModel):
+    site_id: str = Field(min_length=8, max_length=100)
+    till_id: str = Field(min_length=1, max_length=128)
+    exception_type: Literal["refund", "no_sale", "drawer_open", "void"]
+    transaction_id: str | None = Field(default=None, max_length=160)
+    amount: float = Field(default=0, ge=0, le=100000000)
+    currency: str = Field(default="ZAR", min_length=3, max_length=3)
+    occurred_at: str = Field(min_length=10, max_length=80)
+    active_transaction: bool | None = None
+    camera_id: str | None = Field(default=None, max_length=128)
+    clip_start: str | None = Field(default=None, max_length=80)
+    clip_end: str | None = Field(default=None, max_length=80)
+    video_clip_url: str | None = Field(default=None, max_length=2048)
+    source_event_id: str | None = Field(default=None, max_length=200)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("occurred_at")
+    @classmethod
+    def validate_occurred_at(cls, value: str) -> str:
+        return _iso(value)
+
+    @field_validator("clip_start", "clip_end")
+    @classmethod
+    def validate_clip_time(cls, value: str | None) -> str | None:
+        return _iso(value) if value else value
+
+    @field_validator("video_clip_url")
+    @classmethod
+    def validate_clip_url(cls, value: str | None) -> str | None:
+        if value:
+            parsed = urlsplit(value)
+            if parsed.scheme != "https" or not parsed.hostname:
+                raise ValueError("video_clip_url must be an HTTPS URL.")
+        return value
+
+    @field_validator("currency")
+    @classmethod
+    def validate_currency(cls, value: str) -> str:
+        return value.upper()
+
+
+class ConversionMetricIn(BaseModel):
+    site_id: str = Field(min_length=8, max_length=100)
+    camera_id: str | None = Field(default=None, max_length=128)
+    interval_start: str = Field(min_length=10, max_length=80)
+    interval_end: str = Field(min_length=10, max_length=80)
+    traffic_count: int = Field(ge=0, le=10000000)
+    invoice_count: int = Field(ge=0, le=10000000)
+    average_basket_value: float = Field(default=0, ge=0, le=100000000)
+    currency: str = Field(default="ZAR", min_length=3, max_length=3)
+
+    @field_validator("interval_start", "interval_end")
+    @classmethod
+    def validate_times(cls, value: str) -> str:
+        return _iso(value)
+
+
+def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
+    now = time.time()
+    # A till event is flagged from POS semantics, not inferred from video.
+    needs_review = event.exception_type in {"refund", "no_sale", "void"} or (
+        event.exception_type == "drawer_open" and event.active_transaction is not True
+    )
+    correlation_status = "matched_video_timeline" if (
+        event.camera_id and event.clip_start and event.clip_end and event.video_clip_url
+    ) else "pending_video_reference"
+    metadata = json.dumps(event.metadata, separators=(",", ":"), default=str)
+    sql = """INSERT INTO nexusai_pos_exceptions
+        (site_id,till_id,exception_type,transaction_id,amount,currency,occurred_at,
+         active_transaction,camera_id,clip_start,clip_end,video_clip_url,source_event_id,
+         correlation_status,metadata_json,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(site_id, source_event_id) DO NOTHING"""
+    params = (
+        event.site_id, event.till_id, event.exception_type, event.transaction_id,
+        event.amount, event.currency, event.occurred_at, event.active_transaction,
+        event.camera_id, event.clip_start, event.clip_end, event.video_clip_url,
+        event.source_event_id, correlation_status, metadata, now,
+    )
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            _execute(conn, sql, params)
+            conn.commit()
+            # Re-read by idempotency key or newest event when no source id was supplied.
+            if event.source_event_id:
+                cur = _execute(conn, "SELECT id FROM nexusai_pos_exceptions WHERE site_id=? AND source_event_id=?",
+                               (event.site_id, event.source_event_id))
+            else:
+                cur = _execute(conn, "SELECT id FROM nexusai_pos_exceptions WHERE site_id=? AND till_id=? AND occurred_at=? ORDER BY id DESC LIMIT 1",
+                               (event.site_id, event.till_id, event.occurred_at))
+            row = cur.fetchone()
+            event_id = row[0] if row else None
+        finally:
+            conn.close()
+
+    # Aggregate monetary exception volume for this till over the preceding 2 hours.
+    end = datetime.fromisoformat(event.occurred_at.replace("Z", "+00:00"))
+    start = (end - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            cur = _execute(conn, """SELECT COUNT(*), COALESCE(SUM(amount),0)
+                FROM nexusai_pos_exceptions
+                WHERE site_id=? AND till_id=? AND occurred_at>=? AND occurred_at<=?
+                AND exception_type IN ('refund','no_sale','void')""",
+                (event.site_id, event.till_id, start, event.occurred_at))
+            aggregate = cur.fetchone()
+        finally:
+            conn.close()
+    return {
+        "exception_id": event_id,
+        "flagged_for_review": needs_review,
+        "exception_type": event.exception_type,
+        "correlation_status": correlation_status,
+        "camera_id": event.camera_id,
+        "video_timeline": {
+            "clip_start": event.clip_start, "clip_end": event.clip_end,
+            "video_clip_url": event.video_clip_url,
+        } if correlation_status == "matched_video_timeline" else None,
+        "shrinkage_analytics": {
+            "site_id": event.site_id, "till_id": event.till_id,
+            "window_start": start, "window_end": event.occurred_at,
+            "exception_count": int(aggregate[0] or 0),
+            "amount_total": float(aggregate[1] or 0),
+            "currency": event.currency,
+            "footage_url": event.video_clip_url,
+        },
+    }
+
+
+def _upsert_conversion_metric(metric: ConversionMetricIn) -> dict[str, Any]:
+    if metric.interval_end <= metric.interval_start:
+        raise HTTPException(status_code=422, detail="interval_end must be after interval_start.")
+    # This is a directional estimate, not proof that each non-converting visitor abandoned a queue.
+    gap = max(0, metric.traffic_count - metric.invoice_count)
+    estimated_loss = round(gap * metric.average_basket_value, 2)
+    sql = """INSERT INTO nexusai_conversion_metrics
+        (site_id,camera_id,interval_start,interval_end,traffic_count,invoice_count,
+         average_basket_value,estimated_conversion_loss,currency,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(site_id, camera_id, interval_start, interval_end) DO UPDATE SET
+        traffic_count=excluded.traffic_count, invoice_count=excluded.invoice_count,
+        average_basket_value=excluded.average_basket_value,
+        estimated_conversion_loss=excluded.estimated_conversion_loss,
+        currency=excluded.currency, created_at=excluded.created_at"""
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            _execute(conn, sql, (metric.site_id, metric.camera_id, metric.interval_start,
+                metric.interval_end, metric.traffic_count, metric.invoice_count,
+                metric.average_basket_value, estimated_loss, metric.currency.upper(), time.time()))
+            conn.commit()
+        finally:
+            conn.close()
+    return {
+        "site_id": metric.site_id, "camera_id": metric.camera_id,
+        "interval_start": metric.interval_start, "interval_end": metric.interval_end,
+        "traffic_count": metric.traffic_count, "invoice_count": metric.invoice_count,
+        "conversion_gap": gap, "estimated_conversion_loss": estimated_loss,
+        "currency": metric.currency.upper(),
+        "estimate_note": "Directional estimate; traffic and invoices must use aligned intervals and calibrated counting.",
+    }
+
+
+def _weekly_summary(site_id: str, start: str, end: str) -> dict[str, Any]:
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            cur = _execute(conn, """SELECT COUNT(*), COUNT(DISTINCT till_id),
+                COALESCE(SUM(amount),0), COUNT(DISTINCT transaction_id)
+                FROM nexusai_pos_exceptions WHERE site_id=? AND occurred_at>=? AND occurred_at<?
+                AND exception_type IN ('refund','no_sale','drawer_open','void')""",
+                (site_id, start, end))
+            row = cur.fetchone()
+            cur2 = _execute(conn, """SELECT camera_id, interval_start, interval_end,
+                traffic_count, invoice_count, estimated_conversion_loss, currency
+                FROM nexusai_conversion_metrics WHERE site_id=? AND interval_start>=? AND interval_end<=?
+                ORDER BY interval_start""", (site_id, start, end))
+            conversion = [
+                {"camera_id": r[0], "interval_start": r[1], "interval_end": r[2],
+                 "traffic_count": r[3], "invoice_count": r[4],
+                 "estimated_conversion_loss": float(r[5] or 0), "currency": r[6]}
+                for r in cur2.fetchall()
+            ]
+        finally:
+            conn.close()
+    return {
+        "site_id": site_id, "period_start": start, "period_end": end,
+        "exception_count": int(row[0] or 0), "tills_affected": int(row[1] or 0),
+        "exception_amount_total": float(row[2] or 0),
+        "transactions_identified": int(row[3] or 0),
+        "conversion_intervals": conversion,
+        "report_type": "weekly_transaction_correlation",
+    }
+
+
+def _store_weekly_reports() -> None:
+    now = datetime.now(timezone.utc)
+    # Previous complete Monday-to-Monday UTC reporting period.
+    this_monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    start_dt = this_monday - timedelta(days=7)
+    start, end = start_dt.isoformat().replace("+00:00", "Z"), this_monday.isoformat().replace("+00:00", "Z")
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            cur = _execute(conn, "SELECT DISTINCT site_id FROM nexusai_pos_exceptions WHERE occurred_at>=? AND occurred_at<?",
+                           (start, end))
+            sites = [r[0] for r in cur.fetchall()]
+        finally:
+            conn.close()
+    for site_id in sites:
+        summary = _weekly_summary(site_id, start, end)
+        with _DB_LOCK:
+            conn = _connect()
+            try:
+                _execute(conn, """INSERT INTO nexusai_owner_reports
+                    (site_id,period_start,period_end,report_type,summary_json,created_at)
+                    VALUES(?,?,?,?,?,?) ON CONFLICT(site_id,period_start,period_end,report_type)
+                    DO UPDATE SET summary_json=excluded.summary_json, created_at=excluded.created_at""",
+                    (site_id, start, end, "weekly_transaction_correlation",
+                     json.dumps(summary, separators=(",", ":")), time.time()))
+                conn.commit()
+            finally:
+                conn.close()
+    LOG.info("Weekly transaction correlation reports stored: sites=%d period=%s..%s", len(sites), start, end)
+
+
+def _report_loop() -> None:
+    # Persist a report on startup and then every 24 hours; the weekly period is idempotent.
+    while not _REPORT_STOP.is_set():
+        try:
+            _store_weekly_reports()
+        except Exception:
+            LOG.exception("Weekly transaction correlation report job failed.")
+        _REPORT_STOP.wait(max(3600, int(os.getenv("NEXUSAI_REPORT_REFRESH_SECONDS", "86400"))))
+
+
+def install_transaction_correlation(app: FastAPI) -> None:
+    init_schema()
+
+    @app.post("/api/retail/transaction-exceptions")
+    async def ingest_transaction_exception(payload: TillExceptionIn,
+            x_nexusai_admin_key: str | None = Header(default=None)):
+        _admin_guard(x_nexusai_admin_key)
+        try:
+            result = _insert_exception(payload)
+        except Exception as exc:
+            LOG.exception("POS exception ingestion failed.")
+            raise HTTPException(status_code=500, detail="Could not persist POS transaction exception.") from exc
+        return {"accepted": True, "engine": "transaction_correlation", **result}
+
+    @app.post("/api/retail/conversion-metrics")
+    async def ingest_conversion_metrics(payload: ConversionMetricIn,
+            x_nexusai_admin_key: str | None = Header(default=None)):
+        _admin_guard(x_nexusai_admin_key)
+        return _upsert_conversion_metric(payload)
+
+    @app.get("/api/retail/owner-dashboard/weekly")
+    async def owner_weekly_dashboard(site_id: str, x_nexusai_admin_key: str | None = Header(default=None)):
+        _admin_guard(x_nexusai_admin_key)
+        now = datetime.now(timezone.utc)
+        this_monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        start = (this_monday - timedelta(days=7)).isoformat().replace("+00:00", "Z")
+        end = this_monday.isoformat().replace("+00:00", "Z")
+        summary = _weekly_summary(site_id, start, end)
+        return {"dashboard": summary, "generated_at": datetime.now(timezone.utc).isoformat()}
+
+    @app.get("/api/retail/owner-dashboard/shrinkage")
+    async def owner_shrinkage_dashboard(site_id: str, hours: int = 2,
+            x_nexusai_admin_key: str | None = Header(default=None)):
+        _admin_guard(x_nexusai_admin_key)
+        hours = max(1, min(hours, 168))
+        end_dt = datetime.now(timezone.utc)
+        start_dt = end_dt - timedelta(hours=hours)
+        start, end = start_dt.isoformat().replace("+00:00", "Z"), end_dt.isoformat().replace("+00:00", "Z")
+        with _DB_LOCK:
+            conn = _connect()
+            try:
+                cur = _execute(conn, """SELECT till_id, COUNT(*), COALESCE(SUM(amount),0),
+                    MAX(video_clip_url), MAX(currency) FROM nexusai_pos_exceptions
+                    WHERE site_id=? AND occurred_at>=? AND occurred_at<?
+                    AND exception_type IN ('refund','no_sale','drawer_open','void')
+                    GROUP BY till_id ORDER BY SUM(amount) DESC""", (site_id, start, end))
+                rows = cur.fetchall()
+            finally:
+                conn.close()
+        return {"site_id": site_id, "window_start": start, "window_end": end,
+                "tills": [{"till_id": r[0], "exception_count": int(r[1]),
+                    "amount_total": float(r[2] or 0), "footage_url": r[3], "currency": r[4]}
+                    for r in rows]}
+
+    global _REPORT_WORKER
+    enabled = os.getenv("NEXUSAI_TRANSACTION_REPORT_WORKER_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+    if enabled and not (_REPORT_WORKER and _REPORT_WORKER.is_alive()):
+        _REPORT_STOP.clear()
+        _REPORT_WORKER = threading.Thread(target=_report_loop, name="nexusai-weekly-owner-report", daemon=True)
+        _REPORT_WORKER.start()
