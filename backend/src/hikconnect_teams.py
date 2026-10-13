@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 LOG = logging.getLogger("nexusai.hikconnect_teams")
 
-TOKEN_BASE_URL = "https://hikcentralconnect.com"
+TOKEN_BASE_URL = "https://ieu-team.hikcentralconnect.com"
 TOKEN_PATH = "/api/hccgw/platform/v1/token/get"
 SUBSCRIBE_PATH = "/api/hccgw/alarm/v1/mq/subscribe"
 MESSAGES_PATH = "/api/hccgw/alarm/v1/mq/messages"
