@@ -2335,6 +2335,44 @@ async def hpp_test_auth_direct(x_nexusai_admin_key: str | None = Header(default=
         logging.exception("Direct HPP authentication test failed.")
         raise HTTPException(status_code=502, detail=f"HPP integration is not available: {str(exc)[:500]}")
 
+# Protected, one-shot Hik-Connect for Teams token handshake. This endpoint does not
+# subscribe to alarms, poll the message queue, or start a consumer.
+_HIKCONNECT_TEST_LOCK = threading.Lock()
+_HIKCONNECT_TEST_LAST_RUN = 0.0
+
+@app.post("/api/hikconnect-teams/test-auth", include_in_schema=False)
+async def hikconnect_teams_test_auth(
+    response: Response,
+    x_nexusai_admin_key: str | None = Header(default=None),
+):
+    require_admin_key(x_nexusai_admin_key)
+    global _HIKCONNECT_TEST_LAST_RUN
+    with _HIKCONNECT_TEST_LOCK:
+        now = time.monotonic()
+        if now - _HIKCONNECT_TEST_LAST_RUN < 10:
+            raise HTTPException(status_code=429, detail="Please wait before retrying the Hik-Connect authentication test.")
+        _HIKCONNECT_TEST_LAST_RUN = now
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    try:
+        from backend.src.hikconnect_teams import HikConnectTeamsClient, HikConnectTeamsError
+        client = HikConnectTeamsClient()
+        result = client.authenticate(force=True)
+        return {
+            "authenticated": True,
+            "provider": "Hik-Connect for Teams",
+            "area_domain": result.get("area_domain"),
+            "expires_at": result.get("expires_at"),
+            "consumer_started": False,
+            "subscription_created": False,
+        }
+    except Exception as exc:
+        logging.warning("Hik-Connect for Teams auth test failed (%s).", type(exc).__name__)
+        raise HTTPException(
+            status_code=502,
+            detail="Hik-Connect for Teams authentication failed. Check the server logs for the error class and vendor response code.",
+        )
+
 # Keep the portal mounted last so API routes stay reachable.
 app.mount("/portal", StaticFiles(directory=PORTAL_DIR, html=True), name="portal")
 
