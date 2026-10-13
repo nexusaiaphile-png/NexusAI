@@ -287,6 +287,11 @@ def _process_batch(result: dict, event_sink: Callable[[dict], Any] | None) -> di
             if not event_sink:
                 raise RuntimeError("No HPP event sink is configured; batch left unacknowledged.")
             mapped = event_sink(event)
+            if mapped is None:
+                # Intentional retail-only filter drop: safe to count as handled so
+                # the vendor batch can be acknowledged and the raw event is not retried forever.
+                skipped += 1
+                continue
             if mapped:
                 accepted += 1
             else:
