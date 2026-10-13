@@ -18,7 +18,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 LOG = logging.getLogger("nexusai.transaction_correlation")
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -62,6 +62,9 @@ def init_schema() -> None:
             till_id TEXT NOT NULL,
             exception_type TEXT NOT NULL,
             transaction_id TEXT,
+            cashier_id TEXT,
+            cashier_name TEXT,
+            transaction_value NUMERIC(14,2) NOT NULL DEFAULT 0,
             amount NUMERIC(14,2) NOT NULL DEFAULT 0,
             currency TEXT NOT NULL DEFAULT 'ZAR',
             occurred_at TEXT NOT NULL,
@@ -76,6 +79,20 @@ def init_schema() -> None:
             metadata_json TEXT NOT NULL DEFAULT '{}',
             created_at DOUBLE PRECISION NOT NULL,
             UNIQUE(site_id, source_event_id)
+        )""",
+        f"""CREATE TABLE IF NOT EXISTS nexusai_pos_exception_video_links (
+            id {id_type},
+            exception_id BIGINT NOT NULL,
+            timeline_ref_id BIGINT,
+            site_id TEXT NOT NULL,
+            camera_id TEXT,
+            clip_start TEXT,
+            clip_end TEXT,
+            video_clip_url TEXT,
+            source_ref_id TEXT,
+            match_status TEXT NOT NULL,
+            created_at DOUBLE PRECISION NOT NULL,
+            UNIQUE(exception_id)
         )""",
         f"""CREATE TABLE IF NOT EXISTS nexusai_video_timeline_refs (
             id {id_type},
@@ -113,6 +130,7 @@ def init_schema() -> None:
             UNIQUE(site_id, period_start, period_end, report_type)
         )""",
         "CREATE INDEX IF NOT EXISTS idx_pos_exceptions_site_time ON nexusai_pos_exceptions(site_id, occurred_at)",
+        "CREATE INDEX IF NOT EXISTS idx_exception_video_links_site_camera ON nexusai_pos_exception_video_links(site_id, camera_id, clip_start, clip_end)",
         "CREATE INDEX IF NOT EXISTS idx_video_timeline_lookup ON nexusai_video_timeline_refs(site_id, camera_id, clip_start, clip_end)",
         "CREATE INDEX IF NOT EXISTS idx_pos_exceptions_till_time ON nexusai_pos_exceptions(site_id, till_id, occurred_at)",
     ]
@@ -121,6 +139,16 @@ def init_schema() -> None:
         try:
             for statement in statements:
                 _execute(conn, statement)
+            # Additive migration for databases created by an earlier draft version.
+            for column, declaration in (("cashier_id", "TEXT"), ("cashier_name", "TEXT"), ("transaction_value", "NUMERIC(14,2) NOT NULL DEFAULT 0")):
+                if _database_url():
+                    cur = _execute(conn, "SELECT column_name FROM information_schema.columns WHERE table_name='nexusai_pos_exceptions' AND column_name=?", (column,))
+                    exists = cur.fetchone() is not None
+                else:
+                    cur = _execute(conn, "PRAGMA table_info(nexusai_pos_exceptions)")
+                    exists = column in {row[1] for row in cur.fetchall()}
+                if not exists:
+                    _execute(conn, f"ALTER TABLE nexusai_pos_exceptions ADD COLUMN {column} {declaration}")
             conn.commit()
         finally:
             conn.close()
@@ -144,12 +172,28 @@ def _iso(value: str) -> str:
     return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+class CashierIn(BaseModel):
+    id: str | None = Field(default=None, max_length=160)
+    name: str | None = Field(default=None, max_length=200)
+
+
+class ExceptionVideoTimelineIn(BaseModel):
+    camera_id: str | None = Field(default=None, max_length=128)
+    clip_start: str | None = Field(default=None, max_length=80)
+    clip_end: str | None = Field(default=None, max_length=80)
+    video_clip_url: str | None = Field(default=None, max_length=2048)
+    source_ref_id: str | None = Field(default=None, max_length=200)
+
+
 class TillExceptionIn(BaseModel):
     site_id: str = Field(min_length=8, max_length=100)
     till_id: str = Field(min_length=1, max_length=128)
     exception_type: Literal["refund", "no_sale", "drawer_open", "void"]
     transaction_id: str | None = Field(default=None, max_length=160)
-    amount: float = Field(default=0, ge=0, le=100000000)
+    cashier: CashierIn = Field(default_factory=CashierIn)
+    transaction_value: float = Field(default=0, ge=0, le=100000000)
+    # Backward compatibility for existing POS adapters; transaction_value is canonical.
+    amount: float | None = Field(default=None, ge=0, le=100000000, exclude=True)
     currency: str = Field(default="ZAR", min_length=3, max_length=3)
     occurred_at: str = Field(min_length=10, max_length=80)
     active_transaction: bool | None = None
@@ -157,8 +201,33 @@ class TillExceptionIn(BaseModel):
     clip_start: str | None = Field(default=None, max_length=80)
     clip_end: str | None = Field(default=None, max_length=80)
     video_clip_url: str | None = Field(default=None, max_length=2048)
+    video_timeline: ExceptionVideoTimelineIn | None = None
     source_event_id: str | None = Field(default=None, max_length=200)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_and_nested_fields(cls, value):
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        if "transaction_value" not in data and data.get("amount") is not None:
+            data["transaction_value"] = data["amount"]
+        if "amount" not in data and "transaction_value" in data:
+            data["amount"] = data["transaction_value"]
+        nested = data.get("video_timeline")
+        if isinstance(nested, dict):
+            for target in ("camera_id", "clip_start", "clip_end", "video_clip_url"):
+                if not data.get(target) and nested.get(target):
+                    data[target] = nested[target]
+        return data
+
+    @model_validator(mode="after")
+    def keep_amount_alias_in_sync(self):
+        if self.amount is not None and self.transaction_value == 0:
+            self.transaction_value = self.amount
+        self.amount = self.transaction_value
+        return self
 
     @field_validator("occurred_at")
     @classmethod
@@ -250,14 +319,15 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
     ) else "pending_video_reference"
     metadata = json.dumps(event.metadata, separators=(",", ":"), default=str)
     sql = """INSERT INTO nexusai_pos_exceptions
-        (site_id,till_id,exception_type,transaction_id,amount,currency,occurred_at,
+        (site_id,till_id,exception_type,transaction_id,cashier_id,cashier_name,transaction_value,amount,currency,occurred_at,
          active_transaction,flagged_for_review,camera_id,clip_start,clip_end,video_clip_url,source_event_id,
          correlation_status,metadata_json,created_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(site_id, source_event_id) DO NOTHING"""
     params = (
         event.site_id, event.till_id, event.exception_type, event.transaction_id,
-        event.amount, event.currency, event.occurred_at, event.active_transaction,
+        event.cashier.id, event.cashier.name, event.transaction_value, event.transaction_value,
+        event.currency, event.occurred_at, event.active_transaction,
         needs_review, event.camera_id, event.clip_start, event.clip_end, event.video_clip_url,
         event.source_event_id, correlation_status, metadata, now,
     )
@@ -277,6 +347,30 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
             event_id = row[0] if row else None
         finally:
             conn.close()
+
+    # Store a relational, traceable link to the exact video timeline used for this exception.
+    if event_id is not None:
+        with _DB_LOCK:
+            conn = _connect()
+            try:
+                timeline_ref_id = None
+                if event.video_timeline and event.video_timeline.source_ref_id:
+                    cur = _execute(conn, "SELECT id FROM nexusai_video_timeline_refs WHERE site_id=? AND source_ref_id=?", (event.site_id, event.video_timeline.source_ref_id))
+                    found = cur.fetchone()
+                    timeline_ref_id = found[0] if found else None
+                link_sql = """INSERT INTO nexusai_pos_exception_video_links
+                    (exception_id,timeline_ref_id,site_id,camera_id,clip_start,clip_end,video_clip_url,source_ref_id,match_status,created_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(exception_id) DO UPDATE SET
+                    timeline_ref_id=excluded.timeline_ref_id,camera_id=excluded.camera_id,
+                    clip_start=excluded.clip_start,clip_end=excluded.clip_end,video_clip_url=excluded.video_clip_url,
+                    source_ref_id=excluded.source_ref_id,match_status=excluded.match_status,created_at=excluded.created_at"""
+                _execute(conn, link_sql, (event_id, timeline_ref_id, event.site_id, event.camera_id,
+                    event.clip_start, event.clip_end, event.video_clip_url,
+                    event.video_timeline.source_ref_id if event.video_timeline else None,
+                    correlation_status, now))
+                conn.commit()
+            finally:
+                conn.close()
 
     # Aggregate monetary exception volume for this till over the preceding 2 hours.
     end = datetime.fromisoformat(event.occurred_at.replace("Z", "+00:00"))
@@ -298,14 +392,18 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
         "till_void_exception": {
             "exception_type": event.exception_type,
             "transaction_id": event.transaction_id,
+            "cashier": {"id": event.cashier.id, "name": event.cashier.name},
+            "transaction_value": event.transaction_value,
             "active_transaction": event.active_transaction,
             "flagged_for_review": needs_review,
         },
         "correlation_status": correlation_status,
         "camera_id": event.camera_id,
         "video_timeline": {
+            "camera_id": event.camera_id,
             "clip_start": event.clip_start, "clip_end": event.clip_end,
             "video_clip_url": event.video_clip_url,
+            "source_ref_id": event.video_timeline.source_ref_id if event.video_timeline else None,
         } if correlation_status == "matched_video_timeline" else None,
         "shrinkage_analytics": {
             "site_id": event.site_id, "till_id": event.till_id,
