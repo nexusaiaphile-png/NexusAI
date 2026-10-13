@@ -39,6 +39,8 @@ def _connect():
     conn = sqlite3.connect(DB_PATH, timeout=15)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=15000")
+    # SQLite disables FK enforcement by default; enable it on every connection.
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
@@ -92,7 +94,11 @@ def init_schema() -> None:
             source_ref_id TEXT,
             match_status TEXT NOT NULL,
             created_at DOUBLE PRECISION NOT NULL,
-            UNIQUE(exception_id)
+            UNIQUE(exception_id),
+            CONSTRAINT fk_pos_video_link_exception
+                FOREIGN KEY (exception_id) REFERENCES nexusai_pos_exceptions(id) ON DELETE CASCADE,
+            CONSTRAINT fk_pos_video_link_timeline
+                FOREIGN KEY (timeline_ref_id) REFERENCES nexusai_video_timeline_refs(id) ON DELETE RESTRICT
         )""",
         f"""CREATE TABLE IF NOT EXISTS nexusai_video_timeline_refs (
             id {id_type},
@@ -149,6 +155,75 @@ def init_schema() -> None:
                     exists = column in {row[1] for row in cur.fetchall()}
                 if not exists:
                     _execute(conn, f"ALTER TABLE nexusai_pos_exceptions ADD COLUMN {column} {declaration}")
+
+            # Refuse to hide or silently delete pre-existing orphaned relations.
+            orphan_exception = _execute(conn, """SELECT l.id FROM nexusai_pos_exception_video_links l
+                LEFT JOIN nexusai_pos_exceptions e ON e.id=l.exception_id
+                WHERE e.id IS NULL LIMIT 1""").fetchone()
+            orphan_timeline = _execute(conn, """SELECT l.id FROM nexusai_pos_exception_video_links l
+                LEFT JOIN nexusai_video_timeline_refs v ON v.id=l.timeline_ref_id
+                WHERE l.timeline_ref_id IS NOT NULL AND v.id IS NULL LIMIT 1""").fetchone()
+            if orphan_exception or orphan_timeline:
+                which = "exception_id" if orphan_exception else "timeline_ref_id"
+                bad_id = (orphan_exception or orphan_timeline)[0]
+                raise RuntimeError(
+                    f"Foreign-key migration blocked: junction row {bad_id} has an orphan {which}; "
+                    "repair the referenced data before restarting. No rows were deleted."
+                )
+
+            if _database_url():
+                # PostgreSQL: add constraints to an existing draft table as well as new tables.
+                existing_constraints = {
+                    row[0] for row in _execute(conn, """SELECT conname FROM pg_constraint
+                        WHERE conrelid='nexusai_pos_exception_video_links'::regclass""").fetchall()
+                }
+                if "fk_pos_video_link_exception" not in existing_constraints:
+                    _execute(conn, """ALTER TABLE nexusai_pos_exception_video_links
+                        ADD CONSTRAINT fk_pos_video_link_exception
+                        FOREIGN KEY (exception_id) REFERENCES nexusai_pos_exceptions(id) ON DELETE CASCADE""")
+                if "fk_pos_video_link_timeline" not in existing_constraints:
+                    _execute(conn, """ALTER TABLE nexusai_pos_exception_video_links
+                        ADD CONSTRAINT fk_pos_video_link_timeline
+                        FOREIGN KEY (timeline_ref_id) REFERENCES nexusai_video_timeline_refs(id) ON DELETE RESTRICT""")
+            else:
+                fk_rows = _execute(conn, "PRAGMA foreign_key_list(nexusai_pos_exception_video_links)").fetchall()
+                fk_targets = {(row[2], row[3], row[4]) for row in fk_rows}
+                required_fks = {
+                    ("nexusai_pos_exceptions", "exception_id", "id"),
+                    ("nexusai_video_timeline_refs", "timeline_ref_id", "id"),
+                }
+                if not required_fks.issubset(fk_targets):
+                    # SQLite cannot ALTER TABLE to add foreign keys. Rebuild safely after
+                    # checking all existing rows; preserve every row and recreate the index.
+                    _execute(conn, "DROP INDEX IF EXISTS idx_exception_video_links_site_camera")
+                    _execute(conn, "ALTER TABLE nexusai_pos_exception_video_links RENAME TO nexusai_pos_exception_video_links_legacy")
+                    _execute(conn, """CREATE TABLE nexusai_pos_exception_video_links (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        exception_id BIGINT NOT NULL,
+                        timeline_ref_id BIGINT,
+                        site_id TEXT NOT NULL,
+                        camera_id TEXT,
+                        clip_start TEXT,
+                        clip_end TEXT,
+                        video_clip_url TEXT,
+                        source_ref_id TEXT,
+                        match_status TEXT NOT NULL,
+                        created_at DOUBLE PRECISION NOT NULL,
+                        UNIQUE(exception_id),
+                        CONSTRAINT fk_pos_video_link_exception
+                            FOREIGN KEY (exception_id) REFERENCES nexusai_pos_exceptions(id) ON DELETE CASCADE,
+                        CONSTRAINT fk_pos_video_link_timeline
+                            FOREIGN KEY (timeline_ref_id) REFERENCES nexusai_video_timeline_refs(id) ON DELETE RESTRICT
+                    )""")
+                    _execute(conn, """INSERT INTO nexusai_pos_exception_video_links
+                        (id,exception_id,timeline_ref_id,site_id,camera_id,clip_start,clip_end,
+                         video_clip_url,source_ref_id,match_status,created_at)
+                        SELECT id,exception_id,timeline_ref_id,site_id,camera_id,clip_start,clip_end,
+                         video_clip_url,source_ref_id,match_status,created_at
+                        FROM nexusai_pos_exception_video_links_legacy""")
+                    _execute(conn, "DROP TABLE nexusai_pos_exception_video_links_legacy")
+                    _execute(conn, """CREATE INDEX IF NOT EXISTS idx_exception_video_links_site_camera
+                        ON nexusai_pos_exception_video_links(site_id, camera_id, clip_start, clip_end)""")
             conn.commit()
         finally:
             conn.close()
