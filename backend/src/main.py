@@ -2418,3 +2418,13 @@ try:
     install_managed_deployment(app)
 except Exception:
     logging.exception("Managed Deployment control plane failed to load.")
+
+# POS-first Transaction Correlation Engine. Camera-only commodity classifications
+# are not the product's retail intelligence layer; this engine correlates POS events
+# with explicit camera/timeline references and keeps the existing secure HPP transport.
+try:
+    from .transaction_correlation import install_transaction_correlation
+except ImportError:  # supports the Render command: cd backend && uvicorn main:app
+    from src.transaction_correlation import install_transaction_correlation
+
+install_transaction_correlation(app)
