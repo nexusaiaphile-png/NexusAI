@@ -20,6 +20,8 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from .models import POSExceptionBatchIn, POSExceptionEventIn
+
 LOG = logging.getLogger("nexusai.transaction_correlation")
 BASE_DIR = Path(__file__).resolve().parents[2]
 DB_PATH = Path(os.getenv("NEXUSAI_DB_PATH", str(BASE_DIR / "nexusai.db")))
@@ -263,7 +265,7 @@ class ExceptionVideoTimelineIn(BaseModel):
 class TillExceptionIn(BaseModel):
     site_id: str = Field(min_length=8, max_length=100)
     till_id: str = Field(min_length=1, max_length=128)
-    exception_type: Literal["refund", "no_sale", "drawer_open", "void"]
+    exception_type: Literal["refund", "return", "return_issued", "no_sale", "drawer_open", "void", "transaction_void", "line_item_cancelled", "manager_override", "manual_discount"]
     transaction_id: str | None = Field(default=None, max_length=160)
     cashier: CashierIn = Field(default_factory=CashierIn)
     transaction_value: float = Field(default=0, ge=0, le=100000000)
@@ -386,7 +388,7 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
             finally:
                 conn.close()
     # A till event is flagged from POS semantics, not inferred from video.
-    needs_review = event.exception_type in {"refund", "no_sale", "void"} or (
+    needs_review = event.exception_type in {"refund", "return", "return_issued", "no_sale", "void", "transaction_void", "line_item_cancelled", "manager_override", "manual_discount"} or (
         event.exception_type == "drawer_open" and event.active_transaction is not True
     )
     correlation_status = "matched_video_timeline" if (
@@ -603,15 +605,56 @@ def _report_loop() -> None:
 
 def install_transaction_correlation(app: FastAPI) -> None:
     @app.post("/api/retail/transaction-exceptions")
-    async def ingest_transaction_exception(payload: TillExceptionIn,
+    async def ingest_transaction_exception(
+            payload: POSExceptionEventIn | POSExceptionBatchIn | TillExceptionIn | list[POSExceptionEventIn],
             x_nexusai_admin_key: str | None = Header(default=None)):
         _admin_guard(x_nexusai_admin_key)
+
+        if isinstance(payload, POSExceptionBatchIn):
+            incoming = payload.events
+            is_batch = True
+        elif isinstance(payload, list):
+            incoming = payload
+            is_batch = True
+        else:
+            incoming = [payload]
+            is_batch = False
+
+        results = []
         try:
-            result = _insert_exception(payload)
+            for item in incoming:
+                if isinstance(item, POSExceptionEventIn):
+                    # Convert the vendor-facing flat cashier fields into the
+                    # engine's existing nested representation without changing
+                    # the persisted schema or legacy request contract.
+                    event = TillExceptionIn.model_validate({
+                        "site_id": item.site_id,
+                        "source_event_id": item.source_event_id,
+                        "till_id": item.till_id,
+                        "exception_type": item.exception_type,
+                        "transaction_id": item.transaction_id,
+                        "cashier": {"id": item.cashier_id, "name": item.cashier_name},
+                        "transaction_value": item.transaction_value,
+                        "currency": item.currency,
+                        "occurred_at": item.occurred_at.isoformat(),
+                        "active_transaction": item.active_transaction,
+                        "metadata": item.metadata,
+                    })
+                else:
+                    event = item
+                results.append(_insert_exception(event))
         except Exception as exc:
             LOG.exception("POS exception ingestion failed.")
             raise HTTPException(status_code=500, detail="Could not persist POS transaction exception.") from exc
-        return {"accepted": True, "engine": "transaction_correlation", **result}
+
+        if is_batch:
+            return {
+                "accepted": True,
+                "engine": "transaction_correlation",
+                "accepted_count": len(results),
+                "results": results,
+            }
+        return {"accepted": True, "engine": "transaction_correlation", **results[0]}
 
     @app.post("/api/retail/video-timeline")
     async def ingest_video_timeline(payload: VideoTimelineIn,
