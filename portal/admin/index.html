@@ -1,124 +1,32 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07110f"><title>NexusAI Command Centre</title>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07110f">
+<title>NexusAI | Hikvision Service Provider</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#050b10;color:#eef8f6;font-family:Inter,system-ui,Arial,sans-serif}main{max-width:1250px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:22px}.brand{font-size:24px;font-weight:900}.brand span{display:block;font-size:11px;letter-spacing:2px;color:#62dcb8;margin-top:3px}.card{background:#0b171d;border:1px solid #1a3139;border-radius:18px;padding:22px;margin-bottom:18px;box-shadow:0 12px 35px #0004}h1{font-size:30px;margin:0 0 6px}h2{font-size:19px;margin:0 0 14px}.muted{color:#91aaa9}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.metric{padding:17px;border:1px solid #183039;border-radius:14px;background:#081218}.metric b{display:block;font-size:26px;margin-top:4px}.row{display:flex;gap:10px;flex-wrap:wrap}.field{flex:1;min-width:190px}label{display:block;font-size:12px;color:#8da6a5;margin-bottom:6px}input{width:100%;padding:12px;border-radius:10px;border:1px solid #29434a;background:#061016;color:white}button{padding:12px 16px;border:0;border-radius:10px;background:#19d6a2;color:#03120e;font-weight:900;cursor:pointer}button.secondary{background:#173039;color:#d9f4ef}.site{border:1px solid #1a343c;border-radius:14px;padding:16px;margin-top:12px}.sitehead{display:flex;justify-content:space-between;gap:10px}.pill{display:inline-block;padding:5px 9px;border-radius:999px;background:#123b30;color:#69e6c0;font-size:11px;font-weight:900}.offline{background:#39291b;color:#f4c777}.links{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}.links a{color:#6fe6ff;text-decoration:none;word-break:break-all;font-size:13px}.status{min-height:22px;margin-top:10px;color:#a6bdbc}.hidden{display:none}@media(max-width:800px){.grid{grid-template-columns:repeat(2,1fr)}main{padding:16px}}
-</style></head><body><main>
-<div class="top"><div class="brand">NexusAI<span>REMOTE SECURITY COMMAND CENTRE</span></div><button class="secondary" onclick="loadSites()">REFRESH</button></div>
-<section id="login" class="card"><h1>Founder / Admin Access</h1><p class="muted">Enter the NexusAI admin key to manage customer sites remotely.</p><div class="row"><div class="field"><label>ADMIN KEY</label><input id="key" type="password" autocomplete="off"></div><div style="align-self:end"><button onclick="login()">OPEN COMMAND CENTRE</button></div></div><div id="loginStatus" class="status"></div></section>
+*{box-sizing:border-box}body{margin:0;background:#050b10;color:#eef8f6;font-family:Inter,system-ui,Arial,sans-serif}main{max-width:1050px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:22px}.brand{font-size:24px;font-weight:900}.brand span{display:block;font-size:11px;letter-spacing:2px;color:#62dcb8;margin-top:3px}.card{background:#0b171d;border:1px solid #1a3139;border-radius:18px;padding:22px;margin-bottom:18px}h1{font-size:28px;margin:0 0 8px}h2{font-size:19px;margin:0 0 12px}.muted{color:#91aaa9;line-height:1.5}.row{display:flex;gap:10px;flex-wrap:wrap}.field{flex:1;min-width:190px}label{display:block;font-size:12px;color:#8da6a5;margin-bottom:6px}input,select{width:100%;padding:12px;border-radius:10px;border:1px solid #29434a;background:#061016;color:white}button{padding:12px 16px;border:0;border-radius:10px;background:#19d6a2;color:#03120e;font-weight:900;cursor:pointer}button.secondary{background:#173039;color:#d9f4ef}.site{border:1px solid #1a343c;border-radius:14px;padding:16px;margin-top:12px}.sitehead{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}.pill{display:inline-block;padding:5px 9px;border-radius:999px;background:#123b30;color:#69e6c0;font-size:11px;font-weight:900}.status{min-height:22px;margin-top:10px;color:#a6bdbc}.hidden{display:none}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.step{border:1px solid #183039;border-radius:12px;padding:15px;background:#081218}.step b{display:block;margin-bottom:6px}@media(max-width:700px){main{padding:15px}.steps{grid-template-columns:1fr}}
+</style>
+</head>
+<body><main>
+<div class="top"><div class="brand">NexusAI<span>HIKVISION SERVICE PROVIDER</span></div><button class="secondary" onclick="loadAuthorizedHppSites()">REFRESH HIKVISION SITES</button></div>
+<section id="login" class="card"><h1>Founder / Admin Access</h1><p class="muted">Sign in to manage customer sites that have authorised NexusAI through Hikvision. Customers grant service-provider access in Hikvision; NexusAI then loads and links those authorised sites.</p><div class="row"><div class="field"><label>NEXUSAI ADMIN KEY</label><input id="key" type="password" autocomplete="off"></div><div style="align-self:end"><button onclick="login()">OPEN PORTAL</button></div></div><div id="loginStatus" class="status"></div></section>
 <section id="dashboard" class="hidden">
-<div class="grid"><div class="metric">CUSTOMER SITES<b id="siteCount">0</b></div><div class="metric">ONLINE<b id="onlineCount">0</b></div><div class="metric">CAMERAS<b id="cameraCount">0</b></div><div class="metric">ATTENTION<b id="attentionCount">0</b></div></div>
-<section class="card"><h2>Create Customer Site</h2><div class="row">
-<div class="field"><label>BUSINESS NAME</label><input id="business"></div><div class="field"><label>STORE ADDRESS</label><input id="address"></div>
-<div class="field"><label>CONTACT NAME</label><input id="contact"></div><div class="field"><label>PHONE</label><input id="phone"></div>
-<div class="field"><label>EMAIL</label><input id="email" type="email"></div><div class="field"><label>EXPECTED CAMERAS</label><input id="cams" type="number" min="0"></div>
-<div style="align-self:end"><button onclick="createSite()">CREATE SITE</button></div></div><div id="createStatus" class="status"></div><div id="createdLinks" class="status"></div></section>
-<section class="card">
-<h2>Add Hikvision Site</h2>
-<p class="muted">After the customer has authorised NexusAI as a service provider in Hikvision, load the authorised sites here. Choose a site and connect it to a NexusAI customer site.</p>
-<div class="row">
-<div class="field"><label>NEXUSAI SITE ID</label><input id="hppConnectNexusSite" placeholder="site-..."></div>
-<div class="field"><label>HIKVISION SITE</label><select id="hppAuthorizedSite" style="width:100%;padding:12px;border-radius:10px;border:1px solid #29434a;background:#061016;color:white"><option value="">Load authorised sites</option></select></div>
-<div style="align-self:end"><button class="secondary" onclick="loadAuthorizedHppSites()">LOAD AUTHORISED SITES</button></div>
-<div style="align-self:end"><button onclick="connectAuthorizedHppSite()">CONNECT SITE</button></div>
-</div>
-<div id="hppConnectStatus" class="status"></div>
+<section class="card"><h1>Hikvision Authorised Sites</h1><p class="muted">No Security Box installation is required for this Hikvision cloud workflow. Ask the customer to add NexusAI as their service provider in Hikvision first, then load the authorised sites below.</p><div class="steps"><div class="step"><b>1. Customer authorises NexusAI</b><span class="muted">The customer completes service-provider authorisation in Hikvision.</span></div><div class="step"><b>2. Load authorised sites</b><span class="muted">Retrieve the sites visible to NexusAI through its configured Hikvision integration.</span></div><div class="step"><b>3. Connect to customer record</b><span class="muted">Link the authorised Hikvision site to the correct NexusAI customer site.</span></div></div><div class="row" style="margin-top:16px"><button onclick="loadAuthorizedHppSites()">LOAD AUTHORISED SITES</button></div><div id="hppConnectStatus" class="status"></div></section>
+<section class="card"><h2>Connect an Authorised Hikvision Site</h2><p class="muted">Select a site returned by Hikvision and choose the matching NexusAI customer record. If the customer record does not exist yet, create it below first.</p><div class="row"><div class="field"><label>HIKVISION SITE</label><select id="hppAuthorizedSite"><option value="">Load authorised sites first</option></select></div><div class="field"><label>NEXUSAI CUSTOMER SITE ID</label><input id="hppConnectNexusSite" placeholder="site-..."></div><div style="align-self:end"><button onclick="connectAuthorizedHppSite()">CONNECT SITE</button></div></div></section>
+<section class="card"><h2>Create NexusAI Customer Record</h2><p class="muted">Create a record to associate with the customer's already-authorised Hikvision site.</p><div class="row"><div class="field"><label>BUSINESS NAME</label><input id="business" placeholder="Panel beater workshop"></div><div class="field"><label>BUSINESS ADDRESS</label><input id="address"></div><div class="field"><label>CONTACT NAME</label><input id="contact"></div><div class="field"><label>PHONE</label><input id="phone"></div><div class="field"><label>EMAIL</label><input id="email" type="email"></div></div><div class="row" style="margin-top:12px"><button onclick="createSite()">CREATE CUSTOMER RECORD</button></div><div id="createStatus" class="status"></div></section>
+<section class="card"><div class="sitehead"><div><h2>Linked Customer Sites</h2><p class="muted">Customer records linked to NexusAI. Camera counts and live status appear only when the Hikvision integration reports them.</p></div><button class="secondary" onclick="loadSites()">REFRESH</button></div><div id="sites"></div></section>
 </section>
-<section class="card"><h2>Customer Sites</h2><p class="muted">Hik-Partner Pro is the primary Hikvision integration. Security Box is retained only as a fallback when HPP cannot provide a required capability.</p><div id="sites"></div></section>
-<section class="card">
-<h2>Hik-Partner Pro</h2>
-<p class="muted">Primary Hikvision cloud integration. HPP credentials stay on the NexusAI server.</p>
-<div class="row">
-<button onclick="hppAuth()">TEST HPP AUTH</button>
-<button class="secondary" onclick="hppSites()">LOAD HPP SITES</button>
-</div>
-<div id="hppStatus" class="status">Not checked.</div>
-<pre id="hppOutput" style="white-space:pre-wrap;max-height:260px;overflow:auto;color:#bfe9df;background:#061016;padding:12px;border-radius:10px"></pre>
-<div class="row" style="margin-top:10px">
-<div class="field"><label>HPP DEVICE SERIAL</label><input id="hppSerial" placeholder="Hikvision device serial"></div>
-<div class="field"><label>NEXUSAI SITE ID</label><input id="hppSite" placeholder="site-..."></div>
-<div style="align-self:end"><button onclick="hppMap()">MAP DEVICE</button></div>
-</div>
-<div id="hppMapStatus" class="status"></div>
-</section>
-<section id="connectPanel" class="card hidden"><div class="sitehead"><div><h2 id="connectTitle">Connect Site</h2><div id="connectMeta" class="muted"></div></div><button class="secondary" onclick="$('connectPanel').classList.add('hidden')">CLOSE</button></div><div id="connectStatus" class="status"></div><div id="connectDetails"></div></section>
-</section></main>
+</main>
 <script>
-const $=id=>document.getElementById(id);let key=localStorage.getItem("nexusai_admin_key")||"";
-$("key").value=key;
+const $=id=>document.getElementById(id);let key=localStorage.getItem("nexusai_admin_key")||"";$("key").value=key;
 function headers(){return {"X-NexusAI-Admin-Key":key,"Content-Type":"application/json"}}
-async function readApiResponse(r){
-  const text=await r.text();
-  try{return text?JSON.parse(text):{}}
-  catch(_){throw Error("NexusAI server returned a non-JSON error ("+r.status+"): "+text.slice(0,300))}
-}
+async function readApiResponse(r){const t=await r.text();try{return t?JSON.parse(t):{}}catch(_){throw Error("NexusAI server returned a non-JSON error ("+r.status+"): "+t.slice(0,250))}}
 function esc(v){return String(v??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
-async function login(){key=$("key").value.trim();if(!key)return;$("loginStatus").textContent="Checking access…";try{let r=await fetch("/api/admin/sites",{headers:{"X-NexusAI-Admin-Key":key}});let d=await r.json();if(!r.ok)throw Error(d.detail||"Access denied");localStorage.setItem("nexusai_admin_key",key);$("login").classList.add("hidden");$("dashboard").classList.remove("hidden");render(d.sites||[])}catch(e){$("loginStatus").textContent=e.message}}
-async function loadSites(){if(!key)return login();let r=await fetch("/api/admin/sites",{headers:{"X-NexusAI-Admin-Key":key},cache:"no-store"});let d=await r.json();if(!r.ok){$("loginStatus").textContent=d.detail||"Access denied";$("dashboard").classList.add("hidden");$("login").classList.remove("hidden");return}render(d.sites||[])}
-function render(sites){
-$("siteCount").textContent=sites.length;
-$("onlineCount").textContent=sites.filter(x=>x.edge_agent==="ONLINE").length;
-$("cameraCount").textContent=sites.reduce((n,x)=>n+(x.camera_count_live||x.camera_count||0),0);
-$("attentionCount").textContent=sites.filter(x=>x.edge_agent!=="ONLINE").length;
-$("sites").innerHTML=sites.length?sites.map(s=>'<div class="site"><div class="sitehead"><div><b>'+esc(s.business_name)+'</b><div class="muted">'+esc(s.store_address||"")+'</div><div class="muted">'+esc(s.site_id)+'</div></div><span class="pill '+(s.edge_agent==="ONLINE"?"":"offline")+'">'+esc(s.edge_agent||"OFFLINE")+'</span></div><div class="muted" style="margin-top:8px">'+esc(s.camera_count_live||0)+' cameras connected</div><div class="links"><button onclick="connectSite(\''+esc(s.site_id)+'\')">CONNECT SITE</button><a href="/api/admin/sites/'+encodeURIComponent(s.site_id)+'/links" target="_blank">SITE LINKS API</a></div></div>').join(""):'<p class="muted">No customer sites yet.</p>'
-}
-async function createSite(){let payload={business_name:$("business").value.trim(),store_address:$("address").value.trim(),contact_name:$("contact").value.trim(),contact_phone:$("phone").value.trim(),contact_email:$("email").value.trim(),camera_count:Number($("cams").value||0)};if(!payload.business_name){$("createStatus").textContent="Business name is required.";return}$("createStatus").textContent="Creating secure site…";try{let r=await fetch("/api/admin/sites",{method:"POST",headers:headers(),body:JSON.stringify(payload)});let d=await r.json();if(!r.ok)throw Error(d.detail||"Could not create site");$("createStatus").textContent="Site created: "+d.site_id;$("createdLinks").innerHTML='<b>Site created.</b> Use CONNECT SITE below to start the remote onboarding workflow.<br><button style="margin-top:10px" onclick="connectSite(\''+esc(d.site_id)+'\')">CONNECT SITE NOW</button>';;["business","address","contact","phone","email","cams"].forEach(id=>$(id).value="");await loadSites()}catch(e){$("createStatus").textContent=e.message}}
-async function connectSite(siteId){
-$("connectPanel").classList.remove("hidden");
-$("connectTitle").textContent="CONNECT SITE";
-$("connectMeta").textContent=siteId;
-$("connectStatus").textContent="Checking Security Box connection...";
-$("connectDetails").innerHTML="";
-try{
- let r=await fetch("/api/admin/sites/"+encodeURIComponent(siteId)+"/connect",{headers:{"X-NexusAI-Admin-Key":key},cache:"no-store"});
- let d=await r.json(); if(!r.ok) throw Error(d.detail||"Could not load site connection.");
- let st=d.status||{}; let online=d.connected;
- $("connectStatus").innerHTML=online?"<span class=\"pill\">SECURITY BOX ONLINE</span>":"<span class=\"pill offline\">WAITING FOR SECURITY BOX</span>";
- $("connectDetails").innerHTML='<div class="card"><b>1. Install NexusAI Security Box</b><p class="muted">Run the installer on a Windows or Mac computer at the customer site. That computer must be on the same network as the Hikvision NVR/cameras.</p><div class="links"><a href="'+esc(d.links.windows_security_box)+'">Windows installer</a><a href="'+esc(d.links.macos_security_box)+'">Mac installer</a></div><p class="muted">Activation code: <b>'+esc(d.activation_code)+'</b></p></div><div class="card"><b>2. Connect CCTV</b><p class="muted">Once Security Box shows ONLINE, open the customer protection portal and enter the Hikvision/NVR credentials there. Credentials remain on the customer computer.</p><div class="links"><a href="'+esc(d.links.customer_setup)+'" target="_blank">OPEN CUSTOMER CCTV SETUP</a><a href="'+esc(d.links.customer_portal)+'" target="_blank">OPEN CUSTOMER DASHBOARD</a></div></div><div class="card"><b>3. Customer notifications</b><p class="muted">After CCTV is protected, give the customer the notification app link.</p><div class="links"><a href="'+esc(d.links.notification_app)+'" target="_blank">OPEN NEXUSAI NOTIFICATION APP</a></div></div><div class="card"><b>Current cameras</b><div class="muted">'+esc(st.camera_count_live||0)+' camera(s) reported by Security Box.</div></div>';
- if(online) await loadSites();
-}catch(e){$("connectStatus").textContent=e.message;}
-}
-async function loadAuthorizedHppSites(){
- $("hppConnectStatus").textContent="Loading authorised Hikvision sites…";
- try{
-   let r=await fetch("/api/admin/hpp/authorized-sites",{headers:{"X-NexusAI-Admin-Key":key},cache:"no-store"});
-   let d=await readApiResponse(r); if(!r.ok) throw Error(d.detail||"Could not load authorised sites");
-   const select=$("hppAuthorizedSite");
-   select.innerHTML='<option value="">Select a Hikvision site</option>';
-   (d.sites||[]).forEach(s=>{
-     const o=document.createElement("option");
-     o.value=s.hpp_site_id;
-     o.textContent=s.name+" • "+s.hpp_site_id;
-     select.appendChild(o);
-   });
-   $("hppConnectStatus").textContent=(d.sites||[]).length+" authorised Hikvision site(s) available.";
- }catch(e){$("hppConnectStatus").textContent=e.message}
-}
-async function connectAuthorizedHppSite(){
- const nexusSite=$("hppConnectNexusSite").value.trim();
- const hppSite=$("hppAuthorizedSite").value;
- if(!nexusSite||!hppSite){$("hppConnectStatus").textContent="Select a Hikvision site and enter the NexusAI site ID.";return}
- $("hppConnectStatus").textContent="Connecting Hikvision site to NexusAI…";
- try{
-   let r=await fetch("/api/admin/hpp/connect-site",{method:"POST",headers:headers(),body:JSON.stringify({hpp_site_id:hppSite,nexusai_site_id:nexusSite})});
-   let d=await readApiResponse(r); if(!r.ok) throw Error(d.detail||"Could not connect Hikvision site");
-   $("hppConnectStatus").textContent=d.hpp_site_name+" connected • "+d.mapped_device_count+" device(s) mapped.";
-   await loadSites();
- }catch(e){$("hppConnectStatus").textContent=e.message}
-}
-
-async function hppAuth(){
- $("hppStatus").textContent="Testing HPP authentication…";
- try{let r=await fetch("/api/hpp/test-auth",{method:"POST",headers:{"X-NexusAI-Admin-Key":key}});let d=await readApiResponse(r);if(!r.ok)throw Error(d.detail||"HPP authentication failed");$("hppStatus").textContent="HPP AUTHENTICATED • regional API domain received";$("hppOutput").textContent=JSON.stringify(d,null,2)}catch(e){$("hppStatus").textContent=e.message}
-}
-async function hppSites(){
- $("hppStatus").textContent="Loading HPP sites…";
- try{let r=await fetch("/api/hpp/sites/search",{method:"POST",headers:headers(),body:JSON.stringify({page:1,pageSize:100,search:""})});let d=await readApiResponse(r);if(!r.ok)throw Error(d.detail||"Could not load HPP sites");$("hppStatus").textContent="HPP sites loaded";$("hppOutput").textContent=JSON.stringify(d,null,2)}catch(e){$("hppStatus").textContent=e.message}
-}
-async function hppMap(){
- const serial=$("hppSerial").value.trim(),site=$("hppSite").value.trim();
- if(!serial||!site){$("hppMapStatus").textContent="Device serial and NexusAI site ID are required.";return}
- $("hppMapStatus").textContent="Saving device mapping…";
- try{let r=await fetch("/api/hpp/mappings",{method:"POST",headers:headers(),body:JSON.stringify({hpp_site_id:"",hpp_device_serial:serial,nexusai_site_id:site})});let d=await readApiResponse(r);if(!r.ok)throw Error(d.detail||"Could not save mapping");$("hppMapStatus").textContent="HPP device mapped to "+site}catch(e){$("hppMapStatus").textContent=e.message}
-}
+async function login(){key=$("key").value.trim();if(!key)return;$("loginStatus").textContent="Checking access…";try{const r=await fetch("/api/admin/sites",{headers:{"X-NexusAI-Admin-Key":key},cache:"no-store"});const d=await readApiResponse(r);if(!r.ok)throw Error(d.detail||"Access denied");localStorage.setItem("nexusai_admin_key",key);$("login").classList.add("hidden");$("dashboard").classList.remove("hidden");render(d.sites||[]);await loadAuthorizedHppSites()}catch(e){$("loginStatus").textContent=e.message}}
+async function loadSites(){if(!key)return login();try{const r=await fetch("/api/admin/sites",{headers:{"X-NexusAI-Admin-Key":key},cache:"no-store"});const d=await readApiResponse(r);if(!r.ok)throw Error(d.detail||"Could not load customer sites");render(d.sites||[])}catch(e){$("hppConnectStatus").textContent=e.message}}
+function render(sites){$("sites").innerHTML=sites.length?sites.map(s=>'<div class="site"><div class="sitehead"><div><b>'+esc(s.business_name)+'</b><div class="muted">'+esc(s.store_address||"")+'</div><div class="muted">NexusAI site ID: '+esc(s.site_id)+'</div></div><span class="pill">'+esc(s.hpp_site_id?"HIKVISION LINKED":"CUSTOMER RECORD")+'</span></div><div class="muted" style="margin-top:8px">'+esc(s.camera_count_live??s.camera_count??"Not reported")+' camera(s) reported</div></div>').join(""):'<p class="muted">No customer sites yet. Create a customer record, then link its authorised Hikvision site.</p>'}
+async function createSite(){const payload={business_name:$("business").value.trim(),store_address:$("address").value.trim(),contact_name:$("contact").value.trim(),contact_phone:$("phone").value.trim(),contact_email:$("email").value.trim(),camera_count:0};if(!payload.business_name){$("createStatus").textContent="Business name is required.";return}$("createStatus").textContent="Creating customer record…";try{const r=await fetch("/api/admin/sites",{method:"POST",headers:headers(),body:JSON.stringify(payload)});const d=await readApiResponse(r);if(!r.ok)throw Error(d.detail||"Could not create customer record");$("createStatus").textContent="Customer record created. Site ID: "+d.site_id;$("hppConnectNexusSite").value=d.site_id;["business","address","contact","phone","email"].forEach(id=>$(id).value="");await loadSites()}catch(e){$("createStatus").textContent=e.message}}
+async function loadAuthorizedHppSites(){$("hppConnectStatus").textContent="Loading sites authorised to NexusAI through Hikvision…";try{const r=await fetch("/api/admin/hpp/authorized-sites",{headers:{"X-NexusAI-Admin-Key":key},cache:"no-store"});const d=await readApiResponse(r);if(!r.ok)throw Error(d.detail||"Could not load authorised Hikvision sites");const select=$("hppAuthorizedSite");select.innerHTML='<option value="">Select an authorised Hikvision site</option>';(d.sites||[]).forEach(s=>{const o=document.createElement("option");o.value=s.hpp_site_id;o.textContent=(s.name||"Hikvision site")+" • "+s.hpp_site_id;select.appendChild(o)});$("hppConnectStatus").textContent=(d.sites||[]).length+" authorised site(s) returned by Hikvision.";if(!(d.sites||[]).length)$("hppConnectStatus").textContent+=" If the customer has authorised NexusAI, verify the authorisation is visible to the configured Hikvision API account.";return d.sites||[]}catch(e){$("hppConnectStatus").textContent=e.message;return []}}
+async function connectAuthorizedHppSite(){const nexusSite=$("hppConnectNexusSite").value.trim(),hppSite=$("hppAuthorizedSite").value;if(!nexusSite||!hppSite){$("hppConnectStatus").textContent="Select an authorised Hikvision site and enter its NexusAI customer site ID.";return}$("hppConnectStatus").textContent="Linking authorised Hikvision site…";try{const r=await fetch("/api/admin/hpp/connect-site",{method:"POST",headers:headers(),body:JSON.stringify({hpp_site_id:hppSite,nexusai_site_id:nexusSite})});const d=await readApiResponse(r);if(!r.ok)throw Error(d.detail||"Could not link Hikvision site");$("hppConnectStatus").textContent=(d.hpp_site_name||"Hikvision site")+" linked to NexusAI • "+(d.mapped_device_count??"")+(d.mapped_device_count!==undefined?" device(s) reported.":".");await loadSites()}catch(e){$("hppConnectStatus").textContent=e.message}}
 if(key)login();
 </script></body></html>
