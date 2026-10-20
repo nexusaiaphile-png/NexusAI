@@ -1,7 +1,7 @@
 """Pydantic request schemas for NexusAI Retail Intelligence integrations.
 
-These schemas define the vendor-facing POS payload contract. They do not enable
-an endpoint by themselves; route handlers must explicitly use these types.
+These schemas define vendor-facing POS, video-reference, and conversion-metric
+payload contracts. Retail ingestion routes use these types alongside legacy models.
 """
 from __future__ import annotations
 
