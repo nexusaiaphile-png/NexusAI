@@ -22,7 +22,7 @@ class APIRequestModel(BaseModel):
 class POSExceptionEventIn(APIRequestModel):
     """One POS transaction/exception event sent by an authorized POS adapter."""
 
-    site_id: str = Field(min_length=1, max_length=100)
+    site_id: str = Field(min_length=8, max_length=100)
     source_event_id: str = Field(
         min_length=1,
         max_length=200,
@@ -102,7 +102,7 @@ class POSExceptionBatchIn(APIRequestModel):
 class VideoTimelineReferenceIn(APIRequestModel):
     """Reference to an existing video timeline/clip; does not upload video."""
 
-    site_id: str = Field(min_length=1, max_length=100)
+    site_id: str = Field(min_length=8, max_length=100)
     camera_id: str = Field(min_length=1, max_length=128)
     clip_start: datetime
     clip_end: datetime
@@ -142,7 +142,7 @@ class VideoTimelineReferenceIn(APIRequestModel):
 class ConversionMetricRequestIn(APIRequestModel):
     """Aggregated traffic and invoice counts for a defined interval."""
 
-    site_id: str = Field(min_length=1, max_length=100)
+    site_id: str = Field(min_length=8, max_length=100)
     camera_id: str | None = Field(default=None, max_length=128)
     interval_start: datetime
     interval_end: datetime
