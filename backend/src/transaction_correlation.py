@@ -20,7 +20,12 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .models import POSExceptionBatchIn, POSExceptionEventIn
+from .models import (
+    ConversionMetricRequestIn,
+    POSExceptionBatchIn,
+    POSExceptionEventIn,
+    VideoTimelineReferenceIn,
+)
 
 LOG = logging.getLogger("nexusai.transaction_correlation")
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -657,9 +662,19 @@ def install_transaction_correlation(app: FastAPI) -> None:
         return {"accepted": True, "engine": "transaction_correlation", **results[0]}
 
     @app.post("/api/retail/video-timeline")
-    async def ingest_video_timeline(payload: VideoTimelineIn,
+    async def ingest_video_timeline(
+            payload: VideoTimelineReferenceIn | VideoTimelineIn,
             x_nexusai_admin_key: str | None = Header(default=None)):
         _admin_guard(x_nexusai_admin_key)
+        if isinstance(payload, VideoTimelineReferenceIn):
+            payload = VideoTimelineIn.model_validate({
+                "site_id": payload.site_id,
+                "camera_id": payload.camera_id,
+                "clip_start": payload.clip_start.isoformat(),
+                "clip_end": payload.clip_end.isoformat(),
+                "video_clip_url": payload.video_clip_url,
+                "source_ref_id": payload.source_ref_id,
+            })
         sql = """INSERT INTO nexusai_video_timeline_refs
             (site_id,camera_id,clip_start,clip_end,video_clip_url,source_ref_id,created_at)
             VALUES(?,?,?,?,?,?,?) ON CONFLICT(site_id, source_ref_id) DO UPDATE SET
@@ -677,9 +692,21 @@ def install_transaction_correlation(app: FastAPI) -> None:
         return {"accepted": True, "timeline_reference": payload.model_dump()}
 
     @app.post("/api/retail/conversion-metrics")
-    async def ingest_conversion_metrics(payload: ConversionMetricIn,
+    async def ingest_conversion_metrics(
+            payload: ConversionMetricRequestIn | ConversionMetricIn,
             x_nexusai_admin_key: str | None = Header(default=None)):
         _admin_guard(x_nexusai_admin_key)
+        if isinstance(payload, ConversionMetricRequestIn):
+            payload = ConversionMetricIn.model_validate({
+                "site_id": payload.site_id,
+                "camera_id": payload.camera_id,
+                "interval_start": payload.interval_start.isoformat(),
+                "interval_end": payload.interval_end.isoformat(),
+                "traffic_count": payload.traffic_count,
+                "invoice_count": payload.invoice_count,
+                "average_basket_value": float(payload.average_basket_value),
+                "currency": payload.currency,
+            })
         return _upsert_conversion_metric(payload)
 
     @app.get("/api/retail/owner-dashboard/weekly")
