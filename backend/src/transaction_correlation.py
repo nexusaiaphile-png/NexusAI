@@ -458,7 +458,7 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
             cur = _execute(conn, """SELECT COUNT(*), COALESCE(SUM(amount),0)
                 FROM nexusai_pos_exceptions
                 WHERE site_id=? AND till_id=? AND occurred_at>=? AND occurred_at<=?
-                AND flagged_for_review=TRUE AND exception_type IN ('refund','no_sale','void')""",
+                AND flagged_for_review=TRUE AND exception_type IN ('refund','return','return_issued','no_sale','void','transaction_void','line_item_cancelled','manager_override','manual_discount')""",
                 (event.site_id, event.till_id, start, event.occurred_at))
             aggregate = cur.fetchone()
         finally:
@@ -536,7 +536,7 @@ def _weekly_summary(site_id: str, start: str, end: str) -> dict[str, Any]:
             cur = _execute(conn, """SELECT COUNT(*), COUNT(DISTINCT till_id),
                 COALESCE(SUM(amount),0), COUNT(DISTINCT transaction_id)
                 FROM nexusai_pos_exceptions WHERE site_id=? AND occurred_at>=? AND occurred_at<?
-                AND flagged_for_review=TRUE AND exception_type IN ('refund','no_sale','drawer_open','void')""",
+                AND flagged_for_review=TRUE AND exception_type IN ('refund','return','return_issued','no_sale','drawer_open','void','transaction_void','line_item_cancelled','manager_override','manual_discount')""",
                 (site_id, start, end))
             row = cur.fetchone()
             cur2 = _execute(conn, """SELECT camera_id, interval_start, interval_end,
@@ -706,7 +706,7 @@ def install_transaction_correlation(app: FastAPI) -> None:
                 cur = _execute(conn, """SELECT till_id, COUNT(*), COALESCE(SUM(amount),0),
                     MAX(video_clip_url), MAX(currency) FROM nexusai_pos_exceptions
                     WHERE site_id=? AND occurred_at>=? AND occurred_at<?
-                    AND flagged_for_review=TRUE AND exception_type IN ('refund','no_sale','drawer_open','void')
+                    AND flagged_for_review=TRUE AND exception_type IN ('refund','return','return_issued','no_sale','drawer_open','void','transaction_void','line_item_cancelled','manager_override','manual_discount')
                     GROUP BY till_id ORDER BY SUM(amount) DESC""", (site_id, start, end))
                 rows = cur.fetchall()
             finally:
