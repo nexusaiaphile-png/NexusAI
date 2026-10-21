@@ -153,7 +153,7 @@ def init_schema() -> None:
             for statement in statements:
                 _execute(conn, statement)
             # Additive migration for databases created by an earlier draft version.
-            for column, declaration in (("cashier_id", "TEXT"), ("cashier_name", "TEXT"), ("transaction_value", "NUMERIC(14,2) NOT NULL DEFAULT 0")):
+            for column, declaration in (("cashier_id", "TEXT"), ("cashier_name", "TEXT"), ("transaction_value", "NUMERIC(14,2) NOT NULL DEFAULT 0"), ("source_event_id", "TEXT")):
                 if _database_url():
                     cur = _execute(conn, "SELECT column_name FROM information_schema.columns WHERE table_name='nexusai_pos_exceptions' AND column_name=?", (column,))
                     exists = cur.fetchone() is not None
@@ -162,6 +162,23 @@ def init_schema() -> None:
                     exists = column in {row[1] for row in cur.fetchall()}
                 if not exists:
                     _execute(conn, f"ALTER TABLE nexusai_pos_exceptions ADD COLUMN {column} {declaration}")
+
+            # Enforce idempotency on legacy tables too. If historical duplicates exist,
+            # fail startup with an actionable error rather than silently accepting a
+            # schema that cannot guarantee unique POS event keys.
+            duplicate_key = _execute(conn, """SELECT site_id, source_event_id, COUNT(*)
+                FROM nexusai_pos_exceptions
+                WHERE source_event_id IS NOT NULL
+                GROUP BY site_id, source_event_id HAVING COUNT(*) > 1 LIMIT 1""").fetchone()
+            if duplicate_key:
+                raise RuntimeError(
+                    "POS idempotency migration blocked: duplicate (site_id, source_event_id) "
+                    f"values exist for site={duplicate_key[0]!r}, event={duplicate_key[1]!r}; "
+                    "deduplicate/repair these rows before restarting."
+                )
+            _execute(conn, """CREATE UNIQUE INDEX IF NOT EXISTS
+                uq_nexusai_pos_exceptions_site_source_event
+                ON nexusai_pos_exceptions(site_id, source_event_id)""")
 
             # Refuse to hide or silently delete pre-existing orphaned relations.
             orphan_exception = _execute(conn, """SELECT l.id FROM nexusai_pos_exception_video_links l
@@ -442,44 +459,59 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
         finally:
             conn.close()
 
-    # Store a relational, traceable link to the exact video timeline used for this exception.
+    # Post-commit work is best-effort. The POS row is the durable source of truth;
+    # failures in link/aggregation must not turn a stored event into a 500 that
+    # encourages retries to be misreported as duplicate conflicts.
+    post_commit_errors: list[str] = []
     if event_id is not None:
-        with _DB_LOCK:
-            conn = _connect()
-            try:
-                timeline_ref_id = None
-                if event.video_timeline and event.video_timeline.source_ref_id:
-                    cur = _execute(conn, "SELECT id FROM nexusai_video_timeline_refs WHERE site_id=? AND source_ref_id=?", (event.site_id, event.video_timeline.source_ref_id))
-                    found = cur.fetchone()
-                    timeline_ref_id = found[0] if found else None
-                link_sql = """INSERT INTO nexusai_pos_exception_video_links
-                    (exception_id,timeline_ref_id,site_id,camera_id,clip_start,clip_end,video_clip_url,source_ref_id,match_status,created_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(exception_id) DO UPDATE SET
-                    timeline_ref_id=excluded.timeline_ref_id,camera_id=excluded.camera_id,
-                    clip_start=excluded.clip_start,clip_end=excluded.clip_end,video_clip_url=excluded.video_clip_url,
-                    source_ref_id=excluded.source_ref_id,match_status=excluded.match_status,created_at=excluded.created_at"""
-                _execute(conn, link_sql, (event_id, timeline_ref_id, event.site_id, event.camera_id,
-                    event.clip_start, event.clip_end, event.video_clip_url,
-                    event.video_timeline.source_ref_id if event.video_timeline else None,
-                    correlation_status, now))
-                conn.commit()
-            finally:
-                conn.close()
+        try:
+            with _DB_LOCK:
+                conn = _connect()
+                try:
+                    timeline_ref_id = None
+                    if event.video_timeline and event.video_timeline.source_ref_id:
+                        cur = _execute(conn, "SELECT id FROM nexusai_video_timeline_refs WHERE site_id=? AND source_ref_id=?", (event.site_id, event.video_timeline.source_ref_id))
+                        found = cur.fetchone()
+                        timeline_ref_id = found[0] if found else None
+                    link_sql = """INSERT INTO nexusai_pos_exception_video_links
+                        (exception_id,timeline_ref_id,site_id,camera_id,clip_start,clip_end,video_clip_url,source_ref_id,match_status,created_at)
+                        VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(exception_id) DO UPDATE SET
+                        timeline_ref_id=excluded.timeline_ref_id,camera_id=excluded.camera_id,
+                        clip_start=excluded.clip_start,clip_end=excluded.clip_end,video_clip_url=excluded.video_clip_url,
+                        source_ref_id=excluded.source_ref_id,match_status=excluded.match_status,created_at=excluded.created_at"""
+                    _execute(conn, link_sql, (event_id, timeline_ref_id, event.site_id, event.camera_id,
+                        event.clip_start, event.clip_end, event.video_clip_url,
+                        event.video_timeline.source_ref_id if event.video_timeline else None,
+                        correlation_status, now))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
+                finally:
+                    conn.close()
+        except Exception:
+            post_commit_errors.append("video_link_pending_retry")
+            LOG.exception("POS event %s persisted; video-link processing failed and needs retry.", event_id)
 
     # Aggregate monetary exception volume for this till over the preceding 2 hours.
     end = datetime.fromisoformat(event.occurred_at.replace("Z", "+00:00"))
     start = (end - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
-    with _DB_LOCK:
-        conn = _connect()
-        try:
-            cur = _execute(conn, """SELECT COUNT(*), COALESCE(SUM(amount),0)
-                FROM nexusai_pos_exceptions
-                WHERE site_id=? AND till_id=? AND occurred_at>=? AND occurred_at<=?
-                AND flagged_for_review=TRUE AND exception_type IN ('refund','return','return_issued','no_sale','void','transaction_void','line_item_cancelled','manager_override','manual_discount')""",
-                (event.site_id, event.till_id, start, event.occurred_at))
-            aggregate = cur.fetchone()
-        finally:
-            conn.close()
+    aggregate = (0, 0)
+    try:
+        with _DB_LOCK:
+            conn = _connect()
+            try:
+                cur = _execute(conn, """SELECT COUNT(*), COALESCE(SUM(amount),0)
+                    FROM nexusai_pos_exceptions
+                    WHERE site_id=? AND till_id=? AND occurred_at>=? AND occurred_at<=?
+                    AND flagged_for_review=TRUE AND exception_type IN ('refund','return','return_issued','no_sale','void','transaction_void','line_item_cancelled','manager_override','manual_discount')""",
+                    (event.site_id, event.till_id, start, event.occurred_at))
+                aggregate = cur.fetchone() or (0, 0)
+            finally:
+                conn.close()
+    except Exception:
+        post_commit_errors.append("aggregation_pending_retry")
+        LOG.exception("POS event %s persisted; aggregation failed and needs retry.", event_id)
     return {
         "exception_id": event_id,
         "flagged_for_review": needs_review,
@@ -507,6 +539,8 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
             "currency": event.currency,
             "footage_url": event.video_clip_url,
         },
+        "processing_state": "retry_required" if post_commit_errors else "complete",
+        "retry_tasks": post_commit_errors,
     }
 
 
