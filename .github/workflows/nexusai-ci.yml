@@ -26,6 +26,10 @@ jobs:
           NEXUSAI_APP_LINK_SECRET: ci-test-secret
           NEXUSAI_EDGE_TOKEN: ci-edge-token
         run: python -c "import backend.src.main; print('NexusAI backend import OK')"
+      - name: Install test dependencies
+        run: python -m pip install pytest httpx
+      - name: Run full test suite
+        run: python -m pytest -q
 
   validate-web:
     runs-on: ubuntu-latest
