@@ -140,3 +140,5 @@ def test_post_commit_aggregation_failure_returns_retry_state(
     result = response.json()
     assert result["status"] == "success"
     assert result["state"] == "pending_video_correlation"
+    assert result["processing_state"] == "retry_required"
+    assert result["retry_tasks"] == ["aggregation_pending_retry"]
