@@ -243,6 +243,14 @@ def _admin_guard(key: str | None) -> None:
     if not key or not __import__("secrets").compare_digest(key.strip(), expected):
         raise HTTPException(status_code=401, detail="Invalid NexusAI admin key.")
 
+def _pos_ingest_guard(token: str | None) -> None:
+    """Validate the dedicated POS adapter token without exposing its value."""
+    expected = os.getenv("NEXUSAI_POS_INGEST_TOKEN", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="POS ingestion token is not configured.")
+    if not token or not __import__("secrets").compare_digest(token.strip(), expected):
+        raise HTTPException(status_code=401, detail="Invalid POS ingestion token.")
+
 
 def _iso(value: str) -> str:
     try:
@@ -416,8 +424,12 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
     with _DB_LOCK:
         conn = _connect()
         try:
-            _execute(conn, sql, params)
+            insert_cursor = _execute(conn, sql, params)
             conn.commit()
+            # ON CONFLICT DO NOTHING is atomic; rowcount=0 means the unique
+            # (site_id, source_event_id) key already existed.
+            if event.source_event_id and insert_cursor.rowcount == 0:
+                raise HTTPException(status_code=409, detail="POS event already exists.")
             # Re-read by idempotency key or newest event when no source id was supplied.
             if event.source_event_id:
                 cur = _execute(conn, "SELECT id FROM nexusai_pos_exceptions WHERE site_id=? AND source_event_id=?",
@@ -610,10 +622,19 @@ def _report_loop() -> None:
 
 def install_transaction_correlation(app: FastAPI) -> None:
     @app.post("/api/retail/transaction-exceptions")
+    @app.post("/api/retail/transaction-exceptions/")
     async def ingest_transaction_exception(
             payload: POSExceptionEventIn | POSExceptionBatchIn | TillExceptionIn | list[POSExceptionEventIn],
-            x_nexusai_admin_key: str | None = Header(default=None)):
-        _admin_guard(x_nexusai_admin_key)
+            x_nexusai_admin_key: str | None = Header(default=None),
+            x_nexusai_pos_ingest_token: str | None = Header(default=None, alias="X-NexusAI-POS-Ingest-Token")):
+        # Dedicated token for new vendor payloads; preserve the admin-key contract
+        # for existing internal/legacy clients.
+        if isinstance(payload, (POSExceptionEventIn, POSExceptionBatchIn)) or (
+            isinstance(payload, list) and payload and isinstance(payload[0], POSExceptionEventIn)
+        ):
+            _pos_ingest_guard(x_nexusai_pos_ingest_token)
+        else:
+            _admin_guard(x_nexusai_admin_key)
 
         if isinstance(payload, POSExceptionBatchIn):
             incoming = payload.events
@@ -648,9 +669,18 @@ def install_transaction_correlation(app: FastAPI) -> None:
                 else:
                     event = item
                 results.append(_insert_exception(event))
+        except HTTPException:
+            raise
         except Exception as exc:
             LOG.exception("POS exception ingestion failed.")
             raise HTTPException(status_code=500, detail="Could not persist POS transaction exception.") from exc
+
+        if isinstance(payload, POSExceptionEventIn):
+            return {
+                "status": "success",
+                "event_id": payload.source_event_id,
+                "state": "pending_video_correlation",
+            }
 
         if is_batch:
             return {
