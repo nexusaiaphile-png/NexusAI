@@ -87,3 +87,56 @@ def test_duplicate_transaction_conflict(tmp_path, monkeypatch):
     assert first_response.status_code == 200
     assert second_response.status_code == 409
     assert second_response.json()["detail"] == "POS event already exists."
+
+
+
+def test_legacy_schema_gets_unique_idempotency_index(tmp_path, monkeypatch):
+    client = make_test_client(tmp_path, monkeypatch)
+    # Simulate a legacy table that lost/never had the unique index, then run
+    # startup migration again. Existing data is preserved and the index returns.
+    with correlation._connect() as conn:
+        correlation._execute(
+            conn,
+            "DROP INDEX IF EXISTS uq_nexusai_pos_exceptions_site_source_event",
+        )
+        conn.commit()
+
+    correlation.init_schema()
+
+    with correlation._connect() as conn:
+        if correlation._database_url():
+            rows = correlation._execute(
+                conn,
+                "SELECT indexname FROM pg_indexes WHERE tablename='nexusai_pos_exceptions'",
+            ).fetchall()
+            names = {row[0] for row in rows}
+        else:
+            rows = correlation._execute(
+                conn, "PRAGMA index_list(nexusai_pos_exceptions)"
+            ).fetchall()
+            names = {row[1] for row in rows}
+    assert "uq_nexusai_pos_exceptions_site_source_event" in names
+
+
+def test_post_commit_aggregation_failure_returns_retry_state(
+    tmp_path, monkeypatch
+):
+    client = make_test_client(tmp_path, monkeypatch)
+    original_execute = correlation._execute
+
+    def fail_aggregation(conn, sql, params=()):
+        if "SELECT COUNT(*), COALESCE(SUM(amount),0)" in sql:
+            raise OSError("simulated aggregation connection failure")
+        return original_execute(conn, sql, params)
+
+    monkeypatch.setattr(correlation, "_execute", fail_aggregation)
+    response = client.post(
+        ENDPOINT,
+        json=valid_pos_event(),
+        headers={TOKEN_HEADER: INGEST_TOKEN},
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "success"
+    assert result["state"] == "pending_video_correlation"
