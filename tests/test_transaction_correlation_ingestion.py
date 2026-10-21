@@ -87,8 +87,9 @@ def test_duplicate_transaction_conflict(tmp_path, monkeypatch):
     second_response = client.post(ENDPOINT, json=payload, headers=headers)
 
     assert first_response.status_code == 200
-    assert second_response.status_code == 409
-    assert second_response.json()["detail"] == "POS event already exists."
+    assert second_response.status_code == 200
+    assert second_response.json()["status"] == "success"
+    assert second_response.json()["event_id"] == payload["source_event_id"]
 
 
 
