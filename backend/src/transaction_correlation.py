@@ -710,10 +710,13 @@ def install_transaction_correlation(app: FastAPI) -> None:
             raise HTTPException(status_code=500, detail="Could not persist POS transaction exception.") from exc
 
         if isinstance(payload, POSExceptionEventIn):
+            result = results[0] if results else {}
             return {
                 "status": "success",
                 "event_id": payload.source_event_id,
                 "state": "pending_video_correlation",
+                "processing_state": result.get("processing_state", "complete"),
+                "retry_tasks": result.get("retry_tasks", []),
             }
 
         if is_batch:
