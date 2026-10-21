@@ -446,7 +446,13 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
             # ON CONFLICT DO NOTHING is atomic; rowcount=0 means the unique
             # (site_id, source_event_id) key already existed.
             if event.source_event_id and insert_cursor.rowcount == 0:
-                raise HTTPException(status_code=409, detail="POS event already exists.")
+                # Treat a replay as an idempotent retry: reuse the existing durable
+                # event and re-run best-effort post-commit work instead of returning
+                # a misleading conflict when a prior request may have failed later.
+                LOG.info(
+                    "POS event replay received; reprocessing post-commit tasks for site=%s event=%s",
+                    event.site_id, event.source_event_id,
+                )
             # Re-read by idempotency key or newest event when no source id was supplied.
             if event.source_event_id:
                 cur = _execute(conn, "SELECT id FROM nexusai_pos_exceptions WHERE site_id=? AND source_event_id=?",
