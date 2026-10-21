@@ -59,6 +59,8 @@ def test_successful_pos_exception_ingestion(tmp_path, monkeypatch):
         "status": "success",
         "event_id": "pos-evt-0001",
         "state": "pending_video_correlation",
+        "processing_state": "complete",
+        "retry_tasks": [],
     }
 
 
