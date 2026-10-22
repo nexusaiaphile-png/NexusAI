@@ -145,3 +145,91 @@ def test_post_commit_aggregation_failure_returns_retry_state(
     assert result["state"] == "pending_video_correlation"
     assert result["processing_state"] == "retry_required"
     assert result["retry_tasks"] == ["aggregation_pending_retry"]
+
+
+
+def _configure_site_profile(site_id, site_name, recipient):
+    with correlation._connect() as conn:
+        correlation._execute(
+            conn,
+            """INSERT INTO nexusai_site_profiles
+               (site_id, site_name, whatsapp_recipient_number)
+               VALUES (?, ?, ?)
+               ON CONFLICT(site_id) DO UPDATE SET
+                 site_name=excluded.site_name,
+                 whatsapp_recipient_number=excluded.whatsapp_recipient_number""",
+            (site_id, site_name, recipient),
+        )
+        conn.commit()
+
+
+def test_per_site_recipient_isolation(tmp_path, monkeypatch):
+    client = make_test_client(tmp_path, monkeypatch)
+    _configure_site_profile("store-a", "Store A", "+27820000001")
+    _configure_site_profile("store-b", "Store B", "+27820000002")
+
+    # A valid exception is persisted first so the route lookup can only return
+    # a clip linked to this exact exception ID, never another store's clip.
+    payload = valid_pos_event(site_id="store-a", source_event_id="event-store-a")
+    response = client.post(
+        ENDPOINT, json=payload, headers={TOKEN_HEADER: INGEST_TOKEN}
+    )
+    assert response.status_code == 200
+
+    with correlation._connect() as conn:
+        row = correlation._execute(
+            conn,
+            "SELECT id FROM nexusai_pos_exceptions WHERE site_id=? AND source_event_id=?",
+            ("store-a", "event-store-a"),
+        ).fetchone()
+        assert row is not None
+        exception_id = row[0]
+        correlation._execute(
+            conn,
+            """INSERT INTO nexusai_pos_exception_video_links
+               (exception_id, site_id, video_clip_url, match_status, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (exception_id, "store-a", "https://clips.example.com/store-a", "matched", "2026-10-19T14:30:00Z"),
+        )
+        conn.commit()
+
+    # Exercise the same site lookup used by the background-task scheduler,
+    # then assert the queued call contains Store A's recipient only.
+    from fastapi import BackgroundTasks
+
+    tasks = BackgroundTasks()
+    event = correlation.POSExceptionEventIn.model_validate(payload)
+    correlation._queue_whatsapp_alert_for_site(tasks, event, exception_id)
+
+    assert len(tasks.tasks) == 1
+    task = tasks.tasks[0]
+    assert task.func is correlation.send_whatsapp_alert
+    assert task.kwargs["recipient"] == "+27820000001"
+    assert task.kwargs["recipient"] != "+27820000002"
+    assert task.kwargs["site_name"] == "Store A"
+
+
+def test_missing_recipient_graceful_fallback(tmp_path, monkeypatch, caplog):
+    client = make_test_client(tmp_path, monkeypatch)
+    _configure_site_profile("store-no-recipient", "Store Without Recipient", None)
+
+    with caplog.at_level("INFO", logger=correlation.__name__):
+        response = client.post(
+            ENDPOINT,
+            json=valid_pos_event(
+                site_id="store-no-recipient",
+                source_event_id="event-no-recipient",
+            ),
+            headers={TOKEN_HEADER: INGEST_TOKEN},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    with correlation._connect() as conn:
+        stored = correlation._execute(
+            conn,
+            "SELECT COUNT(*) FROM nexusai_pos_exceptions WHERE site_id=? AND source_event_id=?",
+            ("store-no-recipient", "event-no-recipient"),
+        ).fetchone()[0]
+    assert stored == 1
+    assert "WhatsApp alert skipped: no recipient configured for site_id=store-no-recipient" in caplog.text
