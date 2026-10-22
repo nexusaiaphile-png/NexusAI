@@ -184,13 +184,23 @@ def test_per_site_recipient_isolation(tmp_path, monkeypatch):
         ).fetchone()
         assert row is not None
         exception_id = row[0]
+        # Ingestion already creates the unique link row; update that row to
+        # simulate a matched clip instead of inserting a duplicate exception link.
         correlation._execute(
             conn,
-            """INSERT INTO nexusai_pos_exception_video_links
-               (exception_id, site_id, video_clip_url, match_status, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (exception_id, "store-a-001", "https://clips.example.com/store-a", "matched", "2026-10-19T14:30:00Z"),
+            """UPDATE nexusai_pos_exception_video_links
+               SET video_clip_url=?, match_status=?
+               WHERE exception_id=? AND site_id=?""",
+            ("https://clips.example.com/store-a", "matched", exception_id, "store-a-001"),
         )
+        linked = correlation._execute(
+            conn,
+            """SELECT video_clip_url, match_status
+               FROM nexusai_pos_exception_video_links
+               WHERE exception_id=? AND site_id=?""",
+            (exception_id, "store-a-001"),
+        ).fetchone()
+        assert linked == ("https://clips.example.com/store-a", "matched")
         conn.commit()
 
     # Exercise the same site lookup used by the background-task scheduler,
