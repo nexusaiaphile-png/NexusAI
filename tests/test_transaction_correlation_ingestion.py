@@ -165,12 +165,12 @@ def _configure_site_profile(site_id, site_name, recipient):
 
 def test_per_site_recipient_isolation(tmp_path, monkeypatch):
     client = make_test_client(tmp_path, monkeypatch)
-    _configure_site_profile("store-a", "Store A", "+27820000001")
-    _configure_site_profile("store-b", "Store B", "+27820000002")
+    _configure_site_profile("store-a-001", "Store A", "+27820000001")
+    _configure_site_profile("store-b-001", "Store B", "+27820000002")
 
     # A valid exception is persisted first so the route lookup can only return
     # a clip linked to this exact exception ID, never another store's clip.
-    payload = valid_pos_event(site_id="store-a", source_event_id="event-store-a")
+    payload = valid_pos_event(site_id="store-a-001", source_event_id="event-store-a")
     response = client.post(
         ENDPOINT, json=payload, headers={TOKEN_HEADER: INGEST_TOKEN}
     )
@@ -180,7 +180,7 @@ def test_per_site_recipient_isolation(tmp_path, monkeypatch):
         row = correlation._execute(
             conn,
             "SELECT id FROM nexusai_pos_exceptions WHERE site_id=? AND source_event_id=?",
-            ("store-a", "event-store-a"),
+            ("store-a-001", "event-store-a"),
         ).fetchone()
         assert row is not None
         exception_id = row[0]
@@ -189,7 +189,7 @@ def test_per_site_recipient_isolation(tmp_path, monkeypatch):
             """INSERT INTO nexusai_pos_exception_video_links
                (exception_id, site_id, video_clip_url, match_status, created_at)
                VALUES (?, ?, ?, ?, ?)""",
-            (exception_id, "store-a", "https://clips.example.com/store-a", "matched", "2026-10-19T14:30:00Z"),
+            (exception_id, "store-a-001", "https://clips.example.com/store-a", "matched", "2026-10-19T14:30:00Z"),
         )
         conn.commit()
 
@@ -213,7 +213,7 @@ def test_missing_recipient_graceful_fallback(tmp_path, monkeypatch, caplog):
     client = make_test_client(tmp_path, monkeypatch)
     _configure_site_profile("store-no-recipient", "Store Without Recipient", None)
 
-    with caplog.at_level("INFO", logger=correlation.__name__):
+    with caplog.at_level("INFO", logger=correlation.LOG.name):
         response = client.post(
             ENDPOINT,
             json=valid_pos_event(
