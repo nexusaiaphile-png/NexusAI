@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .models import (
@@ -131,6 +131,11 @@ def init_schema() -> None:
             currency TEXT NOT NULL DEFAULT 'ZAR',
             created_at DOUBLE PRECISION NOT NULL,
             UNIQUE(site_id, camera_id, interval_start, interval_end)
+        )""",
+        f"""CREATE TABLE IF NOT EXISTS nexusai_site_profiles (
+            site_id TEXT PRIMARY KEY,
+            site_name TEXT,
+            whatsapp_recipient_number VARCHAR(32)
         )""",
         f"""CREATE TABLE IF NOT EXISTS nexusai_owner_reports (
             id {id_type},
@@ -251,6 +256,46 @@ def init_schema() -> None:
             conn.commit()
         finally:
             conn.close()
+
+
+def _get_whatsapp_route(site_id: str) -> tuple[str | None, str | None, str | None]:
+    """Return configured recipient, display name, and synchronized footage URL."""
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            row = _execute(conn, """SELECT site_name, whatsapp_recipient_number
+                FROM nexusai_site_profiles WHERE site_id=?""", (site_id,)).fetchone()
+            if not row or not row[1]:
+                return None, row[0] if row else None, None
+            clip = _execute(conn, """SELECT video_clip_url
+                FROM nexusai_pos_exception_video_links
+                WHERE site_id=? AND video_clip_url IS NOT NULL
+                ORDER BY id DESC LIMIT 1""", (site_id,)).fetchone()
+            return row[1], row[0], clip[0] if clip else None
+        finally:
+            conn.close()
+
+
+def _queue_whatsapp_alert_for_site(background_tasks: BackgroundTasks, event: POSExceptionEventIn) -> None:
+    """Resolve tenant routing from DB and enqueue delivery without blocking ingestion."""
+    try:
+        recipient, site_name, clip_url = _get_whatsapp_route(event.site_id)
+        if not recipient:
+            LOG.info("WhatsApp alert skipped: no recipient configured for site_id=%s", event.site_id)
+            return
+        if not clip_url:
+            LOG.info("WhatsApp alert skipped: no synchronized footage link for site_id=%s", event.site_id)
+            return
+        background_tasks.add_task(
+            send_whatsapp_alert,
+            event,
+            site_name=site_name or event.site_id,
+            video_clip_url=clip_url,
+            recipient=recipient,
+        )
+    except Exception:
+        # Notification routing must never break the POS/HPP ingestion response.
+        LOG.exception("Could not queue WhatsApp alert for site_id=%s", event.site_id)
 
 
 def _admin_guard(key: str | None) -> None:
@@ -665,6 +710,7 @@ def install_transaction_correlation(app: FastAPI) -> None:
     @app.post("/api/retail/transaction-exceptions/")
     async def ingest_transaction_exception(
             payload: POSExceptionEventIn | POSExceptionBatchIn | TillExceptionIn | list[POSExceptionEventIn],
+            background_tasks: BackgroundTasks,
             x_nexusai_admin_key: str | None = Header(default=None),
             x_nexusai_pos_ingest_token: str | None = Header(default=None, alias="X-NexusAI-POS-Ingest-Token")):
         # Dedicated token for new vendor payloads; preserve the admin-key contract
@@ -709,6 +755,10 @@ def install_transaction_correlation(app: FastAPI) -> None:
                 else:
                     event = item
                 results.append(_insert_exception(event))
+                # Schedule only validated flat POS events for now; legacy payloads
+                # retain their existing contract and can be normalized in a follow-up.
+                if isinstance(item, POSExceptionEventIn):
+                    _queue_whatsapp_alert_for_site(background_tasks, item)
         except HTTPException:
             raise
         except Exception as exc:
