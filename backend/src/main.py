@@ -2401,6 +2401,14 @@ async def hikconnect_teams_test_auth(
             detail="Hik-Connect for Teams authentication failed. Check the server logs for the error class and vendor response code.",
         )
 
+# Retail Intelligence: POS/camera correlation endpoints. Keep this isolated from HPP
+# installation so retail wiring does not alter the alarm-ingestion path.
+try:
+    from backend.src.retail_intelligence import install as install_retail_intelligence
+    install_retail_intelligence(app)
+except Exception:
+    logging.exception("Retail Intelligence integration failed to load.")
+
 # Keep the portal mounted last so API routes stay reachable.
 app.mount("/portal", StaticFiles(directory=PORTAL_DIR, html=True), name="portal")
 
