@@ -10,10 +10,12 @@ on:
       - ".github/workflows/hikconnect-validation.yml"
       - "backend/requirements.txt"
   push:
-    branches: [main, feature/hikconnect-teams-validation]
+    branches: [main, feature/hikconnect-teams-validation, feature/transaction-correlation-engine]
     paths:
       - "backend/src/hikconnect_teams.py"
       - "tests/test_hikconnect_teams.py"
+      - "tests/test_transaction_correlation_ingestion.py"
+      - "tests/test_whatsapp_alerts.py"
       - ".github/workflows/hikconnect-validation.yml"
       - "backend/requirements.txt"
 
