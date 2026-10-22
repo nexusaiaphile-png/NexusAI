@@ -133,11 +133,14 @@ def install(app: FastAPI):
             if cam[0]!=pos[0] or cam[1]!=pos[1]: raise HTTPException(409,"Site/lane mismatch.")
             if abs((datetime.fromisoformat(cam[2])-datetime.fromisoformat(pos[2])).total_seconds()) > WINDOW:
                 raise HTTPException(422,"Event is outside the configured time window.")
-            _q(c,pg,"INSERT INTO retail_vision_results VALUES (?,?,?,?,?,?,?) ON CONFLICT(event_id,transaction_id) DO NOTHING",
+            inserted = _q(c,pg,"INSERT INTO retail_vision_results VALUES (?,?,?,?,?,?,?) ON CONFLICT(event_id,transaction_id) DO NOTHING",
                ("vis-"+uuid.uuid4().hex,payload.event_id,payload.transaction_id,json.dumps(payload.observed_items),payload.confidence,payload.model_name,time.time()))
             c.commit()
             receipt=json.loads(pos[3])
         finally: c.close()
+        # A repeated event/transaction pair is idempotent: do not create another incident.
+        if inserted.rowcount == 0:
+            return {"accepted":True,"incident_created":False,"result":"duplicate_vision_result"}
         seen={str(i.get("sku","")).strip().casefold() for i in payload.observed_items if i.get("sku")}
         expected={str(i.get("sku","")).strip().casefold() for i in receipt if i.get("sku")}
         if seen and expected and seen.isdisjoint(expected):
