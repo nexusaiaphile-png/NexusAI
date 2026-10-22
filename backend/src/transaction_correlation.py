@@ -26,6 +26,7 @@ from .models import (
     POSExceptionEventIn,
     VideoTimelineReferenceIn,
 )
+from .whatsapp_alerts import send_whatsapp_alert
 
 LOG = logging.getLogger("nexusai.transaction_correlation")
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -258,7 +259,7 @@ def init_schema() -> None:
             conn.close()
 
 
-def _get_whatsapp_route(site_id: str) -> tuple[str | None, str | None, str | None]:
+def _get_whatsapp_route(site_id: str, exception_id: int | None) -> tuple[str | None, str | None, str | None]:
     """Return configured recipient, display name, and synchronized footage URL."""
     with _DB_LOCK:
         conn = _connect()
@@ -269,17 +270,17 @@ def _get_whatsapp_route(site_id: str) -> tuple[str | None, str | None, str | Non
                 return None, row[0] if row else None, None
             clip = _execute(conn, """SELECT video_clip_url
                 FROM nexusai_pos_exception_video_links
-                WHERE site_id=? AND video_clip_url IS NOT NULL
-                ORDER BY id DESC LIMIT 1""", (site_id,)).fetchone()
+                WHERE site_id=? AND exception_id=? AND video_clip_url IS NOT NULL
+                LIMIT 1""", (site_id, exception_id)).fetchone()
             return row[1], row[0], clip[0] if clip else None
         finally:
             conn.close()
 
 
-def _queue_whatsapp_alert_for_site(background_tasks: BackgroundTasks, event: POSExceptionEventIn) -> None:
+def _queue_whatsapp_alert_for_site(background_tasks: BackgroundTasks, event: POSExceptionEventIn, exception_id: int | None) -> None:
     """Resolve tenant routing from DB and enqueue delivery without blocking ingestion."""
     try:
-        recipient, site_name, clip_url = _get_whatsapp_route(event.site_id)
+        recipient, site_name, clip_url = _get_whatsapp_route(event.site_id, exception_id)
         if not recipient:
             LOG.info("WhatsApp alert skipped: no recipient configured for site_id=%s", event.site_id)
             return
@@ -758,7 +759,7 @@ def install_transaction_correlation(app: FastAPI) -> None:
                 # Schedule only validated flat POS events for now; legacy payloads
                 # retain their existing contract and can be normalized in a follow-up.
                 if isinstance(item, POSExceptionEventIn):
-                    _queue_whatsapp_alert_for_site(background_tasks, item)
+                    _queue_whatsapp_alert_for_site(background_tasks, item, results[-1].get("exception_id"))
         except HTTPException:
             raise
         except Exception as exc:
