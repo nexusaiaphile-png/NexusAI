@@ -56,6 +56,7 @@ class POSExceptionEventIn(APIRequestModel):
         description="ISO 8601 timestamp including an explicit UTC offset, e.g. 2026-10-19T14:30:00+02:00."
     )
     active_transaction: bool | None = None
+    camera_id: str | None = Field(default=None, min_length=1, max_length=128, description="Camera associated with this till, when the POS adapter has a verified mapping.")
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("occurred_at", mode="before")
