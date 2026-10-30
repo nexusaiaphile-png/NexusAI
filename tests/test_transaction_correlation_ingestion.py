@@ -94,6 +94,24 @@ def test_duplicate_transaction_conflict(tmp_path, monkeypatch):
 
 
 
+def test_duplicate_event_does_not_queue_second_alert(tmp_path, monkeypatch):
+    client = make_test_client(tmp_path, monkeypatch)
+    queued = []
+    monkeypatch.setattr(
+        correlation, "_queue_whatsapp_alert_for_site",
+        lambda tasks, event, exception_id: queued.append((event.source_event_id, exception_id)),
+    )
+    payload = valid_pos_event()
+    headers = {TOKEN_HEADER: INGEST_TOKEN}
+
+    first = client.post(ENDPOINT, json=payload, headers=headers)
+    replay = client.post(ENDPOINT, json=payload, headers=headers)
+
+    assert first.status_code == replay.status_code == 200
+    assert first.json()["event_id"] == replay.json()["event_id"]
+    assert len(queued) == 1
+
+
 def test_legacy_schema_gets_unique_idempotency_index(tmp_path, monkeypatch):
     client = make_test_client(tmp_path, monkeypatch)
     # Simulate a legacy table that lost/never had the unique index, then run
