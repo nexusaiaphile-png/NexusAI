@@ -27,6 +27,7 @@ def valid_pos_event(**overrides):
         "transaction_value": "125.50",
         "currency": "ZAR",
         "occurred_at": "2026-10-19T14:30:00+02:00",
+        "camera_id": "camera-lane-04",
         "metadata": {"payment_method": "card"},
     }
     payload.update(overrides)
@@ -200,7 +201,7 @@ def test_per_site_recipient_isolation(tmp_path, monkeypatch):
                WHERE exception_id=? AND site_id=?""",
             (exception_id, "store-a-001"),
         ).fetchone()
-        assert linked == ("https://clips.example.com/store-a", "matched")
+        assert tuple(linked) == ("https://clips.example.com/store-a", "matched")
         conn.commit()
 
     # Exercise the same site lookup used by the background-task scheduler,
