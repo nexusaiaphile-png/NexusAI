@@ -491,7 +491,8 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
             conn.commit()
             # ON CONFLICT DO NOTHING is atomic; rowcount=0 means the unique
             # (site_id, source_event_id) key already existed.
-            if event.source_event_id and insert_cursor.rowcount == 0:
+            is_new_event = insert_cursor.rowcount != 0
+            if event.source_event_id and not is_new_event:
                 # Treat a replay as an idempotent retry: reuse the existing durable
                 # event and re-run best-effort post-commit work instead of returning
                 # a misleading conflict when a prior request may have failed later.
@@ -566,6 +567,7 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
         LOG.exception("POS event %s persisted; aggregation failed and needs retry.", event_id)
     return {
         "exception_id": event_id,
+        "_created": is_new_event,
         "flagged_for_review": needs_review,
         "till_void_exception": {
             "exception_type": event.exception_type,
@@ -751,14 +753,17 @@ def install_transaction_correlation(app: FastAPI) -> None:
                         "currency": item.currency,
                         "occurred_at": item.occurred_at.isoformat(),
                         "active_transaction": item.active_transaction,
+                        "camera_id": item.camera_id,
                         "metadata": item.metadata,
                     })
                 else:
                     event = item
-                results.append(_insert_exception(event))
-                # Schedule only validated flat POS events for now; legacy payloads
-                # retain their existing contract and can be normalized in a follow-up.
-                if isinstance(item, POSExceptionEventIn):
+                result = _insert_exception(event)
+                created = bool(result.pop("_created", False))
+                results.append(result)
+                # Only the first durable insert may trigger an alert. POS retries
+                # remain idempotent and cannot send duplicate WhatsApp messages.
+                if isinstance(item, POSExceptionEventIn) and created:
                     _queue_whatsapp_alert_for_site(background_tasks, item, results[-1].get("exception_id"))
         except HTTPException:
             raise
