@@ -449,18 +449,25 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
     now = time.time()
     # Prefer an explicitly supplied clip reference; otherwise match an ingested
     # camera timeline whose interval contains the POS event timestamp.
+    matched_timeline_ref_id = None
     if event.camera_id and not (event.clip_start and event.clip_end and event.video_clip_url):
         with _DB_LOCK:
             conn = _connect()
             try:
-                cur = _execute(conn, """SELECT clip_start, clip_end, video_clip_url
+                cur = _execute(conn, """SELECT id, clip_start, clip_end, video_clip_url, source_ref_id
                     FROM nexusai_video_timeline_refs
                     WHERE site_id=? AND camera_id=? AND clip_start<=? AND clip_end>=?
                     ORDER BY clip_start DESC LIMIT 1""",
                     (event.site_id, event.camera_id, event.occurred_at, event.occurred_at))
                 clip = cur.fetchone()
                 if clip:
-                    event.clip_start, event.clip_end, event.video_clip_url = clip[0], clip[1], clip[2]
+                    matched_timeline_ref_id = clip[0]
+                    event.clip_start, event.clip_end, event.video_clip_url = clip[1], clip[2], clip[3]
+                    if clip[4]:
+                        event.video_timeline = ExceptionVideoTimelineIn(
+                            camera_id=event.camera_id, clip_start=clip[1], clip_end=clip[2],
+                            video_clip_url=clip[3], source_ref_id=clip[4],
+                        )
             finally:
                 conn.close()
     # A till event is flagged from POS semantics, not inferred from video.
@@ -521,7 +528,7 @@ def _insert_exception(event: TillExceptionIn) -> dict[str, Any]:
             with _DB_LOCK:
                 conn = _connect()
                 try:
-                    timeline_ref_id = None
+                    timeline_ref_id = matched_timeline_ref_id
                     if event.video_timeline and event.video_timeline.source_ref_id:
                         cur = _execute(conn, "SELECT id FROM nexusai_video_timeline_refs WHERE site_id=? AND source_ref_id=?", (event.site_id, event.video_timeline.source_ref_id))
                         found = cur.fetchone()
