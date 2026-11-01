@@ -997,6 +997,7 @@ def _hpp_event_sink(event: dict) -> bool | None:
     if event is None:
         logging.info("Retail Intelligence dropped unmatched HPP event after POS correlation.")
         return True
+    event.pop("hpp_site_id", None)
     event_id = persist_event(event)
     EDGE_EVENTS.insert(0, dict(event))
     del EDGE_EVENTS[200:]
