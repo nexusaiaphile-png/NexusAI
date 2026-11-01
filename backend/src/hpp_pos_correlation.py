@@ -98,7 +98,8 @@ def _find_pos_exception(site_id: str, device_serial: str, happened_at: datetime)
     # camera_id is the existing POS exception mapping field. HPP channels are
     # normalised as '<deviceSerial>-<channel>'; accept exact serial or that prefix.
     sql = """
-        SELECT id, site_id, till_id, exception_type, occurred_at, camera_id,
+        SELECT id, site_id, till_id, exception_type,
+               occurred_at::timestamptz AS occurred_at, camera_id,
                source_event_id, transaction_id
           FROM nexusai_pos_exceptions
          WHERE site_id = %s
@@ -106,21 +107,23 @@ def _find_pos_exception(site_id: str, device_serial: str, happened_at: datetime)
            AND camera_id IS NOT NULL
            AND (camera_id = %s OR camera_id LIKE %s)
            AND occurred_at::timestamptz BETWEEN %s AND %s
-         ORDER BY ABS(EXTRACT(EPOCH FROM (occurred_at::timestamptz - %s))) ASC
-         LIMIT 1
     """
     try:
         with _connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, (
                     site_id, device_serial, device_serial + "-%",
-                    start, end, happened_at,
+                    start, end,
                 ))
-                row = cur.fetchone()
+                rows = cur.fetchall()
     except Exception as exc:
         raise CorrelationError("Could not query the POS exception history") from exc
-    if not row:
+    if not rows:
         return None
+
+    # Keep the final event-time comparison in memory: select the closest POS
+    # exception from the bounded ±window result set, rather than trusting row order.
+    row = min(rows, key=lambda item: abs((item[4] - happened_at).total_seconds()))
     keys = ("id", "site_id", "till_id", "exception_type", "occurred_at",
             "camera_id", "source_event_id", "transaction_id")
     return dict(zip(keys, row))
