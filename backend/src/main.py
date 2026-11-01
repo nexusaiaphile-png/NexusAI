@@ -971,12 +971,10 @@ def _load_hpp_site_connection(nexusai_site_id: str) -> dict | None:
 
 
 def _hpp_event_sink(event: dict) -> bool | None:
-    # Strict retail-only gate runs before site lookup, persistence, history, or alerts.
-    from backend.src.retail_event_mapping import normalize_retail_event
-    event = normalize_retail_event(event)
-    if event is None:
-        logging.info("Retail Intelligence dropped unmatched HPP event before persistence/dispatch.")
-        return None
+    # Resolve the cloud-managed HPP device to its NexusAI site before either
+    # retail event filtering or POS correlation. This lets a generic HPP camera
+    # event provide timing/evidence for a POS exception without misclassifying
+    # that camera event as theft or another security incident.
     serial = str(event.get("hpp_device_serial") or "")
     site_id = _hpp_mapping(str(event.get("hpp_site_id") or ""), serial)
     if not site_id:
@@ -985,7 +983,20 @@ def _hpp_event_sink(event: dict) -> bool | None:
             "Map the HPP device serial to a NexusAI site before production alarms."
         )
     event["site_id"] = site_id
-    event.pop("hpp_site_id", None)
+
+    # Correlation runs inside the existing HPP queue consumer, before the
+    # batch offset is acknowledged. Retryable failures leave the HPP batch
+    # available for redelivery; a no-match is a normal handled outcome.
+    from backend.src.hpp_pos_correlation import correlate_hpp_event
+    correlation = correlate_hpp_event(event)
+    event["pos_correlation"] = correlation
+
+    # Keep the existing strict retail-only gate for security event dispatch.
+    from backend.src.retail_event_mapping import normalize_retail_event
+    event = normalize_retail_event(event)
+    if event is None:
+        logging.info("Retail Intelligence dropped unmatched HPP event after POS correlation.")
+        return True
     event_id = persist_event(event)
     EDGE_EVENTS.insert(0, dict(event))
     del EDGE_EVENTS[200:]
