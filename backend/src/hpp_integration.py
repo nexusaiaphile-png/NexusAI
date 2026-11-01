@@ -229,7 +229,11 @@ def normalize_message(message: dict, hpp_site_id: str = "") -> dict:
         nested, "eventType", "eventTypeName", "event", "eventTypeCode",
         "description", "eventDescription"
     ) or "HIKVISION_ALARM"
-    timestamp = _first(nested, "triggerTime", "dateTime", "dateTimeLocal", "timestamp")
+    # HPP alarm payloads may use happenTime as the event-time field.
+    # Preserve top-level happenTime and prefer it over ingestion time.
+    if message.get("happenTime") and not nested.get("happenTime"):
+        nested["happenTime"] = message.get("happenTime")
+    timestamp = _first(nested, "happenTime", "triggerTime", "dateTime", "dateTimeLocal", "timestamp")
     timestamp = str(timestamp or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     state = str(_first(nested, "eventState", "activePostCount", "state") or "active").lower()
 
