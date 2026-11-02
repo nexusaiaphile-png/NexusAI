@@ -120,13 +120,15 @@ def test_snapshot_details_preserves_encrypt_from_pictureurl_response():
 
 def test_camera_id_must_equal_hpp_device_serial(monkeypatch):
     class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
         def execute(self, *args): pass
         def fetchall(self):
             return [(1, "site-1", "2026-11-02T08:15:30Z", "DS123-2", "evt-1", True)]
     class Connection:
         def __enter__(self): return self
         def __exit__(self, *args): pass
-        def cursor(self): return self
+        def cursor(self): return Cursor()
     monkeypatch.setattr(correlation, "_connect", lambda: Connection())
     assert correlation._find_pos_exception(
         "site-1", "DS123", datetime(2026, 11, 2, 8, 15, 30, tzinfo=timezone.utc)
