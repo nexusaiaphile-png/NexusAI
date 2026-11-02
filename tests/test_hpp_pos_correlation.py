@@ -41,7 +41,7 @@ def test_correlate_hpp_event_fetches_and_persists_snapshot(monkeypatch):
     monkeypatch.setattr(correlation, "_persist_snapshot_link",
                         lambda *args: calls.setdefault("persist", args))
 
-    import hpp_integration
+    from backend.src import hpp_integration
     monkeypatch.setattr(hpp_integration, "picture_url",
                         lambda path: {"data": {"url": "https://media.example.com/snapshot.jpg"}})
 
@@ -67,3 +67,21 @@ def test_no_pos_match_does_not_request_picture(monkeypatch):
         "hpp_data": {"happenTime": "2026-11-02T08:15:30Z", "filePath": "alarm/41.jpg"},
     })
     assert result["status"] == "no_pos_match"
+
+
+
+def test_missing_vendor_event_time_is_skipped_not_matched(monkeypatch):
+    def fail_if_queried(*args):
+        raise AssertionError("POS lookup must not use the ingestion-time fallback")
+
+    monkeypatch.setattr(correlation, "_find_pos_exception", fail_if_queried)
+    result = correlation.correlate_hpp_event({
+        "site_id": "site-123456",
+        "hpp_device_serial": "DS123",
+        "timestamp": "2026-11-02T08:15:30Z",
+        "hpp_data": {"filePath": "alarm/41.jpg"},
+    })
+    assert result == {
+        "status": "skipped",
+        "reason": "missing_hpp_event_timestamp",
+    }
