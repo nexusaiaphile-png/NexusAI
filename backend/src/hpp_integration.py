@@ -185,18 +185,33 @@ def picture_url(file_path: str) -> dict:
 
 
 def _xml_to_dict(raw: str) -> dict:
+    """Convert XML while preserving nested and repeated elements such as pictureList."""
     try:
         root = ET.fromstring(raw)
     except ET.ParseError:
         return {}
-    result: dict[str, Any] = {}
-    for child in root.iter():
-        if child is root:
-            continue
-        key = child.tag.rsplit("}", 1)[-1]
-        if child.text and child.text.strip() and key not in result:
-            result[key] = child.text.strip()
-    return result
+
+    def convert(element: ET.Element) -> Any:
+        children = list(element)
+        if not children:
+            return (element.text or "").strip()
+        result: dict[str, Any] = {}
+        for child in children:
+            key = child.tag.rsplit("}", 1)[-1]
+            value = convert(child)
+            if key in result:
+                if not isinstance(result[key], list):
+                    result[key] = [result[key]]
+                result[key].append(value)
+            else:
+                result[key] = value
+        text_value = (element.text or "").strip()
+        if text_value:
+            result["_text"] = text_value
+        return result
+
+    converted = convert(root)
+    return {root.tag.rsplit("}", 1)[-1]: converted} if isinstance(converted, dict) else {"value": converted}
 
 
 def _parse_alarm_data(raw: Any) -> dict:
@@ -237,11 +252,12 @@ def normalize_message(message: dict, hpp_site_id: str = "") -> dict:
     timestamp = str(timestamp or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     state = str(_first(nested, "eventState", "activePostCount", "state") or "active").lower()
 
-    picture = _first(nested, "pictureUrl", "picture", "filePath", "url")
+    picture = _first(nested, "pictureUrl", "picture", "filePath", "url", "pictureList")
     severity = "CRITICAL" if state in {"active", "1", "true", "alarm"} else "INFO"
 
     serial = str(message.get("deviceSerial") or nested.get("deviceSerial") or "")
-    camera_id = f"{serial}-{channel}" if channel else serial or "hikvision-device"
+    # POS camera_id is the HPP device serial; channel remains separate metadata.
+    camera_id = serial or "hikvision-device"
     return {
         "site_id": hpp_site_id,
         "camera_id": camera_id,
