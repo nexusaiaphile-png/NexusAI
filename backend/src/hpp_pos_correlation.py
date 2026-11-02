@@ -14,7 +14,18 @@ from typing import Any
 from urllib.parse import urlsplit
 
 LOG = logging.getLogger("nexusai.hpp_pos_correlation")
-MATCH_WINDOW_SECONDS = max(1, min(30, int(os.getenv("NEXUSAI_HPP_POS_MATCH_WINDOW_SECONDS", "5"))))
+
+
+def _match_window_seconds() -> int:
+    try:
+        configured = int(os.getenv("NEXUSAI_HPP_POS_MATCH_WINDOW_SECONDS", "5"))
+    except (TypeError, ValueError):
+        LOG.warning("Invalid NEXUSAI_HPP_POS_MATCH_WINDOW_SECONDS; using 5 seconds")
+        configured = 5
+    return max(1, min(30, configured))
+
+
+MATCH_WINDOW_SECONDS = _match_window_seconds()
 
 
 class CorrelationError(RuntimeError):
@@ -180,8 +191,11 @@ def correlate_hpp_event(event: dict[str, Any]) -> dict[str, Any]:
     happened_value = (
         payload.get("happenTime") or payload.get("triggerTime")
         or payload.get("dateTime") or payload.get("timestamp")
-        or event.get("timestamp")
     )
+    # Do not substitute normalize_message's ingestion-time fallback: that can
+    # create a false POS match when the vendor alarm has no event timestamp.
+    if happened_value in (None, ""):
+        return {"status": "skipped", "reason": "missing_hpp_event_timestamp"}
     try:
         happened_at = _parse_timestamp(happened_value)
     except (TypeError, ValueError, OverflowError, OSError) as exc:
@@ -200,7 +214,7 @@ def correlate_hpp_event(event: dict[str, Any]) -> dict[str, Any]:
         }
 
     try:
-        from hpp_integration import picture_url
+        from backend.src.hpp_integration import picture_url
         response = picture_url(file_path)
     except Exception as exc:
         raise CorrelationError("HPP picture URL request failed") from exc
