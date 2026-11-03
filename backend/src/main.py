@@ -876,13 +876,33 @@ def _save_hpp_mapping(hpp_site_id: str, hpp_device_serial: str, nexusai_site_id:
                 conn.commit()
 
 
-def _hpp_site_devices(payload: dict) -> list[dict]:
+def _hpp_data_rows(payload: dict, *keys: str) -> list[dict]:
+    """Normalize HPP collection envelopes across documented/observed response shapes."""
     data = payload.get("data") or {}
-    if isinstance(data, dict):
-        items = data.get("list") or data.get("devices") or data.get("items") or []
+    if isinstance(data, list):
+        items = data
+    elif isinstance(data, dict):
+        items = []
+        for key in keys:
+            value = data.get(key)
+            if isinstance(value, list):
+                items = value
+                break
+        if not items:
+            # HPP site search in production returns data.rows; other endpoints
+            # may use list/devices/items depending on the API resource.
+            for key in ("rows", "list", "devices", "items", "records"):
+                value = data.get(key)
+                if isinstance(value, list):
+                    items = value
+                    break
     else:
         items = []
     return [item for item in items if isinstance(item, dict)]
+
+
+def _hpp_site_devices(payload: dict) -> list[dict]:
+    return _hpp_data_rows(payload, "rows", "list", "devices", "items")
 
 
 def _hpp_device_serial(device: dict) -> str:
@@ -1649,7 +1669,7 @@ async def admin_hpp_connect_site(
     try:
         from hpp_integration import search_sites, list_devices, HppError
         sites_payload = search_sites(1, 100, "")
-        raw_sites = (sites_payload.get("data") or {}).get("list") or []
+        raw_sites = _hpp_data_rows(sites_payload, "rows", "list", "sites", "items")
         selected = next(
             (s for s in raw_sites if isinstance(s, dict) and str(
                 s.get("siteId") or s.get("id") or s.get("site_id") or ""
@@ -1692,8 +1712,7 @@ async def admin_hpp_authorized_sites(x_nexusai_admin_key: str | None = Header(de
     try:
         from hpp_integration import search_sites, HppError
         payload = search_sites(1, 100, "")
-        data = payload.get("data") or {}
-        sites = data.get("list") or []
+        sites = _hpp_data_rows(payload, "rows", "list", "sites", "items")
         normalized = []
         for site in sites:
             if not isinstance(site, dict):
