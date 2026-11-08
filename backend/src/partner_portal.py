@@ -306,6 +306,30 @@ async def admin_list_partners(x_nexusai_admin_key: str | None = Header(default=N
     return {"partners": [dict(zip(["partner_id","email","full_name","company_name","status","created_at","verified_cameras"],r)) for r in rows]}
 
 
+@admin_router.get("/deployments")
+async def admin_list_deployments(status: str = "PENDING", x_nexusai_admin_key: str | None = Header(default=None)):
+    _admin(x_nexusai_admin_key)
+    normalized = status.strip().upper()
+    if normalized not in {"PENDING", "VERIFIED", "REJECTED", "ALL"}:
+        raise HTTPException(400, "Status must be PENDING, VERIFIED, REJECTED or ALL.")
+    with _db() as conn:
+        if normalized == "ALL":
+            rows = _sql(conn, """SELECT d.deployment_id,d.partner_id,a.company_name,a.email,
+                d.site_reference,d.business_name,d.camera_count,d.status,d.commission_rate,
+                d.notes,d.created_at,d.reviewed_at
+                FROM nexusai_partner_deployments d JOIN nexusai_partner_accounts a ON a.partner_id=d.partner_id
+                ORDER BY d.created_at DESC LIMIT 1000""").fetchall()
+        else:
+            rows = _sql(conn, """SELECT d.deployment_id,d.partner_id,a.company_name,a.email,
+                d.site_reference,d.business_name,d.camera_count,d.status,d.commission_rate,
+                d.notes,d.created_at,d.reviewed_at
+                FROM nexusai_partner_deployments d JOIN nexusai_partner_accounts a ON a.partner_id=d.partner_id
+                WHERE d.status=%s ORDER BY d.created_at DESC LIMIT 1000""", (normalized,)).fetchall()
+    keys = ["deployment_id","partner_id","company_name","email","site_reference","business_name",
+            "camera_count","status","commission_rate","notes","created_at","reviewed_at"]
+    return {"deployments": [dict(zip(keys, row)) for row in rows]}
+
+
 @admin_router.post("/{partner_id}/deployments")
 async def admin_add_deployment(partner_id: str, payload: AddDeployment, x_nexusai_admin_key: str | None = Header(default=None)):
     _admin(x_nexusai_admin_key)
