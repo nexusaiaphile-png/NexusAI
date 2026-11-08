@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr
+from backend.src.partner_portal import router as partner_portal_router, admin_router as partner_admin_router, init_partner_db
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 PORTAL_DIR = BASE_DIR / "portal"
@@ -46,9 +47,12 @@ app = FastAPI(
     version="3.3.0",
 )
 
+app.include_router(partner_portal_router)
+app.include_router(partner_admin_router)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://getnexusai.co.za", "https://www.getnexusai.co.za"],
+    allow_origins=["https://getnexusai.co.za", "https://www.getnexusai.co.za", "https://nexusai-partner-network-preview.onrender.com"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -360,6 +364,7 @@ def init_db():
 @app.on_event("startup")
 def startup():
     init_db()
+    init_partner_db()
     if database_url():
         import psycopg
         with psycopg.connect(database_url()) as conn:
