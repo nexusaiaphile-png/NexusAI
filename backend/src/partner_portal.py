@@ -185,14 +185,22 @@ class AddDeployment(BaseModel):
 async def accept_invitation(payload: AcceptInvite):
     now = time.time()
     with _db() as conn:
+        invite_hash = _hash(payload.token)
         invite = _sql(conn, """SELECT partner_id,expires_at,used_at FROM nexusai_partner_invites
-            WHERE token_hash=%s""", (_hash(payload.token),)).fetchone()
+            WHERE token_hash=%s""", (invite_hash,)).fetchone()
         if not invite or invite[2] is not None or float(invite[1]) <= now:
             raise HTTPException(400, "This invitation is invalid, expired or already used. Ask NexusAI for a new invitation.")
         partner_id = invite[0]
-        _sql(conn, "UPDATE nexusai_partner_accounts SET password_hash=%s,status='ACTIVE',activated_at=%s WHERE partner_id=%s AND status='INVITED'",
-             (_password_hash(payload.password), now, partner_id))
-        _sql(conn, "UPDATE nexusai_partner_invites SET used_at=%s WHERE token_hash=%s AND used_at IS NULL", (now, _hash(payload.token)))
+        claimed = _sql(conn, """UPDATE nexusai_partner_invites SET used_at=%s
+            WHERE token_hash=%s AND used_at IS NULL AND expires_at>%s""", (now, invite_hash, now))
+        if claimed.rowcount != 1:
+            raise HTTPException(400, "This invitation is invalid, expired or already used. Ask NexusAI for a new invitation.")
+        activated = _sql(conn, """UPDATE nexusai_partner_accounts
+            SET password_hash=%s,status='ACTIVE',activated_at=%s
+            WHERE partner_id=%s AND status='INVITED'""",
+            (_password_hash(payload.password), now, partner_id))
+        if activated.rowcount != 1:
+            raise HTTPException(400, "This partner invitation has already been activated. Contact NexusAI if you need help.")
         token = _issue_session(conn, partner_id)
     return {"authenticated": True, "access_token": token, "token_type": "bearer", "expires_in": SESSION_TTL}
 
