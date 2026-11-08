@@ -59,6 +59,7 @@ def init_partner_db():
                 partner_id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, full_name TEXT NOT NULL,
                 company_name TEXT NOT NULL, password_hash TEXT, status TEXT NOT NULL DEFAULT 'INVITED',
                 created_at DOUBLE PRECISION NOT NULL, activated_at DOUBLE PRECISION)""",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_partner_accounts_email_lower ON nexusai_partner_accounts(LOWER(email))",
             """CREATE TABLE IF NOT EXISTS nexusai_partner_invites (
                 token_hash TEXT PRIMARY KEY, partner_id TEXT NOT NULL, expires_at DOUBLE PRECISION NOT NULL,
                 created_at DOUBLE PRECISION NOT NULL, used_at DOUBLE PRECISION)""",
