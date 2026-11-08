@@ -233,6 +233,31 @@ async def partner_dashboard(authorization: str | None = Header(default=None)):
         "commission_rate_rands": 100}, "deployments": deployments}
 
 
+@router.post("/deployments")
+async def partner_submit_deployment(payload: AddDeployment, authorization: str | None = Header(default=None)):
+    """Allow an authenticated partner to submit only their own deployment for review."""
+    partner = _bearer(authorization)
+    site_reference = payload.site_reference.strip()
+    business_name = payload.business_name.strip()
+    if not site_reference or not business_name:
+        raise HTTPException(400, "Enter a valid business name and site reference.")
+    with _db() as conn:
+        duplicate = _sql(conn, """SELECT 1 FROM nexusai_partner_deployments
+            WHERE partner_id=%s AND lower(site_reference)=lower(%s)
+            AND status IN ('PENDING','VERIFIED')""",
+            (partner["partner_id"], site_reference)).fetchone()
+        if duplicate:
+            raise HTTPException(409, "A pending or verified deployment already exists for this site reference.")
+        deployment_id = "dep_" + uuid.uuid4().hex[:16]
+        _sql(conn, """INSERT INTO nexusai_partner_deployments(deployment_id,partner_id,site_reference,
+            business_name,camera_count,status,commission_rate,notes,created_at)
+            VALUES(%s,%s,%s,%s,%s,'PENDING',100,%s,%s)""",
+            (deployment_id, partner["partner_id"], site_reference, business_name,
+             payload.camera_count, payload.notes.strip(), time.time()))
+    return {"created": True, "deployment_id": deployment_id, "status": "PENDING",
+            "message": "Deployment submitted for NexusAI verification. Commission is not earned until approved."}
+
+
 @router.post("/logout")
 async def partner_logout(authorization: str | None = Header(default=None)):
     partner = _bearer(authorization)
