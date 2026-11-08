@@ -48,7 +48,7 @@ class PartnerPortalIsolationTests(unittest.TestCase):
 
         other = asyncio.run(portal.partner_dashboard("Bearer " + self.token_two))
         self.assertEqual(len(other["deployments"]), 1)
-        self.assertEqual(other["deployments"][0]["partner_id"] if "partner_id" in other["deployments"][0] else "partner_two", "partner_two")
+        self.assertEqual(other["partner"]["partner_id"], "partner_two")
 
     def test_partner_submission_is_attributed_to_authenticated_account(self):
         payload = portal.AddDeployment(
