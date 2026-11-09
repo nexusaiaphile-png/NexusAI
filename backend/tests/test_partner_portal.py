@@ -66,6 +66,34 @@ class PartnerPortalIsolationTests(unittest.TestCase):
                 (result["deployment_id"],)).fetchone()
         self.assertEqual(tuple(row), ("partner_one", "PENDING", 4))
 
+    def test_self_registration_requires_admin_approval(self):
+        os.environ["NEXUSAI_ADMIN_KEY"] = "test-admin-key"
+        portal.REGISTER_RATE.clear()
+        Request = __import__("starlette.requests", fromlist=["Request"]).Request
+        scope = {"type":"http", "method":"POST", "path":"/", "headers":[],
+                 "query_string":b"", "server":("test",80), "client":("127.0.0.9",1234), "scheme":"http"}
+        request = Request(scope)
+        payload = portal.RegisterPartner(email="newpartner@example.co.za", full_name="New Partner",
+            company_name="New Company", password="a-strong-password-123")
+        result = asyncio.run(portal.partner_register(payload, request))
+        self.assertEqual(result["status"], "PENDING")
+        with portal._db() as conn:
+            row = portal._sql(conn, "SELECT partner_id,password_hash,status FROM nexusai_partner_accounts WHERE lower(email)=%s",
+                              ("newpartner@example.co.za",)).fetchone()
+        self.assertEqual(row[2], "PENDING")
+        self.assertTrue(row[1].startswith("pbkdf2_sha256$"))
+        login_request = Request(scope)
+        login_payload = portal.PartnerLogin(email="newpartner@example.co.za", password="a-strong-password-123")
+        with self.assertRaises(HTTPException) as caught:
+            asyncio.run(portal.partner_login(login_payload, login_request))
+        self.assertEqual(caught.exception.status_code, 403)
+        approved = asyncio.run(portal.admin_update_partner_status(row[0],
+            portal.PartnerStatus(status="ACTIVE"), "test-admin-key"))
+        self.assertEqual(approved["status"], "ACTIVE")
+        logged_in = asyncio.run(portal.partner_login(login_payload, login_request))
+        self.assertTrue(logged_in["access_token"])
+        os.environ.pop("NEXUSAI_ADMIN_KEY", None)
+
     def test_partner_cannot_submit_without_authentication(self):
         payload = portal.AddDeployment(
             site_reference="SITE-X",
