@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NexusAI Partner Administration</title>
+<style>
+:root{color-scheme:dark;--bg:#07111b;--panel:#10202d;--line:#263d4b;--text:#eef7f8;--muted:#a4b6c0;--accent:#42e6c2}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,sans-serif}main{max-width:1150px;margin:auto;padding:32px 20px}.brand{font-weight:800;letter-spacing:.16em;color:var(--accent)}h1{font-size:clamp(2rem,4vw,3rem);margin:16px 0}h2{margin-top:0}.muted{color:var(--muted)}.panel,.table-wrap{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:22px;margin:18px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.field{margin:12px 0}label{display:block;color:var(--muted);margin-bottom:5px}input,select,textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:8px;background:#07141e;color:white;font:inherit}button{border:0;border-radius:8px;background:var(--accent);color:#06211e;font-weight:800;padding:12px 16px;cursor:pointer;margin:4px}button.secondary{background:#263d4b;color:white}button.danger{background:#6b3030;color:white}button:disabled{opacity:.5;cursor:wait}.row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.notice{padding:12px;background:#172d39;border-radius:8px;color:var(--muted)}.error{color:#ffb5a5}.success{color:var(--accent)}.hidden{display:none!important}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:760px}th,td{text-align:left;padding:12px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-size:.8rem;text-transform:uppercase}.status{font-size:.8rem;border:1px solid var(--line);border-radius:30px;padding:3px 8px}.small{font-size:.85rem}@media(max-width:750px){.grid{grid-template-columns:1fr}main{padding:22px 14px}}
+</style></head>
+<body><main>
+<div class="brand">NEXUSAI / ADMINISTRATION</div>
+<section id="gate" class="panel">
+<h1>Partner administration</h1>
+<p class="muted">Restricted NexusAI staff access. The administrator key is held in memory only and is not saved in this browser.</p>
+<div class="field"><label for="adminKey">NexusAI administrator key</label><input id="adminKey" type="password" autocomplete="off" required></div>
+<button id="connect">Connect securely</button><p id="gateMessage" role="status"></p>
+</section>
+<section id="workspace" class="hidden">
+<div class="row"><div><h1>Partner operations</h1><p class="muted">Approve new partner registrations and review submitted camera deployments.</p></div><button id="disconnect" class="secondary">Lock admin session</button></div>
+<div class="grid">
+<section class="panel"><h2>Partner registrations</h2><p class="muted">New companies appear here after registering. Approve an account to allow sign-in, or suspend an existing account.</p><button id="refreshPartners" class="secondary">Refresh partner list</button><div id="partnersList" class="small muted">Connect to load registrations.</div></section>
+<section class="panel"><h2>Account controls</h2><p class="muted">Approve registrations to activate access. Suspended accounts lose access immediately.</p><div id="partnersList" class="small muted">Connect to load registrations.</div></section>
+</div>
+<section class="table-wrap"><div class="row"><div><h2>Deployment review queue</h2><p class="muted">Only mark a deployment verified after checking the business authorisation and activation evidence.</p></div><button id="refreshQueue" class="secondary">Refresh queue</button></div>
+<div id="queueMessage" role="status" class="muted"></div>
+<table><thead><tr><th>Partner</th><th>Business / site</th><th>Cameras</th><th>Submitted</th><th>Action</th></tr></thead><tbody id="queue"><tr><td colspan="5">Loading…</td></tr></tbody></table>
+</section>
+</section>
+</main>
+<script>
+const API='https://getnexusai.co.za/api/admin/partners';let adminKey='';
+const $=id=>document.getElementById(id);
+async function request(path,options={}){const r=await fetch(API+path,{...options,headers:{'Content-Type':'application/json','X-NexusAI-Admin-Key':adminKey,...(options.headers||{})}});let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.detail||'Request failed');return d}
+function show(id,message,kind='muted'){$(id).textContent=message;$(id).className=kind}
+function td(text){const e=document.createElement('td');e.textContent=text??'';return e}
+async function loadPartners(){const d=await request('');const list=$('partnersList');list.replaceChildren();if(!d.partners.length){list.textContent='No partner registrations yet.';return}const table=document.createElement('table');const head=document.createElement('thead');const hr=document.createElement('tr');['Company','Email','Status','Verified cameras','Action'].forEach(x=>{const th=document.createElement('th');th.textContent=x;hr.append(th)});head.append(hr);const body=document.createElement('tbody');for(const p of d.partners){const tr=document.createElement('tr');tr.append(td(p.company_name),td(p.email),td(p.status),td(Number(p.verified_cameras||0).toLocaleString('en-ZA')));const actions=td('');if(p.status==='PENDING'||p.status==='SUSPENDED'){const approve=document.createElement('button');approve.textContent=p.status==='PENDING'?'Approve':'Reactivate';approve.onclick=()=>updatePartnerStatus(p.partner_id,'ACTIVE');actions.append(approve)}if(p.status==='ACTIVE'){const suspend=document.createElement('button');suspend.textContent='Suspend';suspend.className='danger';suspend.onclick=()=>updatePartnerStatus(p.partner_id,'SUSPENDED');actions.append(suspend)}tr.append(actions);body.append(tr)}table.append(head,body);list.append(table)}
+async function updatePartnerStatus(id,status){if(!confirm('Confirm '+status.toLowerCase()+' this partner account?'))return;try{await request('/'+encodeURIComponent(id)+'/status',{method:'POST',body:JSON.stringify({status})});show('queueMessage','Partner account updated.','success');await loadPartners()}catch(e){show('queueMessage',e.message,'error')}}
+async function loadQueue(){const d=await request('/deployments?status=PENDING');const body=$('queue');body.replaceChildren();if(!d.deployments.length){const tr=document.createElement('tr');const cell=td('No pending deployment submissions.');cell.colSpan=5;tr.append(cell);body.append(tr);return}for(const x of d.deployments){const tr=document.createElement('tr');tr.append(td(x.company_name+' · '+x.email),td(x.business_name+' · '+x.site_reference+(x.notes?'\n'+x.notes:'')),td(String(x.camera_count)),td(new Date(x.created_at*1000).toLocaleString('en-ZA')));const actions=td('');const yes=document.createElement('button');yes.textContent='Verify';yes.onclick=()=>review(x.deployment_id,'VERIFIED');const no=document.createElement('button');no.textContent='Reject';no.className='danger';no.onclick=()=>review(x.deployment_id,'REJECTED');actions.append(yes,no);tr.append(actions);body.append(tr)}}
+async function refresh(){try{await Promise.all([loadPartners(),loadQueue()]);show('queueMessage','Partner records refreshed.','success')}catch(e){show('queueMessage',e.message,'error');throw e}}
+async function review(id,status){if(!confirm('Confirm '+status.toLowerCase()+' for this deployment? Only proceed after checking the supporting evidence.'))return;try{await request('/deployments/'+encodeURIComponent(id)+'/review?status='+status,{method:'POST'});show('queueMessage','Deployment marked '+status+'.','success');await refresh()}catch(e){show('queueMessage',e.message,'error')}}
+$('connect').onclick=async()=>{adminKey=$('adminKey').value.trim();if(!adminKey){show('gateMessage','Enter the administrator key.','error');return}try{await refresh();$('gate').classList.add('hidden');$('workspace').classList.remove('hidden')}catch(e){adminKey='';show('gateMessage',e.message,'error')}};
+$('disconnect').onclick=()=>{adminKey='';$('adminKey').value='';$('workspace').classList.add('hidden');$('gate').classList.remove('hidden');show('gateMessage','Admin session locked.','success')};
+$('refreshPartners').onclick=()=>loadPartners().catch(e=>show('queueMessage',e.message,'error'));$('refreshQueue').onclick=()=>loadQueue().catch(e=>show('queueMessage',e.message,'error'));
+
+</script></body></html>
