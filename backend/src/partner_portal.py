@@ -21,6 +21,7 @@ DB_PATH = Path(__file__).resolve().parents[2] / "nexusai.db"
 SESSION_TTL = 12 * 60 * 60
 INVITE_TTL = 24 * 60 * 60
 RATE = {}
+REGISTER_RATE = {}
 
 
 def _postgres():
@@ -169,6 +170,17 @@ class PartnerLogin(BaseModel):
     password: str = Field(..., min_length=1, max_length=128)
 
 
+class RegisterPartner(BaseModel):
+    email: str = Field(..., min_length=5, max_length=200)
+    full_name: str = Field(..., min_length=2, max_length=160)
+    company_name: str = Field(..., min_length=2, max_length=200)
+    password: str = Field(..., min_length=12, max_length=128)
+
+
+class PartnerStatus(BaseModel):
+    status: str = Field(..., min_length=6, max_length=10)
+
+
 class InvitePartner(BaseModel):
     email: str = Field(..., min_length=5, max_length=200)
     full_name: str = Field(..., min_length=2, max_length=160)
@@ -206,6 +218,35 @@ async def accept_invitation(payload: AcceptInvite):
     return {"authenticated": True, "access_token": token, "token_type": "bearer", "expires_in": SESSION_TTL}
 
 
+@router.post("/register")
+async def partner_register(payload: RegisterPartner, request: Request):
+    """Create a pending account; an administrator must approve it before sign-in."""
+    email = payload.email.strip().lower()
+    full_name = payload.full_name.strip()
+    company_name = payload.company_name.strip()
+    if not re_full_email(email):
+        raise HTTPException(400, "Enter a valid email address.")
+    if not full_name or not company_name:
+        raise HTTPException(400, "Enter your full name and company name.")
+    host = request.client.host if request.client else "unknown"
+    now = time.time()
+    attempts = [t for t in REGISTER_RATE.get(host, []) if now - t < 1800]
+    if len(attempts) >= 5:
+        raise HTTPException(429, "Too many registration attempts. Please try again later.")
+    attempts.append(now)
+    REGISTER_RATE[host] = attempts
+    partner_id = "partner_" + uuid.uuid4().hex[:16]
+    with _db() as conn:
+        exists = _sql(conn, "SELECT 1 FROM nexusai_partner_accounts WHERE lower(email)=%s", (email,)).fetchone()
+        if exists:
+            raise HTTPException(409, "An account already exists for this email. Sign in or contact NexusAI for help.")
+        _sql(conn, """INSERT INTO nexusai_partner_accounts
+            (partner_id,email,full_name,company_name,password_hash,status,created_at)
+            VALUES(%s,%s,%s,%s,%s,'PENDING',%s)""",
+            (partner_id, email, full_name, company_name, _password_hash(payload.password), now))
+    return {"registered": True, "status": "PENDING",
+            "message": "Your registration has been received. NexusAI must approve your account before you can sign in."}
+
 @router.post("/login")
 async def partner_login(payload: PartnerLogin, request: Request):
     email = payload.email.strip().lower()
@@ -218,8 +259,12 @@ async def partner_login(payload: PartnerLogin, request: Request):
     RATE[host] = attempts
     with _db() as conn:
         row = _sql(conn, "SELECT partner_id,password_hash,status FROM nexusai_partner_accounts WHERE lower(email)=%s", (email,)).fetchone()
-        if not row or row[2] != "ACTIVE" or not row[1] or not _check_password(payload.password, row[1]):
-            raise HTTPException(401, "Email or password is incorrect, or the account is not active.")
+        if not row or not row[1] or not _check_password(payload.password, row[1]):
+            raise HTTPException(401, "Email or password is incorrect.")
+        if row[2] == "PENDING":
+            raise HTTPException(403, "Your registration is awaiting NexusAI approval. You can sign in once it is approved.")
+        if row[2] != "ACTIVE":
+            raise HTTPException(403, "This partner account is not active. Please contact NexusAI.")
         token = _issue_session(conn, row[0])
     return {"authenticated": True, "access_token": token, "token_type": "bearer", "expires_in": SESSION_TTL}
 
@@ -314,6 +359,24 @@ async def admin_list_partners(x_nexusai_admin_key: str | None = Header(default=N
             GROUP BY a.partner_id ORDER BY a.created_at DESC""").fetchall()
     return {"partners": [dict(zip(["partner_id","email","full_name","company_name","status","created_at","verified_cameras"],r)) for r in rows]}
 
+
+@admin_router.post("/{partner_id}/status")
+async def admin_update_partner_status(partner_id: str, payload: PartnerStatus,
+                                      x_nexusai_admin_key: str | None = Header(default=None)):
+    _admin(x_nexusai_admin_key)
+    normalized = payload.status.strip().upper()
+    if normalized not in {"ACTIVE", "SUSPENDED"}:
+        raise HTTPException(400, "Status must be ACTIVE or SUSPENDED.")
+    with _db() as conn:
+        cur = _sql(conn, """UPDATE nexusai_partner_accounts SET status=%s
+            WHERE partner_id=%s AND status IN ('PENDING','ACTIVE','SUSPENDED')""",
+            (normalized, partner_id))
+        if cur.rowcount != 1:
+            raise HTTPException(404, "Partner account not found or cannot be updated.")
+        if normalized == "SUSPENDED":
+            _sql(conn, """UPDATE nexusai_partner_sessions SET revoked_at=%s
+                WHERE partner_id=%s AND revoked_at IS NULL""", (time.time(), partner_id))
+    return {"updated": True, "partner_id": partner_id, "status": normalized}
 
 @admin_router.get("/deployments")
 async def admin_list_deployments(status: str = "PENDING", x_nexusai_admin_key: str | None = Header(default=None)):
