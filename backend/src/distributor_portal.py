@@ -368,10 +368,13 @@ async def admin_review_referral(referral_id: str, payload: ReferralReview,
             raise HTTPException(404, "Referral not found.")
         if row[1] == "CONVERTED":
             raise HTTPException(409, "A converted referral cannot be reviewed again. Use the reward payment workflow.")
-        _sql(conn, """UPDATE nexusai_distributor_referrals SET status=%s,verified_cameras=%s,
-            reward_amount_rands=%s,reviewed_at=%s,reviewed_by='NEXUSAI_ADMIN' WHERE referral_id=%s""",
+        updated = _sql(conn, """UPDATE nexusai_distributor_referrals SET status=%s,verified_cameras=%s,
+            reward_amount_rands=%s,reviewed_at=%s,reviewed_by='NEXUSAI_ADMIN'
+            WHERE referral_id=%s AND status <> 'CONVERTED'""",
             (status, payload.verified_cameras if status == "CONVERTED" else 0,
              payload.reward_amount_rands if status == "CONVERTED" else None, now, referral_id))
+        if updated.rowcount != 1:
+            raise HTTPException(409, "This referral has already been converted or reviewed concurrently.")
         if status == "CONVERTED":
             reward_id = "drew_" + uuid.uuid4().hex[:16]
             _sql(conn, """INSERT INTO nexusai_distributor_rewards
