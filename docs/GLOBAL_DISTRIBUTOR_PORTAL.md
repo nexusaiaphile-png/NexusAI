@@ -38,7 +38,7 @@ The schema is initialized by the existing FastAPI startup path and supports the 
 
 Referral lifecycle: `SUBMITTED → CONTACTED → QUALIFIED → CONVERTED` (or `REJECTED`).
 
-Only an administrator can mark a referral `CONVERTED`. Conversion requires at least one verified camera and an explicit total reward amount. This creates a pending reward record. The administrator records a payment reference before the ledger becomes `PAID`. The portal does not promise a fixed distributor rate, calculate a reward from raw leads, or auto-pay funds. The amount and qualifying milestone must be agreed in signed written terms before a distributor is eligible.
+Only an administrator can mark a referral `CONVERTED`. Conversion requires at least one verified camera and an explicit total reward amount. This creates a pending reward record. The administrator must record the signed distributor agreement version and a secure document reference before activating an account. Conversion is available only after the referral reaches `QUALIFIED`, and the administrator records the verified camera count and approved reward amount. A reward cannot be marked `PAID` unless an agreement record exists and a payment reference is supplied. The portal does not promise a fixed distributor rate, calculate a reward from raw leads, or auto-pay funds. The amount and qualifying milestone must be agreed in signed written terms before a distributor is eligible.
 
 The installer must agree to be introduced before a distributor submits personal business contact information. Duplicate contact email submissions are rejected across the distributor referral pool. Each distributor API session can read only that distributor's own records.
 
