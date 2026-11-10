@@ -183,7 +183,7 @@ class DistributorStatus(BaseModel):
 class ReferralReview(BaseModel):
     status: str = Field(..., min_length=7, max_length=10)
     verified_cameras: int = Field(default=0, ge=0, le=1000000)
-    reward_amount_rands: float | None = Field(default=None, ge=0, le=100000000)
+    reward_amount_rands: float | None = Field(default=None, gt=0, le=100000000)
 
 
 class RewardPayment(BaseModel):
