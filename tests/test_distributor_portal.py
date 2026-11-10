@@ -93,6 +93,24 @@ def test_distributor_referrals_are_isolated_and_rewards_require_conversion(clien
     assert len(dashboard["referrals"]) == 1
     assert dashboard["rewards"] == []
 
+    register(client, email="second-channel@example.com")
+    second_rows = client.get("/api/admin/distributors", headers=admin_headers()).json()["distributors"]
+    second_id = next(row["distributor_id"] for row in second_rows if row["email"] == "second-channel@example.com")
+    second_approval = client.post(
+        f"/api/admin/distributors/{second_id}/status",
+        headers=admin_headers(),
+        json={"status": "ACTIVE", "agreement_version": "2026-11-v1",
+              "agreement_reference": "SIGNED-AGREEMENT-SECOND"},
+    )
+    assert second_approval.status_code == 200
+    second_login = client.post("/api/distributors/login", json={
+        "email": "second-channel@example.com", "password": "a-secure-password-123"
+    })
+    second_headers = {"Authorization": f"Bearer {second_login.json()['access_token']}"}
+    second_dashboard = client.get("/api/distributors/me", headers=second_headers).json()
+    assert second_dashboard["referrals"] == []
+    assert second_dashboard["rewards"] == []
+
     premature = client.post(
         f"/api/admin/distributors/referrals/{referral_id}/review",
         headers=admin_headers(),
