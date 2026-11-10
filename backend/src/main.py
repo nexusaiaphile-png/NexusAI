@@ -1203,6 +1203,17 @@ async def public_home():
     return RedirectResponse(url="/admin", status_code=307)
 
 
+@app.get("/distributors", include_in_schema=False)
+@app.get("/distributors/", include_in_schema=False)
+async def global_distributor_portal():
+    return FileResponse(PORTAL_DIR / "distributors" / "index.html", media_type="text/html")
+
+
+@app.get("/distributors/admin", include_in_schema=False)
+async def global_distributor_admin():
+    return FileResponse(PORTAL_DIR / "distributors" / "admin.html", media_type="text/html")
+
+
 @app.get("/about", include_in_schema=False)
 async def public_about():
     return FileResponse(PORTAL_DIR / "about.html")
