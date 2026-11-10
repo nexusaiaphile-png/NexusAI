@@ -87,6 +87,7 @@ def init_distributor_db():
             _sql(conn, statement)
         _sql(conn, "CREATE INDEX IF NOT EXISTS idx_distributor_referrals_owner ON nexusai_distributor_referrals(distributor_id, created_at)")
         _sql(conn, "CREATE INDEX IF NOT EXISTS idx_distributor_rewards_owner ON nexusai_distributor_rewards(distributor_id, created_at)")
+        _sql(conn, """CREATE UNIQUE INDEX IF NOT EXISTS idx_distributor_referral_contact_active ON nexusai_distributor_referrals(LOWER(contact_email)) WHERE status <> 'REJECTED'""")
 
 
 def _hash(value: str) -> str:
