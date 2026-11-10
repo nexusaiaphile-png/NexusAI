@@ -73,6 +73,15 @@ def test_distributor_referrals_are_isolated_and_rewards_require_conversion(clien
     assert referral.status_code == 200
     referral_id = referral.json()["referral_id"]
 
+    duplicate = client.post("/api/distributors/referrals", headers=headers, json={
+        "installer_company": "Duplicate Installer Record",
+        "contact_name": "Installer Contact",
+        "contact_email": "installer@example.com",
+        "country": "South Africa",
+        "confirms_permission": True,
+    })
+    assert duplicate.status_code == 409
+
     dashboard = client.get("/api/distributors/me", headers=headers).json()
     assert len(dashboard["referrals"]) == 1
     assert dashboard["rewards"] == []
@@ -83,6 +92,12 @@ def test_distributor_referrals_are_isolated_and_rewards_require_conversion(clien
         json={"status": "CONVERTED", "verified_cameras": 6, "reward_amount_rands": 900},
     )
     assert converted.status_code == 200
+    closed_review = client.post(
+        f"/api/admin/distributors/referrals/{referral_id}/review",
+        headers=admin_headers(),
+        json={"status": "CONVERTED", "verified_cameras": 6, "reward_amount_rands": 900},
+    )
+    assert closed_review.status_code == 409
     dashboard = client.get("/api/distributors/me", headers=headers).json()
     assert dashboard["summary"]["verified_cameras"] == 6
     assert dashboard["summary"]["rewards_pending_rands"] == 900.0
