@@ -47,10 +47,17 @@ def test_distributor_referrals_are_isolated_and_rewards_require_conversion(clien
     register(client)
     accounts = client.get("/api/admin/distributors", headers=admin_headers()).json()["distributors"]
     distributor_id = accounts[0]["distributor_id"]
-    approved = client.post(
+    blocked = client.post(
         f"/api/admin/distributors/{distributor_id}/status",
         headers=admin_headers(),
         json={"status": "ACTIVE"},
+    )
+    assert blocked.status_code == 400
+    approved = client.post(
+        f"/api/admin/distributors/{distributor_id}/status",
+        headers=admin_headers(),
+        json={"status": "ACTIVE", "agreement_version": "2026-11-v1",
+              "agreement_reference": "SIGNED-AGREEMENT-001"},
     )
     assert approved.status_code == 200
 
@@ -118,8 +125,10 @@ def test_referral_requires_contact_permission_and_admin_key(client):
     register(client)
     rows = client.get("/api/admin/distributors", headers=admin_headers()).json()["distributors"]
     distributor_id = rows[0]["distributor_id"]
-    client.post(f"/api/admin/distributors/{distributor_id}/status",
-                headers=admin_headers(), json={"status": "ACTIVE"})
+    approved = client.post(f"/api/admin/distributors/{distributor_id}/status",
+                headers=admin_headers(), json={"status": "ACTIVE", "agreement_version": "2026-11-v1",
+                                                "agreement_reference": "SIGNED-AGREEMENT-002"})
+    assert approved.status_code == 200
     login = client.post("/api/distributors/login", json={
         "email": "channel@example.com", "password": "a-secure-password-123"
     })
