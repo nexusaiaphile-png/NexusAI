@@ -82,6 +82,11 @@ def init_distributor_db():
                 distributor_id TEXT NOT NULL, amount_rands NUMERIC NOT NULL,
                 status TEXT NOT NULL DEFAULT 'PENDING', created_at DOUBLE PRECISION NOT NULL,
                 paid_at DOUBLE PRECISION, payment_reference TEXT)""",
+            """CREATE TABLE IF NOT EXISTS nexusai_distributor_agreements (
+                agreement_id TEXT PRIMARY KEY, distributor_id TEXT NOT NULL,
+                agreement_version TEXT NOT NULL, signed_reference TEXT NOT NULL,
+                recorded_at DOUBLE PRECISION NOT NULL, recorded_by TEXT NOT NULL,
+                UNIQUE(distributor_id, agreement_version))""",
         ]
         for statement in statements:
             _sql(conn, statement)
@@ -179,6 +184,8 @@ class InstallerReferral(BaseModel):
 
 class DistributorStatus(BaseModel):
     status: str = Field(..., min_length=6, max_length=10)
+    agreement_version: str | None = Field(default=None, min_length=2, max_length=40)
+    agreement_reference: str | None = Field(default=None, min_length=2, max_length=200)
 
 
 class ReferralReview(BaseModel):
@@ -313,11 +320,21 @@ async def admin_distributor_status(distributor_id: str, payload: DistributorStat
     status = payload.status.strip().upper()
     if status not in {"ACTIVE", "SUSPENDED"}:
         raise HTTPException(400, "Status must be ACTIVE or SUSPENDED.")
+    if status == "ACTIVE" and (not payload.agreement_version or not payload.agreement_reference):
+        raise HTTPException(400, "Record the signed distributor agreement version and reference before activation.")
     with _db() as conn:
         cur = _sql(conn, """UPDATE nexusai_distributor_accounts SET status=%s
             WHERE distributor_id=%s AND status IN ('PENDING','ACTIVE','SUSPENDED')""", (status, distributor_id))
         if cur.rowcount != 1:
             raise HTTPException(404, "Distributor account not found.")
+        if status == "ACTIVE":
+            _sql(conn, """INSERT INTO nexusai_distributor_agreements
+                (agreement_id,distributor_id,agreement_version,signed_reference,recorded_at,recorded_by)
+                VALUES(%s,%s,%s,%s,%s,'NEXUSAI_ADMIN')
+                ON CONFLICT(distributor_id,agreement_version) DO UPDATE SET
+                signed_reference=excluded.signed_reference,recorded_at=excluded.recorded_at,recorded_by=excluded.recorded_by""",
+                ("dagr_" + uuid.uuid4().hex[:16], distributor_id, payload.agreement_version.strip(),
+                 payload.agreement_reference.strip(), time.time()))
         if status == "SUSPENDED":
             _sql(conn, "UPDATE nexusai_distributor_sessions SET revoked_at=%s WHERE distributor_id=%s AND revoked_at IS NULL",
                  (time.time(), distributor_id))
@@ -413,6 +430,11 @@ async def admin_mark_reward_paid(reward_id: str, payload: RewardPayment,
                                  x_nexusai_admin_key: str | None = Header(default=None)):
     _admin(x_nexusai_admin_key)
     with _db() as conn:
+        agreement = _sql(conn, """SELECT 1 FROM nexusai_distributor_agreements a
+            JOIN nexusai_distributor_rewards r ON r.distributor_id=a.distributor_id
+            WHERE r.reward_id=%s LIMIT 1""", (reward_id,)).fetchone()
+        if not agreement:
+            raise HTTPException(409, "A recorded signed distributor agreement is required before payment.")
         cur = _sql(conn, """UPDATE nexusai_distributor_rewards SET status='PAID',paid_at=%s,payment_reference=%s
             WHERE reward_id=%s AND status='PENDING'""", (time.time(), payload.payment_reference.strip(), reward_id))
         if cur.rowcount != 1:
