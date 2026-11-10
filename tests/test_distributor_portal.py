@@ -93,6 +93,22 @@ def test_distributor_referrals_are_isolated_and_rewards_require_conversion(clien
     assert len(dashboard["referrals"]) == 1
     assert dashboard["rewards"] == []
 
+    premature = client.post(
+        f"/api/admin/distributors/referrals/{referral_id}/review",
+        headers=admin_headers(),
+        json={"status": "CONVERTED", "verified_cameras": 6, "reward_amount_rands": 900},
+    )
+    assert premature.status_code == 409
+    contacted = client.post(
+        f"/api/admin/distributors/referrals/{referral_id}/review",
+        headers=admin_headers(), json={"status": "CONTACTED"},
+    )
+    assert contacted.status_code == 200
+    qualified = client.post(
+        f"/api/admin/distributors/referrals/{referral_id}/review",
+        headers=admin_headers(), json={"status": "QUALIFIED"},
+    )
+    assert qualified.status_code == 200
     converted = client.post(
         f"/api/admin/distributors/referrals/{referral_id}/review",
         headers=admin_headers(),
