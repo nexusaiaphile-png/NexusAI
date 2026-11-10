@@ -320,7 +320,10 @@ async def admin_distributor_status(distributor_id: str, payload: DistributorStat
     status = payload.status.strip().upper()
     if status not in {"ACTIVE", "SUSPENDED"}:
         raise HTTPException(400, "Status must be ACTIVE or SUSPENDED.")
-    if status == "ACTIVE" and (not payload.agreement_version or not payload.agreement_reference):
+    if status == "ACTIVE" and (
+        not payload.agreement_version or not payload.agreement_version.strip()
+        or not payload.agreement_reference or not payload.agreement_reference.strip()
+    ):
         raise HTTPException(400, "Record the signed distributor agreement version and reference before activation.")
     with _db() as conn:
         cur = _sql(conn, """UPDATE nexusai_distributor_accounts SET status=%s
@@ -431,6 +434,9 @@ async def admin_list_distributor_rewards(status: str = "ALL",
 async def admin_mark_reward_paid(reward_id: str, payload: RewardPayment,
                                  x_nexusai_admin_key: str | None = Header(default=None)):
     _admin(x_nexusai_admin_key)
+    payment_reference = payload.payment_reference.strip()
+    if len(payment_reference) < 2:
+        raise HTTPException(400, "Enter a valid payment reference.")
     with _db() as conn:
         agreement = _sql(conn, """SELECT 1 FROM nexusai_distributor_agreements a
             JOIN nexusai_distributor_rewards r ON r.distributor_id=a.distributor_id
@@ -438,7 +444,7 @@ async def admin_mark_reward_paid(reward_id: str, payload: RewardPayment,
         if not agreement:
             raise HTTPException(409, "A recorded signed distributor agreement is required before payment.")
         cur = _sql(conn, """UPDATE nexusai_distributor_rewards SET status='PAID',paid_at=%s,payment_reference=%s
-            WHERE reward_id=%s AND status='PENDING'""", (time.time(), payload.payment_reference.strip(), reward_id))
+            WHERE reward_id=%s AND status='PENDING'""", (time.time(), payment_reference, reward_id))
         if cur.rowcount != 1:
             raise HTTPException(404, "Pending reward not found.")
     return {"paid": True, "reward_id": reward_id}
