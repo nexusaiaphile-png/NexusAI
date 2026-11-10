@@ -53,6 +53,13 @@ def test_distributor_referrals_are_isolated_and_rewards_require_conversion(clien
         json={"status": "ACTIVE"},
     )
     assert blocked.status_code == 400
+    blank_agreement = client.post(
+        f"/api/admin/distributors/{distributor_id}/status",
+        headers=admin_headers(),
+        json={"status": "ACTIVE", "agreement_version": "  ",
+              "agreement_reference": "  "},
+    )
+    assert blank_agreement.status_code == 400
     approved = client.post(
         f"/api/admin/distributors/{distributor_id}/status",
         headers=admin_headers(),
@@ -144,6 +151,12 @@ def test_distributor_referrals_are_isolated_and_rewards_require_conversion(clien
     assert dashboard["summary"]["rewards_pending_rands"] == 900.0
 
     reward_id = dashboard["rewards"][0]["reward_id"]
+    blank_payment = client.post(
+        f"/api/admin/distributors/rewards/{reward_id}/pay",
+        headers=admin_headers(),
+        json={"payment_reference": "  "},
+    )
+    assert blank_payment.status_code == 400
     paid = client.post(
         f"/api/admin/distributors/rewards/{reward_id}/pay",
         headers=admin_headers(),
