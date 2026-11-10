@@ -385,6 +385,8 @@ async def admin_review_referral(referral_id: str, payload: ReferralReview,
             raise HTTPException(404, "Referral not found.")
         if row[1] in {"CONVERTED", "REJECTED"}:
             raise HTTPException(409, "This referral is closed and cannot be reviewed again.")
+        if status == "CONVERTED" and row[1] != "QUALIFIED":
+            raise HTTPException(409, "A referral must be marked QUALIFIED before it can be converted.")
         updated = _sql(conn, """UPDATE nexusai_distributor_referrals SET status=%s,verified_cameras=%s,
             reward_amount_rands=%s,reviewed_at=%s,reviewed_by='NEXUSAI_ADMIN'
             WHERE referral_id=%s AND status NOT IN ('CONVERTED','REJECTED')""",
