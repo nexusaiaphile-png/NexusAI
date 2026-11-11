@@ -10,7 +10,7 @@
 </div>
 <dialog id="agreementDialog">
   <h2>Record signed distributor agreement</h2>
-  <p>Enter the version and secure storage reference for the agreement signed by both parties. Do not enter a placeholder or an unsigned document.</p>
+  <p>This is separate from account approval. Record the signed agreement here when both parties have completed it. A recorded agreement is required before commission payments can be marked paid.</p>
   <label for="agreementVersion">Agreement version</label>
   <input id="agreementVersion" minlength="2" maxlength="40" placeholder="e.g. 2026-11-v1" required>
   <label for="agreementReference">Secure document reference</label>
@@ -18,7 +18,7 @@
   <div id="agreementError" class="msg err" hidden></div>
   <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
     <button type="button" class="alt" id="cancelAgreement">Cancel</button>
-    <button type="button" id="saveAgreement">Record agreement & approve</button>
+    <button type="button" id="saveAgreement">Save agreement</button>
   </div>
 </dialog>
 </main><script>
@@ -34,28 +34,18 @@ $("rewards").innerHTML=w.rewards.map(x=>'<tr><td>'+esc(x.company_name)+'<br>'+es
 $("workspace").hidden=false}
 let pendingDistributorId="";
 window.setStatus=async(id,status)=>{
-  if(status==="ACTIVE"){
-    pendingDistributorId=id;
-    $("agreementVersion").value="";
-    $("agreementReference").value="";
-    $("agreementError").hidden=true;
-    $("agreementDialog").showModal();
-    return;
-  }
-  try{await call("/api/admin/distributors/"+encodeURIComponent(id)+"/status","POST",{status});await refresh();msg("Distributor account updated.")}catch(e){msg(e.message,true)}
+  try{await call("/api/admin/distributors/"+encodeURIComponent(id)+"/status","POST",{status});await refresh();msg(status==="ACTIVE"?"Distributor account approved.":"Distributor account updated.")}
+  catch(e){msg(e.message,true)}
 };
+window.recordAgreement=id=>{pendingDistributorId=id;$("agreementVersion").value="";$("agreementReference").value="";$("agreementError").hidden=true;$("agreementDialog").showModal()};
 $("cancelAgreement").onclick=()=>{$("agreementDialog").close();pendingDistributorId=""};
 $("saveAgreement").onclick=async()=>{
-  const version=$("agreementVersion").value.trim();
-  const reference=$("agreementReference").value.trim();
-  const error=$("agreementError");
-  if(version.length<2||reference.length<2){error.textContent="Enter both the agreement version and the actual secure document reference.";error.hidden=false;return}
-  const button=$("saveAgreement");button.disabled=true;button.textContent="Saving…";error.hidden=true;
-  try{
-    await call("/api/admin/distributors/"+encodeURIComponent(pendingDistributorId)+"/status","POST",{status:"ACTIVE",agreement_version:version,agreement_reference:reference});
-    $("agreementDialog").close();pendingDistributorId="";await refresh();msg("Distributor account approved and agreement record saved.");
-  }catch(e){error.textContent=e.message+" Your entries have been kept. Check the details and try again.";error.hidden=false}
-  finally{button.disabled=false;button.textContent="Record agreement & approve"}
+  const version=$("agreementVersion").value.trim();const reference=$("agreementReference").value.trim();const error=$("agreementError");
+  if(version.length<2||reference.length<2){error.textContent="Enter the agreement version and secure document reference for the signed agreement.";error.hidden=false;return}
+  const button=$("saveAgreement");button.disabled=true;button.textContent="Saving...";error.hidden=true;
+  try{await call("/api/admin/distributors/"+encodeURIComponent(pendingDistributorId)+"/status","POST",{status:"ACTIVE",agreement_version:version,agreement_reference:reference});$("agreementDialog").close();pendingDistributorId="";await refresh();msg("Signed distributor agreement recorded.")}
+  catch(e){error.textContent=e.message+" Your entries have been kept. Check the details and try again.";error.hidden=false}
+  finally{button.disabled=false;button.textContent="Save agreement"}
 };
 window.review=async(id,status)=>{try{await call("/api/admin/distributors/referrals/"+encodeURIComponent(id)+"/review","POST",{status,verified_cameras:0});await refresh();msg("Referral status updated.")}catch(e){msg(e.message,true)}};
 window.convert=async id=>{const cameras=Number(prompt("Enter the number of cameras verified for this converted referral. This is tracking only; it does not confirm subscription payment or create a commission payment."));if(!Number.isInteger(cameras)||cameras<1)return;try{await call("/api/admin/distributors/referrals/"+encodeURIComponent(id)+"/review","POST",{status:"CONVERTED",verified_cameras:cameras});await refresh();msg("Referral marked converted. Monthly commission must be reconciled against active cameras and subscription payments received.")}catch(e){msg(e.message,true)}};
