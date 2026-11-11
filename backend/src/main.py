@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, RedirectResponse, PlainTextResponse,
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr
 from backend.src.partner_portal import router as partner_portal_router, admin_router as partner_admin_router, init_partner_db
+from backend.src.distributor_portal import router as distributor_portal_router, admin_router as distributor_admin_router, init_distributor_db
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 PORTAL_DIR = BASE_DIR / "portal"
@@ -49,6 +50,8 @@ app = FastAPI(
 
 app.include_router(partner_portal_router)
 app.include_router(partner_admin_router)
+app.include_router(distributor_portal_router)
+app.include_router(distributor_admin_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,7 +68,7 @@ async def nexusai_security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    if request.url.path.startswith(("/api/partners", "/api/admin/partners")):
+    if request.url.path.startswith(("/api/partners", "/api/admin/partners", "/api/distributors", "/api/admin/distributors")):
         response.headers["Cache-Control"] = "no-store"
         response.headers["Pragma"] = "no-cache"
     if request.url.scheme == "https":
@@ -368,6 +371,7 @@ def init_db():
 def startup():
     init_db()
     init_partner_db()
+    init_distributor_db()
     if database_url():
         import psycopg
         with psycopg.connect(database_url()) as conn:
@@ -1197,6 +1201,17 @@ def require_edge_token(token: str | None, authorization: str | None = None, site
 async def public_home():
     # The public domain is the NexusAI Remote Security Command Centre.
     return RedirectResponse(url="/admin", status_code=307)
+
+
+@app.get("/distributors", include_in_schema=False)
+@app.get("/distributors/", include_in_schema=False)
+async def global_distributor_portal():
+    return FileResponse(PORTAL_DIR / "distributors" / "index.html", media_type="text/html")
+
+
+@app.get("/distributors/admin", include_in_schema=False)
+async def global_distributor_admin():
+    return FileResponse(PORTAL_DIR / "distributors" / "admin.html", media_type="text/html")
 
 
 @app.get("/about", include_in_schema=False)
