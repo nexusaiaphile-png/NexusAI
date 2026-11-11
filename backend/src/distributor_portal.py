@@ -116,10 +116,38 @@ def _check_password(password: str, encoded: str) -> bool:
         return False
 
 
-def _admin(key: str | None):
-    expected = os.getenv("NEXUSAI_ADMIN_KEY", "").strip()
-    if not expected or not key or not hmac.compare_digest(key.strip(), expected):
-        raise HTTPException(401, "NexusAI administrator access is required.")
+ADMIN_EMAIL = "nexusai.aphile@gmail.com"
+
+
+def _verify_google_identity_token(credential: str, client_id: str) -> dict:
+    from google.auth.transport.requests import Request as GoogleRequest
+    from google.oauth2 import id_token
+    return id_token.verify_oauth2_token(credential, GoogleRequest(), audience=client_id)
+
+
+def _admin(authorization: str | None):
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    if not client_id:
+        raise HTTPException(503, "Google administrator sign-in is not configured.")
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, "Sign in with the authorised NexusAI Google account.")
+    credential = authorization.split(" ", 1)[1].strip()
+    if not credential or len(credential) > 5000:
+        raise HTTPException(401, "Administrator sign-in is invalid. Please sign in again.")
+    try:
+        claims = _verify_google_identity_token(credential, client_id)
+    except Exception:
+        raise HTTPException(401, "Google sign-in could not be verified. Please sign in again.")
+    email = str(claims.get("email", "")).strip().lower()
+    if email != ADMIN_EMAIL or claims.get("email_verified") is not True:
+        raise HTTPException(403, "This Google account is not authorised to administer NexusAI.")
+
+
+@admin_router.get("/auth-config")
+async def admin_auth_config():
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    return {"configured": bool(client_id), "client_id": client_id if client_id else None,
+            "administrator_email": ADMIN_EMAIL}
 
 
 def _rate_limit(bucket: dict, host: str, limit: int, window: int):
@@ -301,8 +329,8 @@ async def logout_distributor(authorization: str | None = Header(default=None)):
 
 
 @admin_router.get("")
-async def admin_list_distributors(x_nexusai_admin_key: str | None = Header(default=None)):
-    _admin(x_nexusai_admin_key)
+async def admin_list_distributors(authorization: str | None = Header(default=None)):
+    _admin(authorization)
     with _db() as conn:
         rows = _sql(conn, """SELECT a.distributor_id,a.email,a.full_name,a.company_name,a.country,a.status,a.created_at,
             COUNT(r.referral_id) AS referrals,
@@ -315,8 +343,8 @@ async def admin_list_distributors(x_nexusai_admin_key: str | None = Header(defau
 
 @admin_router.post("/{distributor_id}/status")
 async def admin_distributor_status(distributor_id: str, payload: DistributorStatus,
-                                   x_nexusai_admin_key: str | None = Header(default=None)):
-    _admin(x_nexusai_admin_key)
+                                   authorization: str | None = Header(default=None)):
+    _admin(authorization)
     status = payload.status.strip().upper()
     if status not in {"ACTIVE", "SUSPENDED"}:
         raise HTTPException(400, "Status must be ACTIVE or SUSPENDED.")
@@ -346,8 +374,8 @@ async def admin_distributor_status(distributor_id: str, payload: DistributorStat
 
 @admin_router.get("/referrals")
 async def admin_list_distributor_referrals(status: str = "ALL",
-                                           x_nexusai_admin_key: str | None = Header(default=None)):
-    _admin(x_nexusai_admin_key)
+                                           authorization: str | None = Header(default=None)):
+    _admin(authorization)
     normalized = status.strip().upper()
     if normalized not in {"ALL", "SUBMITTED", "CONTACTED", "QUALIFIED", "CONVERTED", "REJECTED"}:
         raise HTTPException(400, "Invalid referral status.")
@@ -374,8 +402,8 @@ async def admin_list_distributor_referrals(status: str = "ALL",
 
 @admin_router.post("/referrals/{referral_id}/review")
 async def admin_review_referral(referral_id: str, payload: ReferralReview,
-                                x_nexusai_admin_key: str | None = Header(default=None)):
-    _admin(x_nexusai_admin_key)
+                                authorization: str | None = Header(default=None)):
+    _admin(authorization)
     status = payload.status.strip().upper()
     if status not in {"CONTACTED", "QUALIFIED", "CONVERTED", "REJECTED"}:
         raise HTTPException(400, "Status must be CONTACTED, QUALIFIED, CONVERTED or REJECTED.")
@@ -409,8 +437,8 @@ async def admin_review_referral(referral_id: str, payload: ReferralReview,
 
 @admin_router.get("/rewards")
 async def admin_list_distributor_rewards(status: str = "ALL",
-                                         x_nexusai_admin_key: str | None = Header(default=None)):
-    _admin(x_nexusai_admin_key)
+                                         authorization: str | None = Header(default=None)):
+    _admin(authorization)
     normalized = status.strip().upper()
     if normalized not in {"ALL", "PENDING", "PAID"}:
         raise HTTPException(400, "Status must be ALL, PENDING or PAID.")
@@ -432,8 +460,8 @@ async def admin_list_distributor_rewards(status: str = "ALL",
 
 @admin_router.post("/rewards/{reward_id}/pay")
 async def admin_mark_reward_paid(reward_id: str, payload: RewardPayment,
-                                 x_nexusai_admin_key: str | None = Header(default=None)):
-    _admin(x_nexusai_admin_key)
+                                 authorization: str | None = Header(default=None)):
+    _admin(authorization)
     payment_reference = payload.payment_reference.strip()
     if len(payment_reference) < 2:
         raise HTTPException(400, "Enter a valid payment reference.")
