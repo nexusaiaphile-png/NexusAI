@@ -400,7 +400,8 @@ def stop_worker() -> None:
     _STOP.set()
 
 
-def install(app: FastAPI, event_sink: Callable[[dict], Any] | None = None,\n            site_onboarder: Callable[[str, str, str, dict, list[str]], Any] | None = None) -> None:
+def install(app: FastAPI, event_sink: Callable[[dict], Any] | None = None,
+            site_onboarder: Callable[[str, str, str, dict, list[str]], Any] | None = None) -> None:
     @app.get("/api/hpp/status")
     async def hpp_status(x_nexusai_admin_key: str | None = Header(default=None)):
         _admin_guard(x_nexusai_admin_key)
