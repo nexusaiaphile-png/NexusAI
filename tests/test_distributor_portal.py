@@ -44,7 +44,7 @@ def test_pending_distributor_requires_approval(client):
     assert login.status_code == 403
 
 
-def test_distributor_referrals_are_isolated_and_rewards_require_conversion(client):
+def test_distributor_referrals_are_isolated_and_conversion_does_not_create_one_off_rewards(client):
     register(client)
     accounts = client.get("/api/admin/distributors", headers=admin_headers()).json()["distributors"]
     distributor_id = accounts[0]["distributor_id"]
@@ -122,7 +122,7 @@ def test_distributor_referrals_are_isolated_and_rewards_require_conversion(clien
     premature = client.post(
         f"/api/admin/distributors/referrals/{referral_id}/review",
         headers=admin_headers(),
-        json={"status": "CONVERTED", "verified_cameras": 6, "reward_amount_rands": 900},
+        json={"status": "CONVERTED", "verified_cameras": 6},
     )
     assert premature.status_code == 409
     contacted = client.post(
@@ -149,24 +149,11 @@ def test_distributor_referrals_are_isolated_and_rewards_require_conversion(clien
     assert closed_review.status_code == 409
     dashboard = client.get("/api/distributors/me", headers=headers).json()
     assert dashboard["summary"]["verified_cameras"] == 6
-    assert dashboard["summary"]["rewards_pending_rands"] == 900.0
-
-    reward_id = dashboard["rewards"][0]["reward_id"]
-    blank_payment = client.post(
-        f"/api/admin/distributors/rewards/{reward_id}/pay",
-        headers=admin_headers(),
-        json={"payment_reference": "  "},
-    )
-    assert blank_payment.status_code == 400
-    paid = client.post(
-        f"/api/admin/distributors/rewards/{reward_id}/pay",
-        headers=admin_headers(),
-        json={"payment_reference": "BANK-REF-001"},
-    )
-    assert paid.status_code == 200
-    dashboard = client.get("/api/distributors/me", headers=headers).json()
-    assert dashboard["summary"]["rewards_paid_rands"] == 900.0
+    # Camera count is for tracking only. Monthly commissions are reconciled
+    # separately against active cameras and subscription payments received.
+    assert dashboard["rewards"] == []
     assert dashboard["summary"]["rewards_pending_rands"] == 0.0
+    assert dashboard["summary"]["rewards_paid_rands"] == 0.0
 
 
 def test_referral_requires_contact_permission_and_admin_key(client):
