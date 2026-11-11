@@ -84,6 +84,7 @@ def test_distributor_referrals_are_isolated_and_conversion_does_not_create_one_o
         "relationship": "Existing distribution relationship",
         "notes": "",
         "confirms_permission": True,
+        "product_brand": "HEATGUARDAI",  # stale client input cannot switch the portal brand
     })
     assert referral.status_code == 200
     referral_id = referral.json()["referral_id"]
@@ -99,6 +100,7 @@ def test_distributor_referrals_are_isolated_and_conversion_does_not_create_one_o
 
     dashboard = client.get("/api/distributors/me", headers=headers).json()
     assert len(dashboard["referrals"]) == 1
+    assert "product_brand" not in dashboard["referrals"][0]
     assert dashboard["rewards"] == []
 
     register(client, email="second-channel@example.com")
