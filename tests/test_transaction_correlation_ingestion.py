@@ -303,3 +303,33 @@ def test_supported_pos_exception_types_are_persisted_and_flagged(
         assert row[2] is True
     else:
         assert row[2] is True
+
+
+def test_pos_integration_status_reports_configuration_and_received_events(
+    tmp_path, monkeypatch
+):
+    client = make_test_client(tmp_path, monkeypatch)
+    monkeypatch.setenv("NEXUSAI_ADMIN_KEY", "test-admin-key-only")
+    headers = {"X-NexusAI-Admin-Key": "test-admin-key-only"}
+
+    before = client.get(
+        "/api/retail/pos-integration/status", headers=headers
+    )
+    assert before.status_code == 200
+    assert before.json()["status"] == "configured_waiting_for_first_event"
+    assert before.json()["pos_ingest_token_configured"] is True
+    assert before.json()["events_received_total"] == 0
+
+    accepted = client.post(
+        ENDPOINT, json=valid_pos_event(), headers={TOKEN_HEADER: INGEST_TOKEN}
+    )
+    assert accepted.status_code == 200
+
+    after = client.get(
+        "/api/retail/pos-integration/status", headers=headers
+    )
+    assert after.status_code == 200
+    assert after.json()["status"] == "events_received"
+    assert after.json()["events_received_total"] == 1
+    assert after.json()["events_by_type"] == {"refund": 1}
+    assert "does not establish a live vendor/till connection" in after.json()["connection_note"]
