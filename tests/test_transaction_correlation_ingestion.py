@@ -262,3 +262,44 @@ def test_missing_recipient_graceful_fallback(tmp_path, monkeypatch, caplog):
         ).fetchone()[0]
     assert stored == 1
     assert "WhatsApp alert skipped: no recipient configured for site_id=store-no-recipient" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "exception_type",
+    [
+        "refund", "return", "return_issued", "void", "transaction_void",
+        "line_item_cancelled", "no_sale", "drawer_open",
+        "manager_override", "manual_discount",
+    ],
+)
+def test_supported_pos_exception_types_are_persisted_and_flagged(
+    tmp_path, monkeypatch, exception_type
+):
+    client = make_test_client(tmp_path, monkeypatch)
+    payload = valid_pos_event(
+        exception_type=exception_type,
+        source_event_id=f"event-{exception_type}",
+    )
+    response = client.post(
+        ENDPOINT, json=payload, headers={TOKEN_HEADER: INGEST_TOKEN}
+    )
+
+    assert response.status_code == 200
+    with correlation._connect() as conn:
+        row = correlation._execute(
+            conn,
+            """SELECT exception_type, amount, flagged_for_review
+               FROM nexusai_pos_exceptions
+               WHERE site_id=? AND source_event_id=?""",
+            (payload["site_id"], payload["source_event_id"]),
+        ).fetchone()
+
+    assert row is not None
+    assert row[0] == exception_type
+    assert float(row[1]) == 125.50
+    if exception_type == "drawer_open":
+        # Drawer-open is only automatically flagged when no active transaction
+        # is reported; the fixture omits that state, so it is flagged.
+        assert row[2] is True
+    else:
+        assert row[2] is True
