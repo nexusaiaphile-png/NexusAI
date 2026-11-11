@@ -119,6 +119,12 @@ def _check_password(password: str, encoded: str) -> bool:
 ADMIN_EMAIL = "nexusai.aphile@gmail.com"
 
 
+def _verify_google_identity_token(credential: str, client_id: str) -> dict:
+    from google.auth.transport.requests import Request as GoogleRequest
+    from google.oauth2 import id_token
+    return id_token.verify_oauth2_token(credential, GoogleRequest(), audience=client_id)
+
+
 def _admin(authorization: str | None):
     client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
     if not client_id:
@@ -129,9 +135,7 @@ def _admin(authorization: str | None):
     if not credential or len(credential) > 5000:
         raise HTTPException(401, "Administrator sign-in is invalid. Please sign in again.")
     try:
-        from google.auth.transport.requests import Request as GoogleRequest
-        from google.oauth2 import id_token
-        claims = id_token.verify_oauth2_token(credential, GoogleRequest(), audience=client_id)
+        claims = _verify_google_identity_token(credential, client_id)
     except Exception:
         raise HTTPException(401, "Google sign-in could not be verified. Please sign in again.")
     email = str(claims.get("email", "")).strip().lower()
