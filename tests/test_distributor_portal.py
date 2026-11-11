@@ -48,26 +48,32 @@ def test_distributor_referrals_are_isolated_and_conversion_does_not_create_one_o
     register(client)
     accounts = client.get("/api/admin/distributors", headers=admin_headers()).json()["distributors"]
     distributor_id = accounts[0]["distributor_id"]
-    blocked = client.post(
+    approved = client.post(
         f"/api/admin/distributors/{distributor_id}/status",
         headers=admin_headers(),
         json={"status": "ACTIVE"},
     )
-    assert blocked.status_code == 400
-    blank_agreement = client.post(
+    assert approved.status_code == 200
+    with distributors._db() as conn:
+        agreement_count = conn.execute(
+            "SELECT COUNT(*) FROM nexusai_distributor_agreements WHERE distributor_id=?",
+            (distributor_id,),
+        ).fetchone()[0]
+    assert agreement_count == 0
+
+    incomplete_agreement = client.post(
         f"/api/admin/distributors/{distributor_id}/status",
         headers=admin_headers(),
-        json={"status": "ACTIVE", "agreement_version": "  ",
-              "agreement_reference": "  "},
+        json={"status": "ACTIVE", "agreement_version": "2026-11-v1"},
     )
-    assert blank_agreement.status_code == 400
-    approved = client.post(
+    assert incomplete_agreement.status_code == 400
+    recorded = client.post(
         f"/api/admin/distributors/{distributor_id}/status",
         headers=admin_headers(),
         json={"status": "ACTIVE", "agreement_version": "2026-11-v1",
               "agreement_reference": "SIGNED-AGREEMENT-001"},
     )
-    assert approved.status_code == 200
+    assert recorded.status_code == 200
 
     login = client.post("/api/distributors/login", json={
         "email": "channel@example.com", "password": "a-secure-password-123"

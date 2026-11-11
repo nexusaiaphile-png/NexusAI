@@ -354,17 +354,16 @@ async def admin_distributor_status(distributor_id: str, payload: DistributorStat
     status = payload.status.strip().upper()
     if status not in {"ACTIVE", "SUSPENDED"}:
         raise HTTPException(400, "Status must be ACTIVE or SUSPENDED.")
-    if status == "ACTIVE" and (
-        not payload.agreement_version or not payload.agreement_version.strip()
-        or not payload.agreement_reference or not payload.agreement_reference.strip()
-    ):
-        raise HTTPException(400, "Record the signed distributor agreement version and reference before activation.")
+    has_agreement_version = bool(payload.agreement_version and payload.agreement_version.strip())
+    has_agreement_reference = bool(payload.agreement_reference and payload.agreement_reference.strip())
+    if has_agreement_version != has_agreement_reference:
+        raise HTTPException(400, "Provide both the signed agreement version and secure reference, or neither.")
     with _db() as conn:
         cur = _sql(conn, """UPDATE nexusai_distributor_accounts SET status=%s
             WHERE distributor_id=%s AND status IN ('PENDING','ACTIVE','SUSPENDED')""", (status, distributor_id))
         if cur.rowcount != 1:
             raise HTTPException(404, "Distributor account not found.")
-        if status == "ACTIVE":
+        if status == "ACTIVE" and has_agreement_version and has_agreement_reference:
             _sql(conn, """INSERT INTO nexusai_distributor_agreements
                 (agreement_id,distributor_id,agreement_version,signed_reference,recorded_at,recorded_by)
                 VALUES(%s,%s,%s,%s,%s,'NEXUSAI_ADMIN')

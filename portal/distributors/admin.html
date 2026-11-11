@@ -10,7 +10,7 @@
 </div>
 <dialog id="agreementDialog">
   <h2>Record signed distributor agreement</h2>
-  <p>Enter the version and secure storage reference for the agreement signed by both parties. Do not enter a placeholder or an unsigned document.</p>
+  <p>This is separate from account approval. Record the signed agreement here when both parties have completed it. A recorded agreement is required before commission payments can be marked paid.</p>
   <label for="agreementVersion">Agreement version</label>
   <input id="agreementVersion" minlength="2" maxlength="40" placeholder="e.g. 2026-11-v1" required>
   <label for="agreementReference">Secure document reference</label>
@@ -18,7 +18,7 @@
   <div id="agreementError" class="msg err" hidden></div>
   <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
     <button type="button" class="alt" id="cancelAgreement">Cancel</button>
-    <button type="button" id="saveAgreement">Record agreement & approve</button>
+    <button type="button" id="saveAgreement">Save agreement</button>
   </div>
 </dialog>
 </main><script>
@@ -28,34 +28,24 @@ const esc=v=>String(v??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 async function call(path,method="GET",body){const r=await fetch(path,{method,headers:{"Content-Type":"application/json","Authorization":"Bearer "+adminToken},body:body?JSON.stringify(body):undefined});const d=await r.json().catch(()=>({detail:"Unexpected response"}));if(!r.ok)throw Error(d.detail||"Request failed");return d}
 function msg(t,bad=false){$("message").innerHTML='<div class="msg'+(bad?' err':'')+'">'+esc(t)+'</div>'}
 async function refresh(){const [a,r,w]=await Promise.all([call("/api/admin/distributors"),call("/api/admin/distributors/referrals"),call("/api/admin/distributors/rewards")]);
-$("accounts").innerHTML=a.distributors.map(x=>'<tr><td><b>'+esc(x.company_name)+'</b><br>'+esc(x.full_name)+'<br>'+esc(x.email)+'</td><td>'+esc(x.country)+'</td><td>'+esc(x.status)+'</td><td>'+x.referrals+'</td><td>'+x.verified_cameras+'</td><td>'+(x.status==="PENDING"?'<button onclick="setStatus(\''+esc(x.distributor_id)+'\',\'ACTIVE\')">Approve</button>':'')+(x.status==="ACTIVE"?'<button class="red" onclick="setStatus(\''+esc(x.distributor_id)+'\',\'SUSPENDED\')">Suspend</button>':'')+(x.status==="SUSPENDED"?'<button onclick="setStatus(\''+esc(x.distributor_id)+'\',\'ACTIVE\')">Reactivate</button>':'')+'</td></tr>').join("")||'<tr><td colspan="6">No distributor applications.</td></tr>';
+$("accounts").innerHTML=a.distributors.map(x=>'<tr><td><b>'+esc(x.company_name)+'</b><br>'+esc(x.full_name)+'<br>'+esc(x.email)+'</td><td>'+esc(x.country)+'</td><td>'+esc(x.status)+'</td><td>'+x.referrals+'</td><td>'+x.verified_cameras+'</td><td>'+(x.status==="PENDING"?'<button onclick="setStatus(\''+esc(x.distributor_id)+'\',\'ACTIVE\')">Approve</button>':'')+(x.status==="ACTIVE"?'<button class="alt" onclick="recordAgreement(\''+esc(x.distributor_id)+'\')">Record agreement</button><button class="red" onclick="setStatus(\''+esc(x.distributor_id)+'\',\'SUSPENDED\')">Suspend</button>':'')+(x.status==="SUSPENDED"?'<button onclick="setStatus(\''+esc(x.distributor_id)+'\',\'ACTIVE\')">Reactivate</button>':'')+'</td></tr>').join("")||'<tr><td colspan="6">No distributor applications.</td></tr>';
 $("referrals").innerHTML=r.referrals.map(x=>'<tr><td>'+esc(x.distributor_company)+'<br><span class="muted">'+esc(x.distributor_email)+'</span></td><td><b>'+esc(x.installer_company)+'</b><br>'+esc(x.contact_name)+'<br>'+esc(x.contact_email)+'<br>'+esc(x.contact_phone)+'</td><td>'+esc(x.province)+'<br>'+esc(x.country)+'</td><td>'+esc(x.relationship)+'<br>'+esc(x.notes)+'</td><td>'+esc(x.status)+'</td><td>'+(["SUBMITTED","CONTACTED","QUALIFIED"].includes(x.status)?'<button class="alt" onclick="review(\''+esc(x.referral_id)+'\',\'CONTACTED\')">Contacted</button><button class="alt" onclick="review(\''+esc(x.referral_id)+'\',\'QUALIFIED\')">Qualified</button>'+(x.status==="QUALIFIED"?'<button onclick="convert(\''+esc(x.referral_id)+'\')">Mark converted</button>':'')+'<button class="red" onclick="review(\''+esc(x.referral_id)+'\',\'REJECTED\')">Reject</button>':'—')+'</td></tr>').join("")||'<tr><td colspan="6">No referrals submitted.</td></tr>';
 $("rewards").innerHTML=w.rewards.map(x=>'<tr><td>'+esc(x.company_name)+'<br>'+esc(x.email)+'</td><td>'+esc(x.reward_id)+'<br><span class="muted">Referral '+esc(x.referral_id)+'</span></td><td>R'+Number(x.amount_rands).toFixed(2)+'</td><td>'+esc(x.status)+'</td><td>'+esc(x.payment_reference||"—")+'</td><td>'+'Legacy record — review manually'+'</td></tr>').join("")||'<tr><td colspan="6">No rewards recorded.</td></tr>';
 $("workspace").hidden=false}
 let pendingDistributorId="";
 window.setStatus=async(id,status)=>{
-  if(status==="ACTIVE"){
-    pendingDistributorId=id;
-    $("agreementVersion").value="";
-    $("agreementReference").value="";
-    $("agreementError").hidden=true;
-    $("agreementDialog").showModal();
-    return;
-  }
-  try{await call("/api/admin/distributors/"+encodeURIComponent(id)+"/status","POST",{status});await refresh();msg("Distributor account updated.")}catch(e){msg(e.message,true)}
+  try{await call("/api/admin/distributors/"+encodeURIComponent(id)+"/status","POST",{status});await refresh();msg(status==="ACTIVE"?"Distributor account approved.":"Distributor account updated.")}
+  catch(e){msg(e.message,true)}
 };
+window.recordAgreement=id=>{pendingDistributorId=id;$("agreementVersion").value="";$("agreementReference").value="";$("agreementError").hidden=true;$("agreementDialog").showModal()};
 $("cancelAgreement").onclick=()=>{$("agreementDialog").close();pendingDistributorId=""};
 $("saveAgreement").onclick=async()=>{
-  const version=$("agreementVersion").value.trim();
-  const reference=$("agreementReference").value.trim();
-  const error=$("agreementError");
-  if(version.length<2||reference.length<2){error.textContent="Enter both the agreement version and the actual secure document reference.";error.hidden=false;return}
-  const button=$("saveAgreement");button.disabled=true;button.textContent="Saving…";error.hidden=true;
-  try{
-    await call("/api/admin/distributors/"+encodeURIComponent(pendingDistributorId)+"/status","POST",{status:"ACTIVE",agreement_version:version,agreement_reference:reference});
-    $("agreementDialog").close();pendingDistributorId="";await refresh();msg("Distributor account approved and agreement record saved.");
-  }catch(e){error.textContent=e.message+" Your entries have been kept. Check the details and try again.";error.hidden=false}
-  finally{button.disabled=false;button.textContent="Record agreement & approve"}
+  const version=$("agreementVersion").value.trim();const reference=$("agreementReference").value.trim();const error=$("agreementError");
+  if(version.length<2||reference.length<2){error.textContent="Enter the agreement version and secure document reference for the signed agreement.";error.hidden=false;return}
+  const button=$("saveAgreement");button.disabled=true;button.textContent="Saving...";error.hidden=true;
+  try{await call("/api/admin/distributors/"+encodeURIComponent(pendingDistributorId)+"/status","POST",{status:"ACTIVE",agreement_version:version,agreement_reference:reference});$("agreementDialog").close();pendingDistributorId="";await refresh();msg("Signed distributor agreement recorded.")}
+  catch(e){error.textContent=e.message+" Your entries have been kept. Check the details and try again.";error.hidden=false}
+  finally{button.disabled=false;button.textContent="Save agreement"}
 };
 window.review=async(id,status)=>{try{await call("/api/admin/distributors/referrals/"+encodeURIComponent(id)+"/review","POST",{status,verified_cameras:0});await refresh();msg("Referral status updated.")}catch(e){msg(e.message,true)}};
 window.convert=async id=>{const cameras=Number(prompt("Enter the number of cameras verified for this converted referral. This is tracking only; it does not confirm subscription payment or create a commission payment."));if(!Number.isInteger(cameras)||cameras<1)return;try{await call("/api/admin/distributors/referrals/"+encodeURIComponent(id)+"/review","POST",{status:"CONVERTED",verified_cameras:cameras});await refresh();msg("Referral marked converted. Monthly commission must be reconciled against active cameras and subscription payments received.")}catch(e){msg(e.message,true)}};
