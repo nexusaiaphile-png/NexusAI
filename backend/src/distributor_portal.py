@@ -342,7 +342,7 @@ async def admin_list_distributors(authorization: str | None = Header(default=Non
             COUNT(r.referral_id) AS referrals,
             COALESCE(SUM(CASE WHEN r.status='CONVERTED' THEN r.verified_cameras ELSE 0 END),0) AS verified_cameras
             FROM nexusai_distributor_accounts a LEFT JOIN nexusai_distributor_referrals r
-            ON r.distributor_id=a.distributor_id GROUP BY a.distributor_id ORDER BY a.created_at DESC""").fetchall()
+            ON r.distributor_id=a.distributor_id AND r.product_brand='NEXUSAI' GROUP BY a.distributor_id ORDER BY a.created_at DESC""").fetchall()
     keys = ["distributor_id","email","full_name","company_name","country","status","created_at","referrals","verified_cameras"]
     return {"distributors": [dict(zip(keys, row)) for row in rows]}
 
