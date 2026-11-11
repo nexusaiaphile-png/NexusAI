@@ -398,7 +398,7 @@ async def admin_list_distributor_referrals(status: str = "ALL",
         else:
             rows = _sql(conn, """SELECT r.referral_id,r.distributor_id,a.company_name AS distributor_company,
                 a.email AS distributor_email,r.installer_company,r.contact_name,r.contact_email,r.contact_phone,
-                r.country,r.province,r.relationship,r.notes,r.status,r.verified_cameras,r.reward_amount_rands,
+                r.country,r.province,r.relationship,r.notes,r.product_brand,r.status,r.verified_cameras,r.reward_amount_rands,
                 r.created_at,r.reviewed_at FROM nexusai_distributor_referrals r
                 JOIN nexusai_distributor_accounts a ON a.distributor_id=r.distributor_id
                 WHERE r.status=%s ORDER BY r.created_at DESC LIMIT 1000""", (normalized,)).fetchall()
