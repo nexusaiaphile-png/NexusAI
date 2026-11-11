@@ -206,7 +206,6 @@ class DistributorLogin(BaseModel):
 
 
 class InstallerReferral(BaseModel):
-    product_brand: str = Field(default="NEXUSAI", pattern="^(NEXUSAI|HEATGUARDAI)$")
     installer_company: str = Field(..., min_length=2, max_length=200)
     contact_name: str = Field(..., min_length=2, max_length=160)
     contact_email: str = Field(..., min_length=5, max_length=200)
@@ -280,14 +279,14 @@ async def login_distributor(payload: DistributorLogin, request: Request):
 async def distributor_dashboard(authorization: str | None = Header(default=None)):
     distributor, _ = _current_distributor(authorization)
     with _db() as conn:
-        referrals = _sql(conn, """SELECT referral_id,product_brand,installer_company,contact_name,contact_email,country,
+        referrals = _sql(conn, """SELECT referral_id,installer_company,contact_name,contact_email,country,
             province,status,verified_cameras,reward_amount_rands,created_at,reviewed_at
-            FROM nexusai_distributor_referrals WHERE distributor_id=%s ORDER BY created_at DESC LIMIT 500""",
+            FROM nexusai_distributor_referrals WHERE distributor_id=%s AND product_brand='NEXUSAI' ORDER BY created_at DESC LIMIT 500""",
             (distributor["distributor_id"],)).fetchall()
         rewards = _sql(conn, """SELECT reward_id,referral_id,amount_rands,status,created_at,paid_at,payment_reference
             FROM nexusai_distributor_rewards WHERE distributor_id=%s ORDER BY created_at DESC LIMIT 500""",
             (distributor["distributor_id"],)).fetchall()
-    referral_keys = ["referral_id","product_brand","installer_company","contact_name","contact_email","country","province",
+    referral_keys = ["referral_id","installer_company","contact_name","contact_email","country","province",
                      "status","verified_cameras","reward_amount_rands","created_at","reviewed_at"]
     reward_keys = ["reward_id","referral_id","amount_rands","status","created_at","paid_at","payment_reference"]
     referral_data = [dict(zip(referral_keys, row)) for row in referrals]
@@ -318,11 +317,10 @@ async def submit_referral(payload: InstallerReferral, authorization: str | None 
         _sql(conn, """INSERT INTO nexusai_distributor_referrals
             (referral_id,distributor_id,installer_company,contact_name,contact_email,contact_phone,country,
              province,relationship,notes,product_brand,status,created_at)
-            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'SUBMITTED',%s)""",
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'NEXUSAI','SUBMITTED',%s)""",
             (referral_id, distributor["distributor_id"], payload.installer_company.strip(),
              payload.contact_name.strip(), email, payload.contact_phone.strip(), payload.country.strip(),
-             payload.province.strip(), payload.relationship.strip(), payload.notes.strip(),
-             payload.product_brand.strip().upper(), time.time()))
+             payload.province.strip(), payload.relationship.strip(), payload.notes.strip(), time.time()))
     return {"submitted": True, "referral_id": referral_id, "status": "SUBMITTED",
             "message": "Referral submitted for review. No reward is earned for contact details or an introduction alone."}
 
@@ -344,7 +342,7 @@ async def admin_list_distributors(authorization: str | None = Header(default=Non
             COUNT(r.referral_id) AS referrals,
             COALESCE(SUM(CASE WHEN r.status='CONVERTED' THEN r.verified_cameras ELSE 0 END),0) AS verified_cameras
             FROM nexusai_distributor_accounts a LEFT JOIN nexusai_distributor_referrals r
-            ON r.distributor_id=a.distributor_id GROUP BY a.distributor_id ORDER BY a.created_at DESC""").fetchall()
+            ON r.distributor_id=a.distributor_id AND r.product_brand='NEXUSAI' GROUP BY a.distributor_id ORDER BY a.created_at DESC""").fetchall()
     keys = ["distributor_id","email","full_name","company_name","country","status","created_at","referrals","verified_cameras"]
     return {"distributors": [dict(zip(keys, row)) for row in rows]}
 
@@ -391,19 +389,19 @@ async def admin_list_distributor_referrals(status: str = "ALL",
         if normalized == "ALL":
             rows = _sql(conn, """SELECT r.referral_id,r.distributor_id,a.company_name AS distributor_company,
                 a.email AS distributor_email,r.installer_company,r.contact_name,r.contact_email,r.contact_phone,
-                r.country,r.province,r.relationship,r.notes,r.product_brand,r.status,r.verified_cameras,r.reward_amount_rands,
+                r.country,r.province,r.relationship,r.notes,r.status,r.verified_cameras,r.reward_amount_rands,
                 r.created_at,r.reviewed_at FROM nexusai_distributor_referrals r
                 JOIN nexusai_distributor_accounts a ON a.distributor_id=r.distributor_id
-                ORDER BY r.created_at DESC LIMIT 1000""").fetchall()
+                WHERE r.product_brand='NEXUSAI' ORDER BY r.created_at DESC LIMIT 1000""").fetchall()
         else:
             rows = _sql(conn, """SELECT r.referral_id,r.distributor_id,a.company_name AS distributor_company,
                 a.email AS distributor_email,r.installer_company,r.contact_name,r.contact_email,r.contact_phone,
-                r.country,r.province,r.relationship,r.notes,r.product_brand,r.status,r.verified_cameras,r.reward_amount_rands,
+                r.country,r.province,r.relationship,r.notes,r.status,r.verified_cameras,r.reward_amount_rands,
                 r.created_at,r.reviewed_at FROM nexusai_distributor_referrals r
                 JOIN nexusai_distributor_accounts a ON a.distributor_id=r.distributor_id
-                WHERE r.status=%s ORDER BY r.created_at DESC LIMIT 1000""", (normalized,)).fetchall()
+                WHERE r.product_brand='NEXUSAI' AND r.status=%s ORDER BY r.created_at DESC LIMIT 1000""", (normalized,)).fetchall()
     keys = ["referral_id","distributor_id","distributor_company","distributor_email","installer_company","contact_name",
-            "contact_email","contact_phone","country","province","relationship","notes","product_brand","status","verified_cameras",
+            "contact_email","contact_phone","country","province","relationship","notes","status","verified_cameras",
             "reward_amount_rands","created_at","reviewed_at"]
     return {"referrals": [dict(zip(keys, row)) for row in rows]}
 
