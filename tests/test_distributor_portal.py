@@ -9,7 +9,8 @@ from backend.src import distributor_portal as distributors
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(distributors, "DB_PATH", tmp_path / "distributors.sqlite3")
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.setenv("NEXUSAI_ADMIN_KEY", "test-admin-key")
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setattr(distributors, "_verify_google_identity_token", lambda credential, client_id: {"email": "nexusai.aphile@gmail.com", "email_verified": True})
     distributors.REGISTER_RATE.clear()
     distributors.LOGIN_RATE.clear()
     distributors.init_distributor_db()
@@ -30,7 +31,7 @@ def register(client, email="channel@example.com"):
 
 
 def admin_headers():
-    return {"X-NexusAI-Admin-Key": "test-admin-key"}
+    return {"Authorization": "Bearer test-google-id-token"}
 
 
 def test_pending_distributor_requires_approval(client):
@@ -189,3 +190,23 @@ def test_referral_requires_contact_permission_and_admin_key(client):
     })
     assert response.status_code == 400
     assert client.get("/api/admin/distributors").status_code == 401
+
+
+def test_distributor_admin_requires_google_owner_identity(client, monkeypatch):
+    assert client.get("/api/admin/distributors").status_code == 401
+    monkeypatch.setattr(distributors, "_verify_google_identity_token", lambda credential, client_id: {"email": "other@example.com", "email_verified": True})
+    denied = client.get("/api/admin/distributors", headers={"Authorization": "Bearer other-google-token"})
+    assert denied.status_code == 403
+    monkeypatch.setattr(distributors, "_verify_google_identity_token", lambda credential, client_id: {"email": "nexusai.aphile@gmail.com", "email_verified": False})
+    unverified = client.get("/api/admin/distributors", headers={"Authorization": "Bearer unverified-google-token"})
+    assert unverified.status_code == 403
+
+
+def test_admin_auth_config_exposes_only_public_client_configuration(client):
+    response = client.get("/api/admin/distributors/auth-config")
+    assert response.status_code == 200
+    assert response.json() == {
+        "configured": True,
+        "client_id": "test-google-client-id",
+        "administrator_email": "nexusai.aphile@gmail.com",
+    }
