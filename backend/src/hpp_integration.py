@@ -53,6 +53,11 @@ class HppPictureRequest(BaseModel):
     file_path: str = Field(..., min_length=1, max_length=2000)
 
 
+class HppSiteConnectRequest(BaseModel):
+    hpp_site_id: str = Field(..., min_length=1, max_length=160)
+    nexusai_site_id: str = Field(..., min_length=8, max_length=100)
+
+
 def configured() -> bool:
     return all(os.getenv(k, "").strip() for k in ("HPP_APP_KEY", "HPP_SECRET_KEY"))
 
@@ -182,6 +187,29 @@ def acknowledge(batch_id: str) -> dict:
 
 def picture_url(file_path: str) -> dict:
     return call(ALARM_PICTURE_URL_PATH, {"filePath": file_path})
+
+
+def _items(payload: dict, *keys: str) -> list[dict]:
+    data = payload.get("data") or {}
+    if isinstance(data, list):
+        values = data
+    elif isinstance(data, dict):
+        values = []
+        for key in (*keys, "rows", "list", "devices", "items", "records"):
+            if isinstance(data.get(key), list):
+                values = data[key]
+                break
+    else:
+        values = []
+    return [item for item in values if isinstance(item, dict)]
+
+
+def _identifier(item: dict, *keys: str) -> str:
+    for key in keys:
+        value = item.get(key)
+        if value not in (None, ""):
+            return str(value).strip()
+    return ""
 
 
 def _xml_to_dict(raw: str) -> dict:
@@ -372,7 +400,8 @@ def stop_worker() -> None:
     _STOP.set()
 
 
-def install(app: FastAPI, event_sink: Callable[[dict], Any] | None = None) -> None:
+def install(app: FastAPI, event_sink: Callable[[dict], Any] | None = None,
+            site_onboarder: Callable[[str, str, str, dict, list[str]], Any] | None = None) -> None:
     @app.get("/api/hpp/status")
     async def hpp_status(x_nexusai_admin_key: str | None = Header(default=None)):
         _admin_guard(x_nexusai_admin_key)
@@ -384,7 +413,7 @@ def install(app: FastAPI, event_sink: Callable[[dict], Any] | None = None) -> No
             "capabilities": [
                 "site_management", "device_management", "camera_channels",
                 "alarm_subscription", "alarm_long_poll", "alarm_offset",
-                "alarm_picture_url"
+                "alarm_picture_url", "automatic_site_device_onboarding"
             ],
         }
 
@@ -411,6 +440,80 @@ def install(app: FastAPI, event_sink: Callable[[dict], Any] | None = None) -> No
             return search_sites(int(payload.get("page", 1)), int(payload.get("pageSize", 50)), str(payload.get("search", "")))
         except HppError as exc:
             raise HTTPException(status_code=502, detail=str(exc))
+
+
+    @app.post("/api/hpp/sites/connect")
+    async def hpp_site_connect(payload: HppSiteConnectRequest,
+                               x_nexusai_admin_key: str | None = Header(default=None)):
+        """Link one HPP-authorized site, auto-discover its devices/channels, map and subscribe them."""
+        _admin_guard(x_nexusai_admin_key)
+        if not configured():
+            raise HTTPException(status_code=503, detail="HPP credentials are not configured.")
+        if site_onboarder is None:
+            raise HTTPException(status_code=503, detail="NexusAI site onboarding callback is unavailable.")
+        try:
+            wanted_id = payload.hpp_site_id.strip()
+            matching_site = None
+            for page in range(1, 101):
+                sites_payload = search_sites(page=page, page_size=100)
+                site_rows = _items(sites_payload, "rows", "sites", "list")
+                for item in site_rows:
+                    candidate_id = _identifier(item, "siteId", "id", "site_id")
+                    if candidate_id == wanted_id:
+                        matching_site = item
+                        break
+                if matching_site or len(site_rows) < 100:
+                    break
+            if matching_site is None:
+                raise HTTPException(status_code=404, detail="That HPP site is not present in the currently authorised HPP account.")
+
+            devices: list[dict] = []
+            seen_serials: set[str] = set()
+            for page in range(1, 101):
+                device_payload = list_devices(site_id=wanted_id, page=page, page_size=100)
+                rows = _items(device_payload, "rows", "devices", "list")
+                for device in rows:
+                    serial = _identifier(device, "deviceSerial", "serialNumber", "serial", "deviceSn", "sn")
+                    if serial and serial not in seen_serials:
+                        seen_serials.add(serial)
+                        devices.append(device)
+                if len(rows) < 100:
+                    break
+            serials = sorted(seen_serials)
+            if not serials:
+                raise HTTPException(status_code=409, detail="The authorised HPP site has no discoverable devices yet. Add the device to HPP and retry.")
+
+            if len(serials) > 500:
+                raise HTTPException(status_code=409, detail="This HPP site has more than 500 devices. Contact NexusAI to onboard it in batches.")
+
+            discovered_cameras = []
+            for serial in serials:
+                camera_payload = list_cameras(serial)
+                discovered_cameras.extend(_items(camera_payload, "rows", "cameras", "list", "channels"))
+
+            site_name = _identifier(matching_site, "siteName", "name", "site_name", "title") or "Hikvision Site"
+            site_onboarder(wanted_id, payload.nexusai_site_id, site_name, matching_site, serials)
+            subscription = subscribe(HppSubscribeRequest(sub_type=1, sub_mode="list", device_serial_list=serials))
+            return {
+                "connected": True,
+                "onboarding": "complete",
+                "hpp_site_id": wanted_id,
+                "hpp_site_name": site_name,
+                "nexusai_site_id": payload.nexusai_site_id,
+                "devices_discovered": len(serials),
+                "cameras_or_channels_discovered": len(discovered_cameras),
+                "device_serials": serials,
+                "subscribed": True,
+                "subscription": subscription,
+                "next_step": "HPP alarm events will now be received by NexusAI; POS events remain a separate integration.",
+            }
+        except HTTPException:
+            raise
+        except HppError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+        except Exception as exc:
+            LOG.exception("Automatic HPP site onboarding failed.")
+            raise HTTPException(status_code=500, detail="HPP site onboarding could not be completed. Check the server logs.")
 
     @app.post("/api/hpp/devices/list")
     async def hpp_devices_list(payload: dict | None = None, x_nexusai_admin_key: str | None = Header(default=None)):

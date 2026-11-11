@@ -57,6 +57,7 @@ All HPP admin routes require `X-NexusAI-Admin-Key`.
 - `GET /api/hpp/status`
 - `POST /api/hpp/test-auth`
 - `POST /api/hpp/sites/search`
+- `POST /api/hpp/sites/connect` — link an authorised HPP site to a NexusAI customer, discover all devices/channels, save device mappings and subscribe them automatically.
 - `POST /api/hpp/devices/list`
 - `POST /api/hpp/cameras/list`
 - `POST /api/hpp/alarms/subscribe`
@@ -66,19 +67,33 @@ All HPP admin routes require `X-NexusAI-Admin-Key`.
 - `GET /api/hpp/mappings`
 - `POST /api/hpp/mappings`
 
-## Multi-site onboarding foundation
+## Plug-and-play HPP onboarding
 
-The NexusAI Command Centre now has an **Add Hikvision Site** workflow for the multi-site model discussed with Hikvision support:
+HPP remains the camera/device onboarding path. After the customer has authorised NexusAI as a service provider in Hik-Partner Pro, an administrator links the authorised HPP site to the already-created NexusAI customer record once:
 
-1. Customer authorizes NexusAI through the Hikvision service-provider flow.
-2. NexusAI administrator loads the authorized Hikvision sites from HPP.
-3. Administrator selects the authorized Hikvision site and an existing NexusAI customer site.
-4. NexusAI connects the HPP site to that customer record.
-5. NexusAI queries the HPP device list for that site.
-6. Each discovered Hikvision device serial is mapped automatically to the NexusAI site.
-7. Future HPP alarms can therefore be resolved to the correct NexusAI customer without installing Security Box.
+```http
+POST /api/hpp/sites/connect
+X-NexusAI-Admin-Key: <server admin key>
+Content-Type: application/json
 
-The implementation deliberately does **not** implement or fake the Hikvision customer-consent screen. The actual authorization step remains in Hikvision's platform as directed by Hikvision support; NexusAI starts consuming the site after authorization is granted.
+{
+  "hpp_site_id": "HPP_SITE_ID",
+  "nexusai_site_id": "site-XXXXXXXXXXXX"
+}
+```
+
+NexusAI then performs the camera-side setup in one operation:
+
+1. Confirms the HPP site exists in the currently authorised HPP account.
+2. Retrieves every device for that site (up to 500 devices per site).
+3. Discovers the camera/channel list for each device.
+4. Saves the HPP-site-to-customer relationship.
+5. Automatically maps every discovered device serial to the NexusAI customer.
+6. Subscribes all discovered device serials to HPP alarm delivery.
+
+Installers do not have to type camera serial numbers or create a mapping for each camera. The customer still must authorise NexusAI in HPP, and the NexusAI customer record must exist so the correct retailer account is known. If a new device is later added to HPP, run the same connect operation again to discover and subscribe the newly added device.
+
+This does not fabricate or bypass Hikvision's customer-consent step. NexusAI can only discover sites that HPP exposes to the authorised integration account.
 
 ## Customer mapping
 

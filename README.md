@@ -1,16 +1,89 @@
 # NexusAI Technologies
 
-NexusAI Technologies — AI security technology built for what comes next.
+NexusAI Retail Intelligence connects point-of-sale (POS) transaction exceptions with relevant Hikvision camera evidence. POS records are the source of truth; camera events provide supporting timing and footage references.
+
+## What NexusAI does
+
+An authorised POS adapter sends transaction exceptions to the NexusAI API. Supported event types include:
+
+- Refunds, returns and returns issued
+- Voids and transaction voids
+- Cancelled line items
+- No-sale events and cash-drawer-open events
+- Manager overrides and manual discounts
+
+NexusAI records the store, till, transaction, cashier (when supplied), amount, currency and timestamp. It can correlate a POS exception with a mapped Hik-Partner Pro (HPP) camera event and attach a camera snapshot or a separately supplied video-timeline reference.
+
+NexusAI reports exception counts and amounts by till and reporting period. It can also accept aggregated foot-traffic and invoice metrics to calculate a directional conversion-gap estimate.
+
+## What NexusAI does not do
+
+- It does not connect automatically to every till computer.
+- It does not independently observe cash physically leaving a cash drawer or verify a payment/refund settlement.
+- It does not infer refunds, voids, theft or other transaction exceptions from CCTV.
+- It does not classify camera events as theft, weapons, threats, intrusion or other security incidents.
+- It does not replace the retailer's POS audit trail, payment reconciliation, certified fire/security systems or store investigation procedures.
+
+A retailer must provide an authorised POS integration/adapter that sends the relevant event data. Availability of an event type in the API does not mean a retailer's live POS is connected or currently sending that event.
 
 ## Production architecture
 
-NexusAI is built around a private on-site Edge Agent and a cloud notification service.
+**Retail POS → authorised POS adapter → NexusAI POS exception API → exception database**
 
-**Hikvision camera/NVR → NexusAI Edge Agent → NexusAI Cloud → NexusAI Push Dispatcher → NexusAI app → phone notification**
+**Hik-Partner Pro (HPP) camera events → HPP queue consumer → POS/camera correlation → supporting camera evidence**
 
-The client portal is the only official installation entry point for the NexusAI mobile alert app. The app is installed as a PWA named **NexusAI**, registers a secure Web Push subscription for the client's site, and receives operating-system notifications through its service worker even when the app page is closed.
+HPP camera events are correlated with POS exceptions before being acknowledged by the queue consumer. Camera-only events are discarded from the Retail Intelligence alert path; they are not dispatched as standalone security alerts.
 
-WhatsApp is not part of the NexusAI notification architecture.
+## POS integration
+
+- Endpoint: `POST /api/retail/transaction-exceptions`
+- Authentication: `X-NexusAI-POS-Ingest-Token` using the server-side `NEXUSAI_POS_INGEST_TOKEN`.
+- Payload: JSON matching `POSExceptionEventIn` in `backend/src/models.py`.
+- Required identifiers: `site_id`, `source_event_id`, `till_id`, `exception_type`, `transaction_value`, `occurred_at`.
+- `source_event_id` must be stable and unique within the site so retries are idempotent.
+- Timestamps must be ISO 8601 and include an explicit timezone offset.
+- The retailer/POS vendor must document whether `transaction_value` is the gross, reversed or adjusted value.
+
+Example payload:
+
+```json
+{
+  "site_id": "retailer-site-001",
+  "source_event_id": "pos-event-000001",
+  "till_id": "lane-04",
+  "exception_type": "refund",
+  "transaction_id": "receipt-12345",
+  "cashier_id": "cashier-12",
+  "cashier_name": "Example Cashier",
+  "transaction_value": "500.00",
+  "currency": "ZAR",
+  "occurred_at": "2026-11-11T14:30:00+02:00",
+  "camera_id": "HPP-DEVICE-SERIAL",
+  "metadata": {
+    "refund_reason": "customer_return",
+    "payment_method": "card"
+  }
+}
+```
+
+Do not send customer names, card numbers, PINs or other unnecessary personal/payment credentials. Apply the retailer's POPIA and access-control requirements to all fields.
+
+## POS integration acceptance checklist
+
+A POS connection is not considered verified until a retailer/vendor adapter has:
+
+1. Been authorised by the retailer and configured with the POS ingestion token.
+2. Sent a test refund and a test void using the actual POS event format.
+3. Received a successful API response and confirmed each event is stored once.
+4. Confirmed amount semantics, timestamps, till identifiers and stable event IDs.
+5. Verified camera-to-till mapping and a matching HPP event where footage correlation is required.
+6. Completed a controlled end-to-end test with the retailer.
+
+Until these checks pass, describe POS refund/void support as **API-supported, live POS connection not yet verified**.
+
+## HPP integration
+
+NexusAI uses Hik-Partner Pro (HPP) cloud integration. HPP device serial numbers must be mapped to the correct NexusAI site. HPP events provide camera timing/evidence for POS correlation; they are not a substitute for POS transaction data.
 
 ## Render deployment
 
@@ -19,53 +92,16 @@ The repository is configured for a Render Python Web Service.
 - Build command: `pip install -r backend/requirements.txt`
 - Start command: `uvicorn backend.src.main:app --host 0.0.0.0 --port $PORT`
 - Health check: `/health`
-- Public site: `/`
-- Client portal: `/portal/`
-- NexusAI app: `/app/`
+- Public site and API: served by the same FastAPI service.
 
-## Required Render environment variables
+## Required environment variables
 
-Configure these in Render Environment. Never commit the values to GitHub.
+Configure secrets in Render Environment; never commit their values to GitHub.
 
-- `NEXUSAI_EDGE_TOKEN` — shared authentication token for the Edge Agent.
 - `DATABASE_URL` — persistent Postgres/Neon connection string.
-- `NEXUSAI_VAPID_PUBLIC_KEY` — Web Push public key.
-- `NEXUSAI_VAPID_PRIVATE_KEY` — Web Push private key.
-- `NEXUSAI_VAPID_SUBJECT` — VAPID contact URI, normally a NexusAI HTTPS URL.
-- `NEXUSAI_APP_LINK_SECRET` — long random secret used to sign portal-generated mobile installation links.
-
-## Mobile notification model
-
-The client taps **INSTALL NEXUSAI APP** in the portal. The cloud creates a site-bound, signed installation link. The phone opens that link, installs the NexusAI PWA, requests notification permission, creates a Web Push subscription, and sends the subscription to NexusAI Cloud.
-
-When an Edge Agent reports a security event, the cloud stores the event and queues the push dispatcher immediately. The dispatcher sends high-urgency Web Push notifications to every registered phone for that site. It retries failed delivery with bounded exponential backoff and removes expired browser subscriptions.
-
-The mobile service worker displays persistent operating-system notifications for events such as:
-
-- THREAT DETECTED
-- THEFT DETECTED
-- WEAPON DETECTED
-- INTRUSION
-
-## Edge Agent
-
-The `edge_agent/` application runs at the customer's premises because it needs access to private Hikvision/NVR network addresses.
-
-It verifies the camera locally, maintains the Hikvision event stream, captures evidence snapshots, sends event metadata and heartbeat information to NexusAI Cloud, and automatically reconnects after interruptions.
-
-Configure `NEXUSAI_API_URL=https://getnexusai.co.za` after the custom domain is active.
-
-## NexusAI Security Box
-
-The Security Box is the always-on local service layer for production sites. It runs the existing hardened Edge Agent under the operating system service manager, starts automatically after reboot, keeps the cloud heartbeat alive, and can continuously discover local Hikvision devices when NVR credentials are configured on the site computer.
-
-- Windows: `NexusAISecurityBox` Windows service with delayed automatic startup and SCM restart recovery.
-- macOS: launchd LaunchDaemon with `RunAtLoad` and `KeepAlive`.
-- Site provisioning: the existing `/api/edge/provision` flow supplies the site-bound Edge token after site activation.
-- Hikvision integration: discovery stays local; camera/NVR credentials are not sent to the NexusAI cloud by the discovery process.
-- Build outputs are validated by GitHub Actions for macOS and Windows.
-
-Hikvision documents ISAPI as its REST-style integration interface, while its SADP SDK is designed for discovering Hikvision devices on the same subnet. NexusAI therefore keeps device discovery and device authentication on the customer network.
+- `NEXUSAI_POS_INGEST_TOKEN` — dedicated secret for authorised POS adapters.
+- HPP credentials and settings required by the HPP integration.
+- Any required application/session secrets used by the deployed service.
 
 ## Local development
 
@@ -73,13 +109,3 @@ Hikvision documents ISAPI as its REST-style integration interface, while its SAD
 pip install -r backend/requirements.txt
 uvicorn backend.src.main:app --reload
 ```
-
-The public site, portal, API, and NexusAI app are served by the same FastAPI service.
-
-## Security Box one-time installer
-
-The QR protection flow can generate a short-lived, site-specific Security Box installer. The installer provisions the site once, asks for the local Hikvision NVR username/password, stores those credentials in the operating system secure credential store, and registers the Security Box as a background service.
-
-The site credential is never written to the Security Box JSON configuration. Windows/macOS service startup reads the site ID from local non-secret configuration and retrieves the Edge token and Hikvision credentials from secure storage.
-
-Installer links are one-time and expire after 15 minutes. Production packaging should still be upgraded to signed/notarized native installers before broad customer rollout.

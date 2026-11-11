@@ -2386,6 +2386,21 @@ async def hpp_mapping_create(payload: dict, x_nexusai_admin_key: str | None = He
     return {"saved": True}
 
 
+
+def _hpp_site_onboarder(hpp_site_id: str, nexusai_site_id: str, site_name: str,
+                        metadata: dict, device_serials: list[str]) -> None:
+    """Persist the customer/site relationship and every discovered HPP device mapping."""
+    site_id = validate_site_id(nexusai_site_id)
+    if not load_customer(site_id):
+        raise HTTPException(
+            status_code=404,
+            detail="Create the NexusAI customer/site record before connecting its HPP-authorised site.",
+        )
+    _save_hpp_site(hpp_site_id, site_id, site_name, metadata)
+    for serial in device_serials:
+        _save_hpp_mapping(hpp_site_id, serial, site_id)
+
+
 # HPP auth endpoint is registered directly here as a safety net so an import/startup
 # problem in the optional HPP installer cannot turn the admin test into a misleading 404.
 @app.post("/api/hpp/test-auth", include_in_schema=False)
@@ -2470,7 +2485,7 @@ app.mount("/portal", StaticFiles(directory=PORTAL_DIR, html=True), name="portal"
 # and is not started or required by the HPP worker.
 try:
     from hpp_integration import install as install_hpp
-    install_hpp(app, event_sink=_hpp_event_sink)
+    install_hpp(app, event_sink=_hpp_event_sink, site_onboarder=_hpp_site_onboarder)
 except Exception:
     logging.exception("Hik-Partner Pro integration failed to load.")
 

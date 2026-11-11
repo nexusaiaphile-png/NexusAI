@@ -262,3 +262,70 @@ def test_missing_recipient_graceful_fallback(tmp_path, monkeypatch, caplog):
         ).fetchone()[0]
     assert stored == 1
     assert "WhatsApp alert skipped: no recipient configured for site_id=store-no-recipient" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "exception_type",
+    [
+        "refund", "return", "return_issued", "void", "transaction_void",
+        "line_item_cancelled", "no_sale", "drawer_open",
+        "manager_override", "manual_discount",
+    ],
+)
+def test_supported_pos_exception_types_are_persisted_and_flagged(
+    tmp_path, monkeypatch, exception_type
+):
+    client = make_test_client(tmp_path, monkeypatch)
+    payload = valid_pos_event(
+        exception_type=exception_type,
+        source_event_id=f"event-{exception_type}",
+    )
+    response = client.post(
+        ENDPOINT, json=payload, headers={TOKEN_HEADER: INGEST_TOKEN}
+    )
+
+    assert response.status_code == 200
+    with correlation._connect() as conn:
+        row = correlation._execute(
+            conn,
+            """SELECT exception_type, amount, flagged_for_review
+               FROM nexusai_pos_exceptions
+               WHERE site_id=? AND source_event_id=?""",
+            (payload["site_id"], payload["source_event_id"]),
+        ).fetchone()
+
+    assert row is not None
+    assert row[0] == exception_type
+    assert float(row[1]) == 125.50
+    # SQLite returns integer 1/0 for BOOLEAN columns; PostgreSQL returns bool.
+    assert bool(row[2]) is True
+
+
+def test_pos_integration_status_reports_configuration_and_received_events(
+    tmp_path, monkeypatch
+):
+    client = make_test_client(tmp_path, monkeypatch)
+    monkeypatch.setenv("NEXUSAI_ADMIN_KEY", "test-admin-key-only")
+    headers = {"X-NexusAI-Admin-Key": "test-admin-key-only"}
+
+    before = client.get(
+        "/api/retail/pos-integration/status", headers=headers
+    )
+    assert before.status_code == 200
+    assert before.json()["status"] == "configured_waiting_for_first_event"
+    assert before.json()["pos_ingest_token_configured"] is True
+    assert before.json()["events_received_total"] == 0
+
+    accepted = client.post(
+        ENDPOINT, json=valid_pos_event(), headers={TOKEN_HEADER: INGEST_TOKEN}
+    )
+    assert accepted.status_code == 200
+
+    after = client.get(
+        "/api/retail/pos-integration/status", headers=headers
+    )
+    assert after.status_code == 200
+    assert after.json()["status"] == "events_received"
+    assert after.json()["events_received_total"] == 1
+    assert after.json()["events_by_type"] == {"refund": 1}
+    assert "does not establish a live vendor/till connection" in after.json()["connection_note"]
