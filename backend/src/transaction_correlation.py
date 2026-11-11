@@ -797,6 +797,46 @@ def install_transaction_correlation(app: FastAPI) -> None:
             }
         return {"accepted": True, "engine": "transaction_correlation", **results[0]}
 
+    @app.get("/api/retail/pos-integration/status")
+    async def pos_integration_status(
+            x_nexusai_admin_key: str | None = Header(default=None)):
+        """Show whether the POS adapter is configured and whether events arrived."""
+        _admin_guard(x_nexusai_admin_key)
+        token_configured = bool(os.getenv("NEXUSAI_POS_INGEST_TOKEN", "").strip())
+        with _DB_LOCK:
+            conn = _connect()
+            try:
+                total_row = _execute(
+                    conn,
+                    "SELECT COUNT(*), MAX(occurred_at) FROM nexusai_pos_exceptions",
+                ).fetchone()
+                type_rows = _execute(
+                    conn,
+                    """SELECT exception_type, COUNT(*)
+                       FROM nexusai_pos_exceptions
+                       GROUP BY exception_type ORDER BY exception_type""",
+                ).fetchall()
+            finally:
+                conn.close()
+        total = int(total_row[0] or 0)
+        if not token_configured:
+            status = "not_configured"
+        elif total == 0:
+            status = "configured_waiting_for_first_event"
+        else:
+            status = "events_received"
+        return {
+            "status": status,
+            "pos_ingest_token_configured": token_configured,
+            "events_received_total": total,
+            "last_event_received_at": total_row[1],
+            "events_by_type": {row[0]: int(row[1]) for row in type_rows},
+            "connection_note": (
+                "This confirms API configuration and received POS events only. "
+                "It does not establish a live vendor/till connection or verify payment settlement."
+            ),
+        }
+
     @app.post("/api/retail/video-timeline")
     async def ingest_video_timeline(
             payload: VideoTimelineReferenceIn | VideoTimelineIn,
