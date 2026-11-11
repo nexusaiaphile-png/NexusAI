@@ -74,6 +74,7 @@ def init_distributor_db():
                 contact_email TEXT NOT NULL, contact_phone TEXT NOT NULL DEFAULT '',
                 country TEXT NOT NULL, province TEXT NOT NULL DEFAULT '',
                 relationship TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
+                product_brand TEXT NOT NULL DEFAULT 'NEXUSAI',
                 status TEXT NOT NULL DEFAULT 'SUBMITTED', verified_cameras INTEGER NOT NULL DEFAULT 0,
                 reward_amount_rands NUMERIC, created_at DOUBLE PRECISION NOT NULL,
                 reviewed_at DOUBLE PRECISION, reviewed_by TEXT)""",
@@ -90,6 +91,12 @@ def init_distributor_db():
         ]
         for statement in statements:
             _sql(conn, statement)
+        if _postgres():
+            _sql(conn, "ALTER TABLE nexusai_distributor_referrals ADD COLUMN IF NOT EXISTS product_brand TEXT NOT NULL DEFAULT 'NEXUSAI'")
+        else:
+            columns = {row[1] for row in _sql(conn, "PRAGMA table_info(nexusai_distributor_referrals)").fetchall()}
+            if "product_brand" not in columns:
+                _sql(conn, "ALTER TABLE nexusai_distributor_referrals ADD COLUMN product_brand TEXT NOT NULL DEFAULT 'NEXUSAI'")
         _sql(conn, "CREATE INDEX IF NOT EXISTS idx_distributor_referrals_owner ON nexusai_distributor_referrals(distributor_id, created_at)")
         _sql(conn, "CREATE INDEX IF NOT EXISTS idx_distributor_rewards_owner ON nexusai_distributor_rewards(distributor_id, created_at)")
         _sql(conn, """CREATE UNIQUE INDEX IF NOT EXISTS idx_distributor_referral_contact_active ON nexusai_distributor_referrals(LOWER(contact_email)) WHERE status <> 'REJECTED'""")
@@ -199,6 +206,7 @@ class DistributorLogin(BaseModel):
 
 
 class InstallerReferral(BaseModel):
+    product_brand: str = Field(default="NEXUSAI", pattern="^(NEXUSAI|HEATGUARDAI)$")
     installer_company: str = Field(..., min_length=2, max_length=200)
     contact_name: str = Field(..., min_length=2, max_length=160)
     contact_email: str = Field(..., min_length=5, max_length=200)
@@ -219,7 +227,6 @@ class DistributorStatus(BaseModel):
 class ReferralReview(BaseModel):
     status: str = Field(..., min_length=7, max_length=10)
     verified_cameras: int = Field(default=0, ge=0, le=1000000)
-    reward_amount_rands: float | None = Field(default=None, gt=0, le=100000000)
 
 
 class RewardPayment(BaseModel):
@@ -273,14 +280,14 @@ async def login_distributor(payload: DistributorLogin, request: Request):
 async def distributor_dashboard(authorization: str | None = Header(default=None)):
     distributor, _ = _current_distributor(authorization)
     with _db() as conn:
-        referrals = _sql(conn, """SELECT referral_id,installer_company,contact_name,contact_email,country,
+        referrals = _sql(conn, """SELECT referral_id,product_brand,installer_company,contact_name,contact_email,country,
             province,status,verified_cameras,reward_amount_rands,created_at,reviewed_at
             FROM nexusai_distributor_referrals WHERE distributor_id=%s ORDER BY created_at DESC LIMIT 500""",
             (distributor["distributor_id"],)).fetchall()
         rewards = _sql(conn, """SELECT reward_id,referral_id,amount_rands,status,created_at,paid_at,payment_reference
             FROM nexusai_distributor_rewards WHERE distributor_id=%s ORDER BY created_at DESC LIMIT 500""",
             (distributor["distributor_id"],)).fetchall()
-    referral_keys = ["referral_id","installer_company","contact_name","contact_email","country","province",
+    referral_keys = ["referral_id","product_brand","installer_company","contact_name","contact_email","country","province",
                      "status","verified_cameras","reward_amount_rands","created_at","reviewed_at"]
     reward_keys = ["reward_id","referral_id","amount_rands","status","created_at","paid_at","payment_reference"]
     referral_data = [dict(zip(referral_keys, row)) for row in referrals]
@@ -310,11 +317,12 @@ async def submit_referral(payload: InstallerReferral, authorization: str | None 
             raise HTTPException(409, "This installer contact has already been referred. Contact NexusAI if attribution needs review.")
         _sql(conn, """INSERT INTO nexusai_distributor_referrals
             (referral_id,distributor_id,installer_company,contact_name,contact_email,contact_phone,country,
-             province,relationship,notes,status,created_at)
-            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'SUBMITTED',%s)""",
+             province,relationship,notes,product_brand,status,created_at)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'SUBMITTED',%s)""",
             (referral_id, distributor["distributor_id"], payload.installer_company.strip(),
              payload.contact_name.strip(), email, payload.contact_phone.strip(), payload.country.strip(),
-             payload.province.strip(), payload.relationship.strip(), payload.notes.strip(), time.time()))
+             payload.province.strip(), payload.relationship.strip(), payload.notes.strip(),
+             payload.product_brand.strip().upper(), time.time()))
     return {"submitted": True, "referral_id": referral_id, "status": "SUBMITTED",
             "message": "Referral submitted for review. No reward is earned for contact details or an introduction alone."}
 
@@ -383,7 +391,7 @@ async def admin_list_distributor_referrals(status: str = "ALL",
         if normalized == "ALL":
             rows = _sql(conn, """SELECT r.referral_id,r.distributor_id,a.company_name AS distributor_company,
                 a.email AS distributor_email,r.installer_company,r.contact_name,r.contact_email,r.contact_phone,
-                r.country,r.province,r.relationship,r.notes,r.status,r.verified_cameras,r.reward_amount_rands,
+                r.country,r.province,r.relationship,r.notes,r.product_brand,r.status,r.verified_cameras,r.reward_amount_rands,
                 r.created_at,r.reviewed_at FROM nexusai_distributor_referrals r
                 JOIN nexusai_distributor_accounts a ON a.distributor_id=r.distributor_id
                 ORDER BY r.created_at DESC LIMIT 1000""").fetchall()
@@ -395,7 +403,7 @@ async def admin_list_distributor_referrals(status: str = "ALL",
                 JOIN nexusai_distributor_accounts a ON a.distributor_id=r.distributor_id
                 WHERE r.status=%s ORDER BY r.created_at DESC LIMIT 1000""", (normalized,)).fetchall()
     keys = ["referral_id","distributor_id","distributor_company","distributor_email","installer_company","contact_name",
-            "contact_email","contact_phone","country","province","relationship","notes","status","verified_cameras",
+            "contact_email","contact_phone","country","province","relationship","notes","product_brand","status","verified_cameras",
             "reward_amount_rands","created_at","reviewed_at"]
     return {"referrals": [dict(zip(keys, row)) for row in rows]}
 
@@ -407,8 +415,8 @@ async def admin_review_referral(referral_id: str, payload: ReferralReview,
     status = payload.status.strip().upper()
     if status not in {"CONTACTED", "QUALIFIED", "CONVERTED", "REJECTED"}:
         raise HTTPException(400, "Status must be CONTACTED, QUALIFIED, CONVERTED or REJECTED.")
-    if status == "CONVERTED" and (payload.verified_cameras < 1 or payload.reward_amount_rands is None):
-        raise HTTPException(400, "A converted referral requires verified cameras and an explicitly approved reward amount.")
+    if status == "CONVERTED" and payload.verified_cameras < 1:
+        raise HTTPException(400, "A converted referral requires at least one verified camera.")
     now = time.time()
     with _db() as conn:
         row = _sql(conn, "SELECT distributor_id,status FROM nexusai_distributor_referrals WHERE referral_id=%s", (referral_id,)).fetchone()
@@ -419,20 +427,14 @@ async def admin_review_referral(referral_id: str, payload: ReferralReview,
         if status == "CONVERTED" and row[1] != "QUALIFIED":
             raise HTTPException(409, "A referral must be marked QUALIFIED before it can be converted.")
         updated = _sql(conn, """UPDATE nexusai_distributor_referrals SET status=%s,verified_cameras=%s,
-            reward_amount_rands=%s,reviewed_at=%s,reviewed_by='NEXUSAI_ADMIN'
+            reviewed_at=%s,reviewed_by='NEXUSAI_ADMIN'
             WHERE referral_id=%s AND status NOT IN ('CONVERTED','REJECTED')""",
-            (status, payload.verified_cameras if status == "CONVERTED" else 0,
-             payload.reward_amount_rands if status == "CONVERTED" else None, now, referral_id))
+            (status, payload.verified_cameras if status == "CONVERTED" else 0, now, referral_id))
         if updated.rowcount != 1:
             raise HTTPException(409, "This referral has already been converted or reviewed concurrently.")
-        if status == "CONVERTED":
-            reward_id = "drew_" + uuid.uuid4().hex[:16]
-            _sql(conn, """INSERT INTO nexusai_distributor_rewards
-                (reward_id,referral_id,distributor_id,amount_rands,status,created_at)
-                VALUES(%s,%s,%s,%s,'PENDING',%s)""",
-                (reward_id, referral_id, row[0], payload.reward_amount_rands, now))
     return {"reviewed": True, "referral_id": referral_id, "status": status,
-            "reward_created": status == "CONVERTED"}
+            "reward_created": False,
+            "message": "Camera count recorded for tracking only. Monthly commission is payable only after the related subscription payment is verified."}
 
 
 @admin_router.get("/rewards")
