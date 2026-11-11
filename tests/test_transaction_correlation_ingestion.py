@@ -297,12 +297,8 @@ def test_supported_pos_exception_types_are_persisted_and_flagged(
     assert row is not None
     assert row[0] == exception_type
     assert float(row[1]) == 125.50
-    if exception_type == "drawer_open":
-        # Drawer-open is only automatically flagged when no active transaction
-        # is reported; the fixture omits that state, so it is flagged.
-        assert row[2] is True
-    else:
-        assert row[2] is True
+    # SQLite returns integer 1/0 for BOOLEAN columns; PostgreSQL returns bool.
+    assert bool(row[2]) is True
 
 
 def test_pos_integration_status_reports_configuration_and_received_events(
