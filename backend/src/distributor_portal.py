@@ -370,8 +370,8 @@ async def admin_distributor_status(distributor_id: str, payload: DistributorStat
 
 @admin_router.get("/referrals")
 async def admin_list_distributor_referrals(status: str = "ALL",
-                                           x_nexusai_admin_key: str | None = Header(default=None)):
-    _admin(x_nexusai_admin_key)
+                                           authorization: str | None = Header(default=None)):
+    _admin(authorization)
     normalized = status.strip().upper()
     if normalized not in {"ALL", "SUBMITTED", "CONTACTED", "QUALIFIED", "CONVERTED", "REJECTED"}:
         raise HTTPException(400, "Invalid referral status.")
@@ -398,8 +398,8 @@ async def admin_list_distributor_referrals(status: str = "ALL",
 
 @admin_router.post("/referrals/{referral_id}/review")
 async def admin_review_referral(referral_id: str, payload: ReferralReview,
-                                x_nexusai_admin_key: str | None = Header(default=None)):
-    _admin(x_nexusai_admin_key)
+                                authorization: str | None = Header(default=None)):
+    _admin(authorization)
     status = payload.status.strip().upper()
     if status not in {"CONTACTED", "QUALIFIED", "CONVERTED", "REJECTED"}:
         raise HTTPException(400, "Status must be CONTACTED, QUALIFIED, CONVERTED or REJECTED.")
@@ -433,8 +433,8 @@ async def admin_review_referral(referral_id: str, payload: ReferralReview,
 
 @admin_router.get("/rewards")
 async def admin_list_distributor_rewards(status: str = "ALL",
-                                         x_nexusai_admin_key: str | None = Header(default=None)):
-    _admin(x_nexusai_admin_key)
+                                         authorization: str | None = Header(default=None)):
+    _admin(authorization)
     normalized = status.strip().upper()
     if normalized not in {"ALL", "PENDING", "PAID"}:
         raise HTTPException(400, "Status must be ALL, PENDING or PAID.")
@@ -456,8 +456,8 @@ async def admin_list_distributor_rewards(status: str = "ALL",
 
 @admin_router.post("/rewards/{reward_id}/pay")
 async def admin_mark_reward_paid(reward_id: str, payload: RewardPayment,
-                                 x_nexusai_admin_key: str | None = Header(default=None)):
-    _admin(x_nexusai_admin_key)
+                                 authorization: str | None = Header(default=None)):
+    _admin(authorization)
     payment_reference = payload.payment_reference.strip()
     if len(payment_reference) < 2:
         raise HTTPException(400, "Enter a valid payment reference.")
