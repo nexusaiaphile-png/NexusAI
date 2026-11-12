@@ -102,7 +102,7 @@ async def submit_assessment(
     if privacy_acknowledged.lower() not in {"true", "1", "yes", "on"}:
         raise HTTPException(400, "Please acknowledge the privacy notice before submitting.")
     email = _clean(email, 200).lower()
-    if not re.fullmatch(r"[^\\s@]+@[^\\s@]+\\.[^\\s@]+", email):
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
         raise HTTPException(400, "Enter a valid business email address.")
     filename = Path(technical_pdf.filename or "technical-document.pdf").name
     if not filename.lower().endswith(".pdf"):
