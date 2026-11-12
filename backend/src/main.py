@@ -1203,7 +1203,7 @@ async def public_home():
     return RedirectResponse(url="/admin", status_code=307)
 
 
-@app.get("/distributors", include_in_schema=False)
+@app.get("/retailer-assessment", include_in_schema=False)\nasync def retailer_assessment_page():\n    return FileResponse(PORTAL_DIR / "retailer-assessment.html", media_type="text/html")\n\n@app.get("/retailer-assessment/admin", include_in_schema=False)\nasync def retailer_assessment_admin_page():\n    return FileResponse(PORTAL_DIR / "retailer-assessment-admin.html", media_type="text/html")\n\n@app.get("/retailer-assessment/privacy", include_in_schema=False)\nasync def retailer_assessment_privacy_page():\n    return FileResponse(PORTAL_DIR / "retailer-assessment-privacy.html", media_type="text/html")\n\n@app.get("/distributors", include_in_schema=False)
 @app.get("/distributors/", include_in_schema=False)
 async def global_distributor_portal():
     return FileResponse(PORTAL_DIR / "distributors" / "index.html", media_type="text/html")
@@ -2478,7 +2478,7 @@ try:
 except Exception:
     logging.exception("Retail Intelligence integration failed to load.")
 
-# Keep the portal mounted last so API routes stay reachable.
+# Retailer compatibility intake is isolated from distributor and HPP onboarding.\ntry:\n    from backend.src.retailer_assessment import install as install_retailer_assessment\n    install_retailer_assessment(app)\nexcept Exception:\n    logging.exception("Retailer assessment integration failed to load.")\n\n# Keep the portal mounted last so API routes stay reachable.
 app.mount("/portal", StaticFiles(directory=PORTAL_DIR, html=True), name="portal")
 
 # Hik-Partner Pro is the primary cloud integration. Security Box remains a fallback
