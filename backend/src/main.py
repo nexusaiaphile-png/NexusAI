@@ -1203,7 +1203,22 @@ async def public_home():
     return RedirectResponse(url="/admin", status_code=307)
 
 
-@app.get("/retailer-assessment", include_in_schema=False)\nasync def retailer_assessment_page():\n    return FileResponse(PORTAL_DIR / "retailer-assessment.html", media_type="text/html")\n\n@app.get("/retailer-assessment/admin", include_in_schema=False)\nasync def retailer_assessment_admin_page():\n    return FileResponse(PORTAL_DIR / "retailer-assessment-admin.html", media_type="text/html")\n\n@app.get("/retailer-assessment/privacy", include_in_schema=False)\nasync def retailer_assessment_privacy_page():\n    return FileResponse(PORTAL_DIR / "retailer-assessment-privacy.html", media_type="text/html")\n\n@app.get("/distributors", include_in_schema=False)
+@app.get("/retailer-assessment", include_in_schema=False)
+async def retailer_assessment_page():
+    return FileResponse(PORTAL_DIR / "retailer-assessment.html", media_type="text/html")
+
+
+@app.get("/retailer-assessment/admin", include_in_schema=False)
+async def retailer_assessment_admin_page():
+    return FileResponse(PORTAL_DIR / "retailer-assessment-admin.html", media_type="text/html")
+
+
+@app.get("/retailer-assessment/privacy", include_in_schema=False)
+async def retailer_assessment_privacy_page():
+    return FileResponse(PORTAL_DIR / "retailer-assessment-privacy.html", media_type="text/html")
+
+
+@app.get("/distributors", include_in_schema=False)
 @app.get("/distributors/", include_in_schema=False)
 async def global_distributor_portal():
     return FileResponse(PORTAL_DIR / "distributors" / "index.html", media_type="text/html")
