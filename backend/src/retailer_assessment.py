@@ -1,5 +1,6 @@
 """Retailer compatibility assessment intake with isolated PDF storage and admin review."""
 import hashlib
+import hmac
 import os
 import re
 import secrets
@@ -9,13 +10,16 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, Response as FastAPIResponse, UploadFile
 from fastapi.responses import Response
 
 router = APIRouter(tags=["retailer-assessment"])
 admin_router = APIRouter(tags=["retailer-assessment-admin"])
 DB_PATH = Path(__file__).resolve().parents[2] / "nexusai.db"
 RATE = {}
+LOGIN_RATE = {}
+SESSION_COOKIE = "nexusai_retail_admin_session"
+SESSION_SECONDS = 8 * 60 * 60
 MAX_PDF_BYTES = 10 * 1024 * 1024
 STATUSES = {"NEW", "UNDER_REVIEW", "NEED_INFO", "COMPATIBLE", "NOT_COMPATIBLE", "PILOT_APPROVED", "CLOSED"}
 
@@ -63,10 +67,26 @@ def init_db():
         _sql(conn, "CREATE INDEX IF NOT EXISTS idx_retail_assessments_created ON nexusai_retail_assessments(created_at)")
         _sql(conn, "CREATE INDEX IF NOT EXISTS idx_retail_assessments_status ON nexusai_retail_assessments(status)")
 
-def _admin(key):
-    expected = os.getenv("NEXUSAI_ADMIN_KEY", "").strip()
-    if not expected or not key or not secrets.compare_digest(key.strip(), expected):
-        raise HTTPException(401, "NexusAI administrator access is required.")
+def _session_secret():
+    secret = os.getenv("RETAIL_ASSESSMENT_SESSION_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(503, "Administrator login is not configured.")
+    return secret.encode("utf-8")
+
+def _admin(request: Request):
+    token = request.cookies.get(SESSION_COOKIE, "")
+    try:
+        issued_text, signature = token.split(".", 1)
+        issued = int(issued_text)
+        if issued > int(time.time()) + 60 or int(time.time()) - issued > SESSION_SECONDS:
+            raise ValueError("expired")
+        expected = hmac.new(_session_secret(), issued_text.encode("ascii"), hashlib.sha256).hexdigest()
+        if not secrets.compare_digest(signature, expected):
+            raise ValueError("invalid")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(401, "Please sign in to the retailer assessment admin.")
 
 def _clean(value, limit=500):
     value = re.sub(r"[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f]", "", (value or "")).strip()
@@ -134,9 +154,38 @@ async def submit_assessment(
     return {"submitted": True, "application_id": app_id,
             "message": "Your information has been submitted for a NexusAI compatibility assessment. We will review the technical details and contact you."}
 
+@admin_router.post("/api/admin/retailer-assessments/login")
+async def assessment_admin_login(request: Request, response: FastAPIResponse):
+    host = request.client.host if request.client else "unknown"
+    now = time.time()
+    attempts = [t for t in LOGIN_RATE.get(host, []) if now - t < 900]
+    if len(attempts) >= 5:
+        raise HTTPException(429, "Too many password attempts. Please try again in 15 minutes.")
+    body = await request.json()
+    supplied = str(body.get("password", ""))
+    expected = os.getenv("RETAIL_ASSESSMENT_ADMIN_PASSWORD", "")
+    if not expected or not secrets.compare_digest(supplied, expected):
+        LOGIN_RATE[host] = attempts + [now]
+        raise HTTPException(401, "Incorrect password.")
+    LOGIN_RATE.pop(host, None)
+    issued = str(int(now))
+    signature = hmac.new(_session_secret(), issued.encode("ascii"), hashlib.sha256).hexdigest()
+    response.set_cookie(SESSION_COOKIE, issued + "." + signature, max_age=SESSION_SECONDS,
+                        httponly=True, secure=True, samesite="strict",
+                        path="/api/admin/retailer-assessments")
+    response.headers["Cache-Control"] = "no-store"
+    return {"authenticated": True}
+
+@admin_router.post("/api/admin/retailer-assessments/logout")
+async def assessment_admin_logout(response: FastAPIResponse):
+    response.delete_cookie(SESSION_COOKIE, path="/api/admin/retailer-assessments",
+                           secure=True, httponly=True, samesite="strict")
+    response.headers["Cache-Control"] = "no-store"
+    return {"logged_out": True}
+
 @admin_router.get("/api/admin/retailer-assessments")
-async def list_assessments(x_nexusai_admin_key: str | None = Header(default=None)):
-    _admin(x_nexusai_admin_key)
+async def list_assessments(request: Request):
+    _admin(request)
     with _db() as conn:
         rows = _sql(conn, """SELECT application_id,company_name,website,country,contact_name,role,email,phone,
         store_count,camera_count,cctv_provider,uses_hikvision,pos_provider,pos_version,pos_api,objectives,
@@ -148,8 +197,8 @@ async def list_assessments(x_nexusai_admin_key: str | None = Header(default=None
     return {"applications":[dict(zip(keys,row)) for row in rows]}
 
 @admin_router.get("/api/admin/retailer-assessments/{application_id}/pdf")
-async def download_assessment_pdf(application_id: str, x_nexusai_admin_key: str | None = Header(default=None)):
-    _admin(x_nexusai_admin_key)
+async def download_assessment_pdf(application_id: str, request: Request):
+    _admin(request)
     with _db() as conn:
         row = _sql(conn, "SELECT pdf_data,pdf_filename,pdf_sha256 FROM nexusai_retail_assessments WHERE application_id=%s",
                    (application_id,)).fetchone()
@@ -163,8 +212,8 @@ async def download_assessment_pdf(application_id: str, x_nexusai_admin_key: str 
         headers={"Content-Disposition": f'attachment; filename="{safe_name}"', "Cache-Control":"no-store", "X-Content-Type-Options":"nosniff"})
 
 @admin_router.patch("/api/admin/retailer-assessments/{application_id}")
-async def update_assessment(application_id: str, request: Request, x_nexusai_admin_key: str | None = Header(default=None)):
-    _admin(x_nexusai_admin_key)
+async def update_assessment(application_id: str, request: Request):
+    _admin(request)
     body = await request.json()
     status = str(body.get("status","")).strip().upper()
     notes = _clean(str(body.get("admin_notes","")), 3000)
