@@ -68,7 +68,7 @@ async def nexusai_security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    if request.url.path.startswith(("/api/partners", "/api/admin/partners", "/api/distributors", "/api/admin/distributors")):
+    if request.url.path.startswith(("/api/partners", "/api/admin/partners", "/api/distributors", "/api/admin/distributors", "/api/admin/retailer-assessments")):
         response.headers["Cache-Control"] = "no-store"
         response.headers["Pragma"] = "no-cache"
     if request.url.scheme == "https":
