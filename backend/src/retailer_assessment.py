@@ -227,6 +227,9 @@ async def update_assessment(application_id: str, request: Request):
     return {"updated": True, "application_id": application_id, "status": status}
 
 def install(app):
-    init_db()
+    # Register endpoints before touching the database. Authentication itself is
+    # independent of DB availability; a DB startup problem must not turn the
+    # admin login URL into a misleading 404.
     app.include_router(router)
     app.include_router(admin_router)
+    init_db()
