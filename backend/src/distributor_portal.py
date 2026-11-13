@@ -253,7 +253,18 @@ async def register_distributor(payload: RegisterDistributor, request: Request):
             VALUES(%s,%s,%s,%s,%s,%s,'PENDING',%s)""",
             (distributor_id, email, full_name, company_name, payload.country.strip(),
              _password_hash(payload.password), now))
+    notification_sent = False
+    try:
+        from backend.src.gmail_distributor_approvals import notify_distributor_application
+        notification_sent = notify_distributor_application(
+            distributor_id, full_name, company_name, email, payload.country.strip()
+        )
+    except Exception:
+        # Registration must remain available if the optional Gmail integration is unavailable.
+        import logging
+        logging.exception("Distributor application was saved but its email notification failed.")
     return {"registered": True, "status": "PENDING",
+            "email_notification_sent": notification_sent,
             "message": "Application received. NexusAI must approve your distributor account before sign-in."}
 
 
@@ -337,6 +348,14 @@ async def logout_distributor(authorization: str | None = Header(default=None)):
 @admin_router.get("")
 async def admin_list_distributors(authorization: str | None = Header(default=None)):
     _admin(authorization)
+    # Refresh replies on an authenticated admin page request as a fallback if the
+    # hosting plan has paused the background polling thread while idle.
+    try:
+        from backend.src.gmail_distributor_approvals import poll_approval_replies_once
+        poll_approval_replies_once()
+    except Exception:
+        import logging
+        logging.exception("Could not refresh Gmail distributor approval replies.")
     with _db() as conn:
         rows = _sql(conn, """SELECT a.distributor_id,a.email,a.full_name,a.company_name,a.country,a.status,a.created_at,
             COUNT(r.referral_id) AS referrals,
@@ -360,7 +379,7 @@ async def admin_distributor_status(distributor_id: str, payload: DistributorStat
         raise HTTPException(400, "Provide both the signed agreement version and secure reference, or neither.")
     with _db() as conn:
         cur = _sql(conn, """UPDATE nexusai_distributor_accounts SET status=%s
-            WHERE distributor_id=%s AND status IN ('PENDING','ACTIVE','SUSPENDED')""", (status, distributor_id))
+            WHERE distributor_id=%s AND status IN ('PENDING','ACTIVE','SUSPENDED','REJECTED')""", (status, distributor_id))
         if cur.rowcount != 1:
             raise HTTPException(404, "Distributor account not found.")
         if status == "ACTIVE" and has_agreement_version and has_agreement_reference:
