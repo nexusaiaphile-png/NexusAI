@@ -371,7 +371,7 @@ async def admin_distributor_status(distributor_id: str, payload: DistributorStat
         raise HTTPException(400, "Provide both the signed agreement version and secure reference, or neither.")
     with _db() as conn:
         cur = _sql(conn, """UPDATE nexusai_distributor_accounts SET status=%s
-            WHERE distributor_id=%s AND status IN ('PENDING','ACTIVE','SUSPENDED')""", (status, distributor_id))
+            WHERE distributor_id=%s AND status IN ('PENDING','ACTIVE','SUSPENDED','REJECTED')""", (status, distributor_id))
         if cur.rowcount != 1:
             raise HTTPException(404, "Distributor account not found.")
         if status == "ACTIVE" and has_agreement_version and has_agreement_reference:
