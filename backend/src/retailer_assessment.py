@@ -1,9 +1,7 @@
 """Retailer compatibility assessment intake with isolated PDF storage and admin review."""
 import hashlib
-import hmac
 import os
 import re
-import secrets
 import sqlite3
 import time
 import uuid
@@ -17,9 +15,7 @@ router = APIRouter(tags=["retailer-assessment"])
 admin_router = APIRouter(tags=["retailer-assessment-admin"])
 DB_PATH = Path(__file__).resolve().parents[2] / "nexusai.db"
 RATE = {}
-LOGIN_RATE = {}
-SESSION_COOKIE = "nexusai_retail_admin_session"
-SESSION_SECONDS = 8 * 60 * 60
+ADMIN_EMAIL = "nexusai.aphile@gmail.com"
 MAX_PDF_BYTES = 10 * 1024 * 1024
 STATUSES = {"NEW", "UNDER_REVIEW", "NEED_INFO", "COMPATIBLE", "NOT_COMPATIBLE", "PILOT_APPROVED", "CLOSED"}
 
@@ -67,26 +63,28 @@ def init_db():
         _sql(conn, "CREATE INDEX IF NOT EXISTS idx_retail_assessments_created ON nexusai_retail_assessments(created_at)")
         _sql(conn, "CREATE INDEX IF NOT EXISTS idx_retail_assessments_status ON nexusai_retail_assessments(status)")
 
-def _session_secret():
-    secret = os.getenv("RETAIL_ASSESSMENT_SESSION_SECRET", "").strip()
-    if not secret:
-        raise HTTPException(503, "Administrator login is not configured.")
-    return secret.encode("utf-8")
+def _verify_google_identity_token(credential: str, client_id: str) -> dict:
+    from google.auth.transport.requests import Request as GoogleRequest
+    from google.oauth2 import id_token
+    return id_token.verify_oauth2_token(credential, GoogleRequest(), audience=client_id)
 
 def _admin(request: Request):
-    token = request.cookies.get(SESSION_COOKIE, "")
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    if not client_id:
+        raise HTTPException(503, "Google administrator sign-in is not configured.")
+    authorization = request.headers.get("authorization", "")
+    if not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, "Sign in with the authorised NexusAI Google account.")
+    credential = authorization.split(" ", 1)[1].strip()
+    if not credential or len(credential) > 5000:
+        raise HTTPException(401, "Administrator sign-in is invalid. Please sign in again.")
     try:
-        issued_text, signature = token.split(".", 1)
-        issued = int(issued_text)
-        if issued > int(time.time()) + 60 or int(time.time()) - issued > SESSION_SECONDS:
-            raise ValueError("expired")
-        expected = hmac.new(_session_secret(), issued_text.encode("ascii"), hashlib.sha256).hexdigest()
-        if not secrets.compare_digest(signature, expected):
-            raise ValueError("invalid")
-    except HTTPException:
-        raise
+        claims = _verify_google_identity_token(credential, client_id)
     except Exception:
-        raise HTTPException(401, "Please sign in to the retailer assessment admin.")
+        raise HTTPException(401, "Google sign-in could not be verified. Please sign in again.")
+    email = str(claims.get("email", "")).strip().lower()
+    if email != ADMIN_EMAIL or claims.get("email_verified") is not True:
+        raise HTTPException(403, "This Google account is not authorised to administer NexusAI.")
 
 def _clean(value, limit=500):
     value = re.sub(r"[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f]", "", (value or "")).strip()
@@ -154,34 +152,12 @@ async def submit_assessment(
     return {"submitted": True, "application_id": app_id,
             "message": "Your information has been submitted for a NexusAI compatibility assessment. We will review the technical details and contact you."}
 
-@admin_router.post("/api/admin/retailer-assessments/login")
-async def assessment_admin_login(request: Request, response: FastAPIResponse):
-    host = request.client.host if request.client else "unknown"
-    now = time.time()
-    attempts = [t for t in LOGIN_RATE.get(host, []) if now - t < 900]
-    if len(attempts) >= 5:
-        raise HTTPException(429, "Too many password attempts. Please try again in 15 minutes.")
-    body = await request.json()
-    supplied = str(body.get("password", ""))
-    expected = os.getenv("RETAIL_ASSESSMENT_ADMIN_PASSWORD", "")
-    if not expected or not secrets.compare_digest(supplied, expected):
-        LOGIN_RATE[host] = attempts + [now]
-        raise HTTPException(401, "Incorrect password.")
-    LOGIN_RATE.pop(host, None)
-    issued = str(int(now))
-    signature = hmac.new(_session_secret(), issued.encode("ascii"), hashlib.sha256).hexdigest()
-    response.set_cookie(SESSION_COOKIE, issued + "." + signature, max_age=SESSION_SECONDS,
-                        httponly=True, secure=True, samesite="strict",
-                        path="/api/admin/retailer-assessments")
-    response.headers["Cache-Control"] = "no-store"
-    return {"authenticated": True}
+@admin_router.get("/api/admin/retailer-assessments/auth-config")
+async def assessment_admin_auth_config():
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    return {"configured": bool(client_id), "client_id": client_id if client_id else None,
+            "administrator_email": ADMIN_EMAIL}
 
-@admin_router.post("/api/admin/retailer-assessments/logout")
-async def assessment_admin_logout(response: FastAPIResponse):
-    response.delete_cookie(SESSION_COOKIE, path="/api/admin/retailer-assessments",
-                           secure=True, httponly=True, samesite="strict")
-    response.headers["Cache-Control"] = "no-store"
-    return {"logged_out": True}
 
 @admin_router.get("/api/admin/retailer-assessments")
 async def list_assessments(request: Request):
