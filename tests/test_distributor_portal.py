@@ -44,6 +44,25 @@ def test_pending_distributor_requires_approval(client):
     assert login.status_code == 403
 
 
+
+def test_admin_can_reject_pending_distributor(client):
+    response = register(client, email="reject-me@example.com")
+    assert response.status_code == 200
+    distributor_id = client.get(
+        "/api/admin/distributors", headers=admin_headers()
+    ).json()["distributors"][0]["distributor_id"]
+    rejected = client.post(
+        f"/api/admin/distributors/{distributor_id}/status",
+        headers=admin_headers(),
+        json={"status": "REJECTED"},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "REJECTED"
+    login = client.post("/api/distributors/login", json={
+        "email": "reject-me@example.com", "password": "a-secure-password-123"
+    })
+    assert login.status_code == 403
+
 def test_distributor_referrals_are_isolated_and_conversion_does_not_create_one_off_rewards(client):
     register(client)
     accounts = client.get("/api/admin/distributors", headers=admin_headers()).json()["distributors"]
