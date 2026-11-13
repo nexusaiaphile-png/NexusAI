@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr
 from backend.src.partner_portal import router as partner_portal_router, admin_router as partner_admin_router, init_partner_db
 from backend.src.distributor_portal import router as distributor_portal_router, admin_router as distributor_admin_router, init_distributor_db
+from backend.src.gmail_distributor_approvals import init_approval_db, start_approval_poller
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 PORTAL_DIR = BASE_DIR / "portal"
@@ -372,6 +373,8 @@ def startup():
     init_db()
     init_partner_db()
     init_distributor_db()
+    init_approval_db()
+    start_approval_poller()
     if database_url():
         import psycopg
         with psycopg.connect(database_url()) as conn:
