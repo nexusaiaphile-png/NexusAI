@@ -123,38 +123,57 @@ def _check_password(password: str, encoded: str) -> bool:
         return False
 
 
-ADMIN_EMAIL = "nexusai.aphile@gmail.com"
+def _admin_session_secret() -> bytes:
+    pin = os.getenv("NEXUSAI_ADMIN_PIN", "").strip()
+    if len(pin) < 12:
+        raise HTTPException(503, "NexusAI admin PIN is not configured. Set NEXUSAI_ADMIN_PIN in Render.")
+    return hashlib.sha256(("NexusAI-admin-session-v1:" + pin).encode()).digest()
 
 
-def _verify_google_identity_token(credential: str, client_id: str) -> dict:
-    from google.auth.transport.requests import Request as GoogleRequest
-    from google.oauth2 import id_token
-    return id_token.verify_oauth2_token(credential, GoogleRequest(), audience=client_id)
+class AdminPinLogin(BaseModel):
+    pin: str = Field(..., min_length=1, max_length=128)
+
+
+def _admin_session_token() -> str:
+    expires = int(time.time()) + 8 * 60 * 60
+    nonce = secrets.token_urlsafe(18)
+    payload = f"{expires}.{nonce}"
+    signature = hmac.new(_admin_session_secret(), payload.encode(), hashlib.sha256).hexdigest()
+    return payload + "." + signature
 
 
 def _admin(authorization: str | None):
-    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
-    if not client_id:
-        raise HTTPException(503, "Google administrator sign-in is not configured.")
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(401, "Sign in with the authorised NexusAI Google account.")
-    credential = authorization.split(" ", 1)[1].strip()
-    if not credential or len(credential) > 5000:
-        raise HTTPException(401, "Administrator sign-in is invalid. Please sign in again.")
+        raise HTTPException(401, "Enter your NexusAI admin PIN to continue.")
+    token = authorization.split(" ", 1)[1].strip()
+    if not token or len(token) > 500:
+        raise HTTPException(401, "Admin session is invalid. Enter your PIN again.")
     try:
-        claims = _verify_google_identity_token(credential, client_id)
+        expires, nonce, signature = token.split(".", 2)
+        payload = f"{expires}.{nonce}"
+        expected = hmac.new(_admin_session_secret(), payload.encode(), hashlib.sha256).hexdigest()
+        if int(expires) <= int(time.time()) or not hmac.compare_digest(signature, expected):
+            raise ValueError("invalid token")
     except Exception:
-        raise HTTPException(401, "Google sign-in could not be verified. Please sign in again.")
-    email = str(claims.get("email", "")).strip().lower()
-    if email != ADMIN_EMAIL or claims.get("email_verified") is not True:
-        raise HTTPException(403, "This Google account is not authorised to administer NexusAI.")
+        raise HTTPException(401, "Admin session has expired or is invalid. Enter your PIN again.")
 
 
 @admin_router.get("/auth-config")
 async def admin_auth_config():
-    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
-    return {"configured": bool(client_id), "client_id": client_id if client_id else None,
-            "administrator_email": ADMIN_EMAIL}
+    configured = len(os.getenv("NEXUSAI_ADMIN_PIN", "").strip()) >= 12
+    return {"configured": configured, "method": "pin"}
+
+
+@admin_router.post("/auth-login")
+async def admin_auth_login(payload: AdminPinLogin, request: Request):
+    host = request.client.host if request.client else "unknown"
+    _rate_limit(LOGIN_RATE, host, 5, 300)
+    expected = os.getenv("NEXUSAI_ADMIN_PIN", "").strip()
+    if len(expected) < 12:
+        raise HTTPException(503, "Admin PIN is not configured in Render.")
+    if not hmac.compare_digest(payload.pin, expected):
+        raise HTTPException(401, "Incorrect admin PIN.")
+    return {"access_token": _admin_session_token(), "token_type": "bearer", "expires_in": 28800}
 
 
 def _rate_limit(bucket: dict, host: str, limit: int, window: int):
