@@ -253,19 +253,8 @@ async def register_distributor(payload: RegisterDistributor, request: Request):
             VALUES(%s,%s,%s,%s,%s,%s,'PENDING',%s)""",
             (distributor_id, email, full_name, company_name, payload.country.strip(),
              _password_hash(payload.password), now))
-    notification_sent = False
-    try:
-        from backend.src.gmail_distributor_approvals import notify_distributor_application
-        notification_sent = notify_distributor_application(
-            distributor_id, full_name, company_name, email, payload.country.strip()
-        )
-    except Exception:
-        # Registration must remain available if the optional Gmail integration is unavailable.
-        import logging
-        logging.exception("Distributor application was saved but its email notification failed.")
     return {"registered": True, "status": "PENDING",
-            "email_notification_sent": notification_sent,
-            "message": "Application received. NexusAI must approve your distributor account before sign-in."}
+            "message": "Application received. Your account will be available after NexusAI reviews and approves it."}
 
 
 @router.post("/login")
@@ -348,14 +337,6 @@ async def logout_distributor(authorization: str | None = Header(default=None)):
 @admin_router.get("")
 async def admin_list_distributors(authorization: str | None = Header(default=None)):
     _admin(authorization)
-    # Refresh replies on an authenticated admin page request as a fallback if the
-    # hosting plan has paused the background polling thread while idle.
-    try:
-        from backend.src.gmail_distributor_approvals import poll_approval_replies_once
-        poll_approval_replies_once()
-    except Exception:
-        import logging
-        logging.exception("Could not refresh Gmail distributor approval replies.")
     with _db() as conn:
         rows = _sql(conn, """SELECT a.distributor_id,a.email,a.full_name,a.company_name,a.country,a.status,a.created_at,
             COUNT(r.referral_id) AS referrals,
@@ -371,8 +352,8 @@ async def admin_distributor_status(distributor_id: str, payload: DistributorStat
                                    authorization: str | None = Header(default=None)):
     _admin(authorization)
     status = payload.status.strip().upper()
-    if status not in {"ACTIVE", "SUSPENDED"}:
-        raise HTTPException(400, "Status must be ACTIVE or SUSPENDED.")
+    if status not in {"ACTIVE", "SUSPENDED", "REJECTED"}:
+        raise HTTPException(400, "Status must be ACTIVE, SUSPENDED or REJECTED.")
     has_agreement_version = bool(payload.agreement_version and payload.agreement_version.strip())
     has_agreement_reference = bool(payload.agreement_reference and payload.agreement_reference.strip())
     if has_agreement_version != has_agreement_reference:
@@ -390,7 +371,7 @@ async def admin_distributor_status(distributor_id: str, payload: DistributorStat
                 signed_reference=excluded.signed_reference,recorded_at=excluded.recorded_at,recorded_by=excluded.recorded_by""",
                 ("dagr_" + uuid.uuid4().hex[:16], distributor_id, payload.agreement_version.strip(),
                  payload.agreement_reference.strip(), time.time()))
-        if status == "SUSPENDED":
+        if status in {"SUSPENDED", "REJECTED"}:
             _sql(conn, "UPDATE nexusai_distributor_sessions SET revoked_at=%s WHERE distributor_id=%s AND revoked_at IS NULL",
                  (time.time(), distributor_id))
     return {"updated": True, "distributor_id": distributor_id, "status": status}
