@@ -348,6 +348,14 @@ async def logout_distributor(authorization: str | None = Header(default=None)):
 @admin_router.get("")
 async def admin_list_distributors(authorization: str | None = Header(default=None)):
     _admin(authorization)
+    # Refresh replies on an authenticated admin page request as a fallback if the
+    # hosting plan has paused the background polling thread while idle.
+    try:
+        from backend.src.gmail_distributor_approvals import poll_approval_replies_once
+        poll_approval_replies_once()
+    except Exception:
+        import logging
+        logging.exception("Could not refresh Gmail distributor approval replies.")
     with _db() as conn:
         rows = _sql(conn, """SELECT a.distributor_id,a.email,a.full_name,a.company_name,a.country,a.status,a.created_at,
             COUNT(r.referral_id) AS referrals,
