@@ -36,10 +36,20 @@ def _credentials():
     }
 
 
-def configured():
+def _configuration_diagnostics():
+    """Return presence-only diagnostics; never expose credential contents."""
     c = _credentials()
-    return bool(c["client_id"] and c["client_secret"] and c["refresh_token"]
-                and c["account"] == ADMIN_EMAIL)
+    return {
+        "client_id_present": bool(c["client_id"]),
+        "client_secret_present": bool(c["client_secret"]),
+        "refresh_token_present": bool(c["refresh_token"]),
+        "account_matches_admin": c["account"] == ADMIN_EMAIL,
+    }
+
+
+def configured():
+    status = _configuration_diagnostics()
+    return all(status.values())
 
 
 def _postgres():
@@ -268,7 +278,17 @@ def _poll_loop():
 
 def start_approval_poller():
     global _poll_thread
-    if not configured():
+    status = _configuration_diagnostics()
+    if not all(status.values()):
+        logger.warning(
+            "Gmail approval configuration check (presence only): "
+            "client_id_present=%s client_secret_present=%s "
+            "refresh_token_present=%s account_matches_admin=%s",
+            status["client_id_present"],
+            status["client_secret_present"],
+            status["refresh_token_present"],
+            status["account_matches_admin"],
+        )
         logger.info("Gmail distributor approval polling is disabled until credentials are configured.")
         return False
     with _poll_lock:
