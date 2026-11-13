@@ -1199,8 +1199,8 @@ def require_edge_token(token: str | None, authorization: str | None = None, site
 
 @app.get("/", include_in_schema=False)
 async def public_home():
-    # The public domain is the NexusAI Remote Security Command Centre.
-    return RedirectResponse(url="/admin", status_code=307)
+    """Serve the public NexusAI Retail Intelligence homepage."""
+    return FileResponse(PORTAL_DIR / "index.html", media_type="text/html")
 
 
 @app.get("/retailer-assessment", include_in_schema=False)
