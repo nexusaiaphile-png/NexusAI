@@ -253,7 +253,18 @@ async def register_distributor(payload: RegisterDistributor, request: Request):
             VALUES(%s,%s,%s,%s,%s,%s,'PENDING',%s)""",
             (distributor_id, email, full_name, company_name, payload.country.strip(),
              _password_hash(payload.password), now))
+    notification_sent = False
+    try:
+        from backend.src.gmail_distributor_approvals import notify_distributor_application
+        notification_sent = notify_distributor_application(
+            distributor_id, full_name, company_name, email, payload.country.strip()
+        )
+    except Exception:
+        # Registration must remain available if the optional Gmail integration is unavailable.
+        import logging
+        logging.exception("Distributor application was saved but its email notification failed.")
     return {"registered": True, "status": "PENDING",
+            "email_notification_sent": notification_sent,
             "message": "Application received. NexusAI must approve your distributor account before sign-in."}
 
 
