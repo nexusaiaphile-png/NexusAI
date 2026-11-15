@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS nexusai_retail_notification_recipients (
     email_opt_in BOOLEAN NOT NULL DEFAULT FALSE,
     whatsapp_opt_in BOOLEAN NOT NULL DEFAULT FALSE,
     created_at DOUBLE PRECISION NOT NULL,
-    updated_at DOUBLE PRECISION NOT NULL
+    updated_at DOUBLE PRECISION NOT NULL,
+    UNIQUE (recipient_id, organisation_id)
 );
 
 CREATE TABLE IF NOT EXISTS nexusai_retail_recipient_sites (
@@ -41,6 +42,8 @@ CREATE TABLE IF NOT EXISTS nexusai_retail_recipient_sites (
     site_id TEXT NOT NULL,
     created_at DOUBLE PRECISION NOT NULL,
     PRIMARY KEY (recipient_id, site_id),
+    FOREIGN KEY (recipient_id, organisation_id)
+        REFERENCES nexusai_retail_notification_recipients(recipient_id, organisation_id) ON DELETE CASCADE,
     FOREIGN KEY (organisation_id, site_id)
         REFERENCES nexusai_retail_organisation_sites(organisation_id, site_id) ON DELETE CASCADE
 );
