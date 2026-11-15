@@ -1,5 +1,5 @@
-const CACHE="nexusai-v3";
-const ASSETS=["/app/","/app/index.html","/app/app.js","/app/manifest.json","/app/icon.svg"];
+const CACHE="nexusai-v4";
+const ASSETS=["/app/","/app/index.html","/app/app.js","/app/manifest.json","/app/icon.svg","/app/retail.html"];
 self.addEventListener("install",event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()))});
 self.addEventListener("activate",event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
 self.addEventListener("fetch",event=>{

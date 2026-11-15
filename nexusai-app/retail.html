@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#06131d"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="manifest" href="/app/manifest.json"><title>NexusAI Retail Dashboard</title>
+<style>
+:root{color-scheme:dark;--bg:#040a10;--panel:#08131b;--line:#18353b;--teal:#25f5c5;--muted:#9eb2b1;--white:#eef8f6}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--white);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:920px;margin:auto;padding:22px 16px 56px}.brand{display:flex;align-items:center;gap:12px}.logo{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;background:#07151d;border:1px solid #1b4d4a;color:var(--teal);font-weight:950;font-size:24px}.eyebrow{font-size:10px;letter-spacing:2px;color:var(--teal);font-weight:900}.brand strong{font-size:18px}.panel{margin-top:18px;padding:18px;border:1px solid var(--line);border-radius:17px;background:var(--panel)}h1{font-size:29px;margin:8px 0}h2{font-size:18px;margin:0 0 12px}.muted{color:var(--muted);line-height:1.5;font-size:14px}.input{width:100%;padding:14px;border:1px solid #29434a;border-radius:10px;background:#061018;color:var(--white);font-size:15px;margin:10px 0}.btn{border:0;border-radius:10px;padding:13px 15px;background:var(--teal);color:#03110e;font-weight:900;cursor:pointer}.btn.secondary{background:#10222b;color:#eaf6f4;border:1px solid #24434a}.btn:disabled{opacity:.5}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.branch{display:inline-block;border:1px solid #24504a;color:#a4f7e1;background:#0b201e;border-radius:99px;padding:7px 10px;margin:4px;font-size:12px}.alert{padding:15px;border:1px solid #1b3c42;border-left:3px solid var(--teal);border-radius:11px;margin-top:11px;background:#071119}.alert.unread{border-left-color:#ffc86d}.alert strong{display:block}.alert small{display:block;color:var(--muted);margin-top:6px;line-height:1.45}.alert button{margin-top:10px}.status{padding:12px;border-radius:10px;background:#0b1d25;color:#a9bcba;font-size:13px;margin-top:12px}.error{color:#ff9d9d}.hidden{display:none!important}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.count{color:var(--teal);font-weight:900}@media(max-width:520px){.wrap{padding:15px 12px 40px}h1{font-size:25px}.panel{padding:15px}}
+</style></head><body><main class="wrap">
+<header class="brand"><div class="logo">N</div><div><div class="eyebrow">NEXUSAI RETAIL INTELLIGENCE</div><strong>Retailer Dashboard</strong></div></header>
+<section id="login" class="panel"><div class="eyebrow">SECURE SIGN IN</div><h1>Welcome back.</h1><p class="muted">Enter the secure access token issued by your NexusAI administrator. Your branch permissions are checked by NexusAI on every request.</p><input id="token" class="input" type="password" autocomplete="off" placeholder="Retailer access token"><div class="row"><button id="signIn" class="btn">SIGN IN</button></div><div id="loginStatus" class="status" aria-live="polite">Your access token is shown only once when your account is created.</div></section>
+<section id="dashboard" class="hidden">
+<div class="panel"><div class="top"><div><div class="eyebrow">SIGNED IN</div><h1 id="welcome">Retail dashboard</h1><div class="muted" id="role"></div></div><button id="signOut" class="btn secondary">SIGN OUT</button></div><div id="branches" style="margin-top:12px"></div><div class="row" style="margin-top:15px"><button id="enablePush" class="btn">ENABLE PHONE ALERTS</button><button id="refresh" class="btn secondary">REFRESH</button></div><div id="pushStatus" class="status" aria-live="polite">Phone alerts are optional. Enable them once to receive alerts while this dashboard is closed.</div></div>
+<div class="panel"><div class="top"><h2>Retail alerts</h2><div class="count" id="unread">0 unread</div></div><p class="muted">POS exceptions requiring authorised human review. You will only see branches assigned to your account.</p><div id="alerts"><div class="muted">Loading alerts…</div></div></div>
+</section></main>
+<script>
+const $=id=>document.getElementById(id);let token=localStorage.getItem("nexusai_retail_token")||"";let registration=null;let poll=null;
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function auth(){return {"Authorization":"Bearer "+token,"Content-Type":"application/json"}}
+function b64bytes(value){const pad="=".repeat((4-value.length%4)%4);const raw=atob((value+pad).replace(/-/g,"+").replace(/_/g,"/"));return Uint8Array.from(raw,c=>c.charCodeAt(0))}
+function showLogin(message){$("login").classList.remove("hidden");$("dashboard").classList.add("hidden");$("loginStatus").textContent=message||"Sign in with your retailer access token."}
+async function api(path,options={}){const response=await fetch(path,{...options,headers:{...auth(),...(options.headers||{})},cache:"no-store"});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.detail||"NexusAI request failed.");return data}
+async function loadDashboard(){
+ try{
+  const me=await api("/api/retail/notifications/me");
+  $("login").classList.add("hidden");$("dashboard").classList.remove("hidden");
+  $("welcome").textContent="Hello, "+(me.recipient.display_name||"Retail user");
+  $("role").textContent=me.recipient.role==="HEAD_OFFICE"?"Head office · authorised branch overview":"Store manager · assigned branch";
+  $("branches").innerHTML=me.branches.map(b=>'<span class="branch">'+esc(b.business_name)+'</span>').join("");
+  const data=await api("/api/retail/notifications?limit=100");
+  const items=data.notifications||[];const unread=items.filter(n=>n.delivery_status!=="READ").length;
+  $("unread").textContent=unread+" unread";
+  $("alerts").innerHTML=items.length?items.map(n=>'<article class="alert '+(n.delivery_status==="READ"?"":"unread")+'"><strong>'+esc(n.exception_type||"POS exception")+' · '+esc(n.branch)+'</strong><small>'+esc(n.summary)+'<br>'+esc(n.occurred_at||"")+'</small>'+(n.delivery_status==="READ"?"":'<button class="btn secondary" data-read="'+esc(n.notification_id)+'">MARK REVIEWED</button>')+'</article>').join(""):'<div class="status">No retail alerts yet. New flagged POS exceptions will appear here after the retailer POS and HPP integrations are authorised and active.</div>';
+  $("alerts").querySelectorAll("[data-read]").forEach(btn=>btn.addEventListener("click",async()=>{btn.disabled=true;try{await api("/api/retail/notifications/"+encodeURIComponent(btn.dataset.read)+"/read",{method:"POST"});await loadDashboard()}catch(e){btn.disabled=false;alert(e.message)}}));
+ }catch(e){if(/access|token|sign in|expired|revoked/i.test(e.message)){token="";localStorage.removeItem("nexusai_retail_token");showLogin(e.message)}else $("alerts").textContent=e.message}
+}
+async function enablePush(){
+ $("enablePush").disabled=true;
+ try{
+  if(!window.isSecureContext||!("serviceWorker" in navigator)||!("PushManager" in window)||!("Notification" in window))throw Error("This browser does not support web push. Use a supported browser on HTTPS.");
+  const cfg=await fetch("/api/retail/push/config",{cache:"no-store"}).then(r=>r.json());
+  if(!cfg.configured||!cfg.public_key)throw Error("Phone alerts are not configured on the NexusAI server yet.");
+  const permission=await Notification.requestPermission();if(permission!=="granted")throw Error("Notification permission was not granted. Enable it in your browser or phone settings.");
+  registration=await navigator.serviceWorker.register("/app/service-worker.js",{scope:"/app/",updateViaCache:"none"});await registration.update();
+  let sub=await registration.pushManager.getSubscription();if(!sub)sub=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64bytes(cfg.public_key)});
+  await api("/api/retail/push/subscribe",{method:"POST",body:JSON.stringify({subscription:sub.toJSON()})});
+  $("pushStatus").textContent="Phone alerts enabled. NexusAI can notify this device when the dashboard is closed, subject to browser and device notification settings.";
+  $("enablePush").textContent="PHONE ALERTS ENABLED";
+ }catch(e){$("pushStatus").textContent=e.message;$("pushStatus").classList.add("error");$("enablePush").disabled=false}
+}
+async function signOut(){
+ try{if(!registration)registration=await navigator.serviceWorker.getRegistration("/app/");const sub=registration&&await registration.pushManager.getSubscription();if(sub){try{await api("/api/retail/push/subscribe",{method:"DELETE",body:JSON.stringify({endpoint:sub.endpoint})})}catch(_){}await sub.unsubscribe()}}catch(_){}
+ localStorage.removeItem("nexusai_retail_token");token="";if(poll)clearInterval(poll);showLogin("You have signed out. This device's retail push subscription has been revoked where available.");
+}
+$("signIn").addEventListener("click",async()=>{const candidate=$("token").value.trim();if(!candidate){showLogin("Enter your access token to continue.");return}token=candidate;try{await api("/api/retail/notifications/me");localStorage.setItem("nexusai_retail_token",token);$("loginStatus").textContent="Signed in.";await loadDashboard();if(poll)clearInterval(poll);poll=setInterval(loadDashboard,30000)}catch(e){token="";showLogin(e.message)}});
+$("enablePush").addEventListener("click",enablePush);$("refresh").addEventListener("click",loadDashboard);$("signOut").addEventListener("click",signOut);
+if(token){loadDashboard().then(()=>{poll=setInterval(loadDashboard,30000)})}
+</script></body></html>
