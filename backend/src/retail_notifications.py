@@ -77,6 +77,21 @@ class PushUnsubscribeIn(BaseModel):
     endpoint: str = Field(min_length=20, max_length=2048)
 
 
+@router.get("/api/admin/retail/sites")
+async def list_retail_customer_sites(authorization: str | None = Header(default=None)):
+    """List customer branches for the authenticated CEO admin provisioning screen."""
+    _admin(authorization)
+    conn = _db()
+    try:
+        rows = _q(conn, """SELECT c.site_id,c.business_name,c.store_address
+            FROM nexusai_customers c
+            WHERE COALESCE(c.status,'ACTIVE')='ACTIVE'
+            ORDER BY c.business_name,c.site_id""").fetchall()
+    finally:
+        conn.close()
+    return {"sites": [{"site_id": r[0], "business_name": r[1], "store_address": r[2]} for r in rows]}
+
+
 @router.post("/api/admin/retail/organisations")
 async def create_organisation(payload: OrganisationIn, authorization: str | None = Header(default=None)):
     _admin(authorization)
