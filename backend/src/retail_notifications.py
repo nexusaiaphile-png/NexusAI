@@ -223,11 +223,16 @@ async def retailer_push_subscribe(payload: PushSubscriptionIn, authorization: st
     recipient = _bearer(authorization)
     sub = payload.subscription
     endpoint = str(sub.get("endpoint") or "").strip()
-    parsed = urlsplit(endpoint)
-    host = (parsed.hostname or "").lower()
-    allowed_host = (host == "fcm.googleapis.com" or host == "web.push.apple.com"
-        or host.endswith(".push.services.mozilla.com") or host.endswith(".notify.windows.com"))
-    if parsed.scheme != "https" or not allowed_host or parsed.username or parsed.password or parsed.port:
+    try:
+        parsed = urlsplit(endpoint)
+        host = (parsed.hostname or "").lower()
+        allowed_host = (host == "fcm.googleapis.com" or host == "web.push.apple.com"
+            or host.endswith(".push.services.mozilla.com") or host.endswith(".notify.windows.com"))
+        valid_endpoint = (parsed.scheme == "https" and parsed.netloc.lower() == host
+            and allowed_host and bool(parsed.path))
+    except ValueError:
+        valid_endpoint = False
+    if not valid_endpoint:
         raise HTTPException(422, "The browser push endpoint is not from a supported push service.")
     keys = sub.get("keys") if isinstance(sub.get("keys"), dict) else {}
     if not endpoint.startswith("https://") or len(endpoint) > 2048 or not keys.get("p256dh") or not keys.get("auth"):
