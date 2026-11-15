@@ -35,7 +35,7 @@ def client(tmp_path, monkeypatch):
       CREATE TABLE nexusai_retail_notification_tokens(token_hash TEXT PRIMARY KEY,recipient_id TEXT NOT NULL,created_at REAL NOT NULL,expires_at REAL,revoked_at REAL);
       CREATE TABLE nexusai_retail_notifications(notification_id TEXT PRIMARY KEY,organisation_id TEXT NOT NULL,site_id TEXT NOT NULL,pos_exception_id INTEGER NOT NULL,source_event_id TEXT NOT NULL,exception_type TEXT NOT NULL,occurred_at TEXT NOT NULL,summary TEXT NOT NULL,created_at REAL NOT NULL,UNIQUE(site_id,source_event_id));
       CREATE TABLE nexusai_retail_notification_deliveries(delivery_id TEXT PRIMARY KEY,notification_id TEXT NOT NULL,recipient_id TEXT NOT NULL,channel TEXT NOT NULL CHECK(channel='DASHBOARD'),status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','QUEUED','READ','FAILED')),attempt_count INTEGER NOT NULL DEFAULT 0,created_at REAL NOT NULL,updated_at REAL NOT NULL,UNIQUE(notification_id,recipient_id,channel));
-      CREATE TABLE nexusai_retail_push_subscriptions(subscription_id TEXT PRIMARY KEY,recipient_id TEXT NOT NULL,endpoint TEXT NOT NULL UNIQUE,subscription_json TEXT NOT NULL,created_at REAL NOT NULL,updated_at REAL NOT NULL,revoked_at REAL);
+      CREATE TABLE nexusai_retail_push_subscriptions(subscription_id TEXT PRIMARY KEY,recipient_id TEXT NOT NULL,endpoint TEXT NOT NULL UNIQUE,subscription_json TEXT NOT NULL,created_at REAL NOT NULL,updated_at REAL NOT NULL,revoked_at REAL,expires_at REAL);
     """)
     conn.commit()
     conn.close()
@@ -114,10 +114,12 @@ def test_recipient_can_register_and_revoke_own_browser_push_subscription(client)
     created=client.post("/api/admin/retail/organisations/retailer-push/recipients",headers=client.admin,json={
         "role":"STORE_MANAGER","display_name":"Push Manager","site_ids":["site-branch0001"]})
     headers={"Authorization":"Bearer "+created.json()["access_token"]}
-    subscription={"endpoint":"https://push.example.test/subscription/12345678901234567890",
+    subscription={"endpoint":"https://fcm.googleapis.com/fcm/send/12345678901234567890",
         "keys":{"p256dh":"public-key","auth":"auth-key"}}
     registered=client.post("/api/retail/push/subscribe",headers=headers,json={"subscription":subscription})
     assert registered.status_code==200 and registered.json()["registered"] is True
+    rejected=client.post("/api/retail/push/subscribe",headers=headers,json={"subscription":{**subscription,"endpoint":"https://attacker.example.test/endpoint/12345678901234567890"}})
+    assert rejected.status_code==422
     with sqlite3.connect(tc.DB_PATH) as conn:
         row=conn.execute("SELECT recipient_id,revoked_at FROM nexusai_retail_push_subscriptions WHERE endpoint=?",
                          (subscription["endpoint"],)).fetchone()
