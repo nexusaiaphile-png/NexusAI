@@ -62,13 +62,16 @@ def test_manager_sees_only_assigned_branch_and_head_office_sees_assigned_branche
         "role":"HEAD_OFFICE","display_name":"Head Office","email":"office@example.com",
         "site_ids":["site-branch0001","site-branch0002"]})
     assert head.status_code == 200
+    inserted = []
     with sqlite3.connect(tc.DB_PATH) as conn:
         for site, event_id, event_type in [
             ("site-branch0001","event-001","refund"),("site-branch0002","event-002","void")]:
             cur=conn.execute("""INSERT INTO nexusai_pos_exceptions(site_id,till_id,exception_type,occurred_at,created_at,source_event_id)
                 VALUES(?,?,?,?,?,?)""",(site,"till-1",event_type,"2026-11-15T10:00:00Z",time.time(),event_id))
-            exception_id=cur.lastrowid
-            notifications.create_for_pos_exception(site,exception_id,event_id,True)
+            inserted.append((site,cur.lastrowid,event_id))
+    # The POS insert must commit before the independent post-commit notification task runs.
+    for site, exception_id, event_id in inserted:
+        notifications.create_for_pos_exception(site,exception_id,event_id,True)
     manager_headers={"Authorization":"Bearer "+manager.json()["access_token"]}
     head_headers={"Authorization":"Bearer "+head.json()["access_token"]}
     manager_rows=client.get("/api/retail/notifications",headers=manager_headers).json()["notifications"]
