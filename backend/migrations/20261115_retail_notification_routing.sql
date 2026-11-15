@@ -80,6 +80,20 @@ CREATE TABLE IF NOT EXISTS nexusai_retail_notification_deliveries (
     UNIQUE (notification_id, recipient_id, channel)
 );
 
+-- Browser push is a companion to the dashboard, never a replacement for it.
+CREATE TABLE IF NOT EXISTS nexusai_retail_push_subscriptions (
+    subscription_id TEXT PRIMARY KEY,
+    recipient_id TEXT NOT NULL REFERENCES nexusai_retail_notification_recipients(recipient_id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE,
+    subscription_json TEXT NOT NULL,
+    created_at DOUBLE PRECISION NOT NULL,
+    updated_at DOUBLE PRECISION NOT NULL,
+    revoked_at DOUBLE PRECISION
+);
+
+CREATE INDEX IF NOT EXISTS idx_retail_push_recipient_active
+    ON nexusai_retail_push_subscriptions(recipient_id, revoked_at);
+
 CREATE INDEX IF NOT EXISTS idx_retail_recipient_sites_site
     ON nexusai_retail_recipient_sites(site_id, recipient_id);
 CREATE INDEX IF NOT EXISTS idx_retail_notifications_site_created
