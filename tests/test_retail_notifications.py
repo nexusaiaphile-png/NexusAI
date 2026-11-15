@@ -30,11 +30,11 @@ def client(tmp_path, monkeypatch):
     conn.executescript("""
       CREATE TABLE nexusai_retail_organisations(organisation_id TEXT PRIMARY KEY,organisation_name TEXT NOT NULL,active BOOLEAN NOT NULL DEFAULT 1,created_at REAL NOT NULL,updated_at REAL NOT NULL);
       CREATE TABLE nexusai_retail_organisation_sites(organisation_id TEXT NOT NULL,site_id TEXT NOT NULL UNIQUE,created_at REAL NOT NULL,PRIMARY KEY(organisation_id,site_id));
-      CREATE TABLE nexusai_retail_notification_recipients(recipient_id TEXT PRIMARY KEY,organisation_id TEXT NOT NULL,role TEXT NOT NULL,display_name TEXT NOT NULL,email TEXT NOT NULL,phone_e164 TEXT,active BOOLEAN NOT NULL DEFAULT 1,dashboard_opt_in BOOLEAN NOT NULL DEFAULT 1,email_opt_in BOOLEAN NOT NULL DEFAULT 0,whatsapp_opt_in BOOLEAN NOT NULL DEFAULT 0,created_at REAL NOT NULL,updated_at REAL NOT NULL);
+      CREATE TABLE nexusai_retail_notification_recipients(recipient_id TEXT PRIMARY KEY,organisation_id TEXT NOT NULL,role TEXT NOT NULL,display_name TEXT NOT NULL,active BOOLEAN NOT NULL DEFAULT 1,dashboard_opt_in BOOLEAN NOT NULL DEFAULT 1,created_at REAL NOT NULL,updated_at REAL NOT NULL);
       CREATE TABLE nexusai_retail_recipient_sites(recipient_id TEXT NOT NULL,organisation_id TEXT NOT NULL,site_id TEXT NOT NULL,created_at REAL NOT NULL,PRIMARY KEY(recipient_id,site_id));
       CREATE TABLE nexusai_retail_notification_tokens(token_hash TEXT PRIMARY KEY,recipient_id TEXT NOT NULL,created_at REAL NOT NULL,expires_at REAL,revoked_at REAL);
       CREATE TABLE nexusai_retail_notifications(notification_id TEXT PRIMARY KEY,organisation_id TEXT NOT NULL,site_id TEXT NOT NULL,pos_exception_id INTEGER NOT NULL,source_event_id TEXT NOT NULL,exception_type TEXT NOT NULL,occurred_at TEXT NOT NULL,summary TEXT NOT NULL,created_at REAL NOT NULL,UNIQUE(site_id,source_event_id));
-      CREATE TABLE nexusai_retail_notification_deliveries(delivery_id TEXT PRIMARY KEY,notification_id TEXT NOT NULL,recipient_id TEXT NOT NULL,channel TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'PENDING',attempt_count INTEGER NOT NULL DEFAULT 0,provider_reference TEXT,error_code TEXT,created_at REAL NOT NULL,updated_at REAL NOT NULL,UNIQUE(notification_id,recipient_id,channel));
+      CREATE TABLE nexusai_retail_notification_deliveries(delivery_id TEXT PRIMARY KEY,notification_id TEXT NOT NULL,recipient_id TEXT NOT NULL,channel TEXT NOT NULL CHECK(channel='DASHBOARD'),status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','QUEUED','READ','FAILED')),attempt_count INTEGER NOT NULL DEFAULT 0,created_at REAL NOT NULL,updated_at REAL NOT NULL,UNIQUE(notification_id,recipient_id,channel));
     """)
     conn.commit()
     conn.close()
@@ -55,11 +55,11 @@ def test_manager_sees_only_assigned_branch_and_head_office_sees_assigned_branche
         "site_ids":["site-branch0001","site-branch0002"]})
     assert org.status_code == 200
     manager = client.post("/api/admin/retail/organisations/retailer-one/recipients", headers=client.admin, json={
-        "role":"STORE_MANAGER","display_name":"Store Manager","email":"manager@example.com",
+        "role":"STORE_MANAGER","display_name":"Store Manager",
         "site_ids":["site-branch0001"]})
     assert manager.status_code == 200
     head = client.post("/api/admin/retail/organisations/retailer-one/recipients", headers=client.admin, json={
-        "role":"HEAD_OFFICE","display_name":"Head Office","email":"office@example.com",
+        "role":"HEAD_OFFICE","display_name":"Head Office",
         "site_ids":["site-branch0001","site-branch0002"]})
     assert head.status_code == 200
     inserted = []
@@ -86,7 +86,13 @@ def test_manager_cannot_be_assigned_multiple_branches_and_invalid_token_is_denie
         "organisation_id":"retailer-two","organisation_name":"Retailer Two",
         "site_ids":["site-branch0001","site-branch0002"]})
     response=client.post("/api/admin/retail/organisations/retailer-two/recipients",headers=client.admin,json={
-        "role":"STORE_MANAGER","display_name":"Manager","email":"manager2@example.com",
+        "role":"STORE_MANAGER","display_name":"Manager",
         "site_ids":["site-branch0001","site-branch0002"]})
     assert response.status_code==422
     assert client.get("/api/retail/notifications",headers={"Authorization":"Bearer "+"x"*40}).status_code==401
+
+
+def test_delivery_schema_rejects_external_channels(client):
+    with sqlite3.connect(tc.DB_PATH) as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO nexusai_retail_notification_deliveries(delivery_id,notification_id,recipient_id,channel,created_at,updated_at) VALUES ('d','n','r','WHATSAPP',1,1)")
