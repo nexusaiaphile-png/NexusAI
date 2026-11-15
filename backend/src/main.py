@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr
 from backend.src.partner_portal import router as partner_portal_router, admin_router as partner_admin_router, init_partner_db
 from backend.src.distributor_portal import router as distributor_portal_router, admin_router as distributor_admin_router, init_distributor_db
+from backend.src.retail_notifications import router as retail_notifications_router
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 PORTAL_DIR = BASE_DIR / "portal"
@@ -52,6 +53,7 @@ app.include_router(partner_portal_router)
 app.include_router(partner_admin_router)
 app.include_router(distributor_portal_router)
 app.include_router(distributor_admin_router)
+app.include_router(retail_notifications_router)
 
 app.add_middleware(
     CORSMiddleware,

@@ -767,6 +767,17 @@ def install_transaction_correlation(app: FastAPI) -> None:
                     event = item
                 result = _insert_exception(event)
                 created = bool(result.pop("_created", False))
+                if created:
+                    # Dashboard routing is post-commit and best-effort; a notification
+                    # failure must never undo or fail the canonical POS exception.
+                    try:
+                        from .retail_notifications import create_for_pos_exception
+                        create_for_pos_exception(
+                            event.site_id, result.get("exception_id"),
+                            event.source_event_id, bool(result.get("flagged_for_review")),
+                        )
+                    except Exception:
+                        LOG.exception("POS exception persisted; retail notification routing failed.")
                 results.append(result)
                 # Only the first durable insert may trigger an alert. POS retries
                 # remain idempotent and cannot send duplicate WhatsApp messages.
