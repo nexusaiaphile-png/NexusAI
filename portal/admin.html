@@ -33,7 +33,12 @@ function copy(v){navigator.clipboard?.writeText(v);alert("Link copied.");}
 async function load(){
  if(!key()){const k=prompt("Enter NexusAI admin key");if(k)localStorage.setItem(keyName,k);else return}
  $("sites").textContent="Loading...";
- try{const d=await api("/api/admin/sites");$("sites").innerHTML=(d.sites||[]).map(s=>'<div class="site"><div class="sitehead"><strong>'+esc(s.business_name)+'</strong><span class="'+(s.edge_agent==="ONLINE"?"online":"offline")+'">'+esc(s.edge_agent)+'</span></div><div class="small">'+esc(s.store_address||"")+" • "+esc(s.site_id)+" • "+esc(s.camera_count_live)+" cameras detected</div><div class="links"><div class="linkrow"><input readonly value="https://getnexusai.co.za/client/?token=••••••••"><button class="secondary" onclick="links('+JSON.stringify(s.site_id)+')">GET LINKS</button></div></div></div>').join("")||'<div class="small">No customer sites yet.</div>'}catch(e){$("sites").innerHTML='<span>'+esc(e.message)+'</span>'}
+ try{
+  const d=await api("/api/admin/sites");
+  const siteCards=(d.sites||[]).map(s=>'<div class="site"><div class="sitehead"><strong>'+esc(s.business_name)+'</strong><span class="'+(s.edge_agent==="ONLINE"?"online":"offline")+'">'+esc(s.edge_agent)+'</span></div><div class="small">'+esc(s.store_address||"")+" • "+esc(s.site_id)+" • "+esc(s.camera_count_live)+" cameras detected</div><div class="links"><div class="linkrow"><input readonly value="https://getnexusai.co.za/client/?token=••••••••"><button class="secondary" data-site-id="'+esc(s.site_id)+'">GET LINKS</button></div></div></div>').join("");
+  $("sites").innerHTML=siteCards||'<div class="small">No customer sites yet.</div>';
+  $("sites").querySelectorAll("[data-site-id]").forEach(button=>button.addEventListener("click",()=>links(button.dataset.siteId)));
+ }catch(e){$("sites").innerHTML='<span>'+esc(e.message)+'</span>'}
 }
 async function links(siteId){
  try{const d=await api("/api/admin/sites/"+encodeURIComponent(siteId)+"/links");const text="Customer Portal: "+d.customer_portal_url+"\nNexusAI App: "+d.notification_app_url+"\nWindows Security Box: "+d.security_box_installer.windows+"\nMac Apple Silicon Security Box: "+d.security_box_installer.macos_arm64+"\nMac Intel Security Box: "+d.security_box_installer.macos_intel;await navigator.clipboard?.writeText(text);alert(text+"\n\nLinks copied.");}catch(e){alert(e.message)}
