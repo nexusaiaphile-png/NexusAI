@@ -1,10 +1,14 @@
-# Retail notification API — first implementation
+# Retail dashboard notification API
 
-This change adds CEO-administered retailer organisation and branch provisioning, single-branch store-manager access, multi-branch head-office access, one-time high-entropy recipient tokens (SHA-256 hashes stored server-side; 90-day expiry), server-scoped dashboard notification listing, and best-effort notification creation from newly persisted POS exceptions.
+This implementation provides CEO-administered retailer organisation and branch provisioning, single-branch store-manager access, multi-branch head-office access, one-time high-entropy recipient tokens (SHA-256 hashes stored server-side; 90-day expiry), server-scoped dashboard notification listing, and best-effort notification creation from newly persisted POS exceptions.
+
+## Dashboard-only scope
+
+The dashboard is the sole customer notification channel. This feature does not collect recipient email addresses or phone numbers and does not implement email, WhatsApp, SMS, or external push delivery.
 
 ## API
 - `POST /api/admin/retail/organisations` — bearer admin PIN session; registers existing NexusAI customer site IDs to one organisation.
-- `POST /api/admin/retail/organisations/{organisation_id}/recipients` — creates STORE_MANAGER or HEAD_OFFICE recipient and returns a one-time access token.
+- `POST /api/admin/retail/organisations/{organisation_id}/recipients` — creates STORE_MANAGER or HEAD_OFFICE recipient and returns a one-time dashboard access token.
 - `GET /api/retail/notifications/me` — recipient identity and explicitly assigned branches.
 - `GET /api/retail/notifications` — dashboard notifications only for recipient's server-side site assignments.
 
@@ -15,8 +19,8 @@ This change adds CEO-administered retailer organisation and branch provisioning,
 - Client-supplied site IDs are never used to scope notification reads.
 - Only flagged canonical POS exceptions create alerts; duplicate source_event_id values are idempotent.
 - Notification creation is best-effort after the POS exception commits. Failure cannot undo the POS event.
-- Only dashboard delivery is created. Email, push and WhatsApp remain disabled pending opt-in, provider setup and separate delivery work.
+- Only DASHBOARD delivery records can be created by the schema.
 - The notification text contains no cashier identity, transaction amount or footage URL.
 
 ## Deployment
-The existing reviewed SQL migration must be applied separately after confirming production schema. This code does not run that migration automatically. No production migration, secrets or customer invitations are performed by this pull request.
+The SQL migration must be applied separately after confirming production schema. This code does not run that migration automatically. No production migration, secrets or customer invitations are performed by this pull request.
