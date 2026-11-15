@@ -26,7 +26,6 @@ def client(tmp_path, monkeypatch):
       INSERT INTO nexusai_customers(site_id,business_name,created_at) VALUES
         ('site-branch0001','Durban Central',1),('site-branch0002','Pietermaritzburg',1);
     """)
-    migration = open("backend/migrations/20261115_retail_notification_routing.sql", encoding="utf-8").read()
     # Execute equivalent SQLite-compatible DDL for the migration tables.
     conn.executescript("""
       CREATE TABLE nexusai_retail_organisations(organisation_id TEXT PRIMARY KEY,organisation_name TEXT NOT NULL,active BOOLEAN NOT NULL DEFAULT 1,created_at REAL NOT NULL,updated_at REAL NOT NULL);
@@ -41,10 +40,9 @@ def client(tmp_path, monkeypatch):
     conn.close()
     app = FastAPI()
     app.include_router(notifications.router)
-    client = TestClient(app)
-    login = client.post("/api/admin/distributors/auth-login", json={"pin":"test-admin-pin-123"}) if False else None
     from backend.src.distributor_portal import admin_router
     app.include_router(admin_router)
+    client = TestClient(app)
     login = client.post("/api/admin/distributors/auth-login", json={"pin":"test-admin-pin-123"})
     assert login.status_code == 200
     client.admin = {"Authorization":"Bearer "+login.json()["access_token"]}
