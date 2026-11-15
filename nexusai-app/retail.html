@@ -46,7 +46,7 @@ async function enablePush(){
  }catch(e){$("pushStatus").textContent=e.message;$("pushStatus").classList.add("error");$("enablePush").disabled=false}
 }
 async function signOut(){
- try{if(!registration)registration=await navigator.serviceWorker.getRegistration("/app/");const sub=registration&&await registration.pushManager.getSubscription();if(sub){await api("/api/retail/push/subscribe",{method:"DELETE",body:JSON.stringify({endpoint:sub.endpoint})});await sub.unsubscribe()}}catch(_){}
+ try{if(!registration)registration=await navigator.serviceWorker.getRegistration("/app/");const sub=registration&&await registration.pushManager.getSubscription();if(sub){try{await api("/api/retail/push/subscribe",{method:"DELETE",body:JSON.stringify({endpoint:sub.endpoint})})}catch(_){}await sub.unsubscribe()}}catch(_){}
  localStorage.removeItem("nexusai_retail_token");token="";if(poll)clearInterval(poll);showLogin("You have signed out. This device's retail push subscription has been revoked where available.");
 }
 $("signIn").addEventListener("click",async()=>{const candidate=$("token").value.trim();if(!candidate){showLogin("Enter your access token to continue.");return}token=candidate;try{await api("/api/retail/notifications/me");localStorage.setItem("nexusai_retail_token",token);$("loginStatus").textContent="Signed in.";await loadDashboard();if(poll)clearInterval(poll);poll=setInterval(loadDashboard,30000)}catch(e){token="";showLogin(e.message)}});
