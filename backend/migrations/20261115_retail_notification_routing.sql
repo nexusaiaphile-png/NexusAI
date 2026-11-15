@@ -1,5 +1,5 @@
--- NexusAI Retail Intelligence notification foundation.
--- Explicit organisation/site assignments; no inference from email domains or names.
+-- NexusAI Retail Intelligence dashboard-only notification foundation.
+-- Explicit organisation/site assignments; no email, phone or messaging-channel data.
 -- Additive only. Apply only after review and verification of the production schema.
 
 BEGIN;
@@ -25,12 +25,8 @@ CREATE TABLE IF NOT EXISTS nexusai_retail_notification_recipients (
     organisation_id TEXT NOT NULL REFERENCES nexusai_retail_organisations(organisation_id) ON DELETE CASCADE,
     role TEXT NOT NULL CHECK (role IN ('STORE_MANAGER', 'HEAD_OFFICE')),
     display_name TEXT NOT NULL,
-    email TEXT NOT NULL,
-    phone_e164 TEXT,
     active BOOLEAN NOT NULL DEFAULT TRUE,
     dashboard_opt_in BOOLEAN NOT NULL DEFAULT TRUE,
-    email_opt_in BOOLEAN NOT NULL DEFAULT FALSE,
-    whatsapp_opt_in BOOLEAN NOT NULL DEFAULT FALSE,
     created_at DOUBLE PRECISION NOT NULL,
     updated_at DOUBLE PRECISION NOT NULL,
     UNIQUE (recipient_id, organisation_id)
@@ -75,12 +71,10 @@ CREATE TABLE IF NOT EXISTS nexusai_retail_notification_deliveries (
     delivery_id TEXT PRIMARY KEY,
     notification_id TEXT NOT NULL REFERENCES nexusai_retail_notifications(notification_id) ON DELETE CASCADE,
     recipient_id TEXT NOT NULL REFERENCES nexusai_retail_notification_recipients(recipient_id) ON DELETE CASCADE,
-    channel TEXT NOT NULL CHECK (channel IN ('DASHBOARD', 'EMAIL', 'PUSH', 'WHATSAPP')),
+    channel TEXT NOT NULL CHECK (channel = 'DASHBOARD'),
     status TEXT NOT NULL DEFAULT 'PENDING'
-        CHECK (status IN ('PENDING', 'QUEUED', 'SENT', 'FAILED', 'SKIPPED')),
+        CHECK (status IN ('PENDING', 'QUEUED', 'READ', 'FAILED')),
     attempt_count INTEGER NOT NULL DEFAULT 0,
-    provider_reference TEXT,
-    error_code TEXT,
     created_at DOUBLE PRECISION NOT NULL,
     updated_at DOUBLE PRECISION NOT NULL,
     UNIQUE (notification_id, recipient_id, channel)
