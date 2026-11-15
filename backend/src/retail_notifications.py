@@ -228,13 +228,13 @@ async def retailer_push_subscribe(payload: PushSubscriptionIn, authorization: st
     encoded = json.dumps(sub, separators=(",", ":"), ensure_ascii=True)
     conn = _db()
     try:
-        existing = _q(conn, "SELECT recipient_id FROM nexusai_retail_push_subscriptions WHERE endpoint=? AND revoked_at IS NULL", (endpoint,)).fetchone()
-        if existing and existing[0] != recipient["recipient_id"]:
+        existing = _q(conn, "SELECT recipient_id,revoked_at FROM nexusai_retail_push_subscriptions WHERE endpoint=?", (endpoint,)).fetchone()
+        if existing and existing[0] != recipient["recipient_id"] and existing[1] is None:
             raise HTTPException(409, "This device is already registered to another retailer account. Sign out there first.")
         now = time.time()
         if existing:
-            _q(conn, """UPDATE nexusai_retail_push_subscriptions SET subscription_json=?,updated_at=?,revoked_at=NULL
-                WHERE endpoint=? AND recipient_id=?""", (encoded,now,endpoint,recipient["recipient_id"]))
+            _q(conn, """UPDATE nexusai_retail_push_subscriptions SET recipient_id=?,subscription_json=?,updated_at=?,revoked_at=NULL
+                WHERE endpoint=?""", (recipient["recipient_id"],encoded,now,endpoint))
         else:
             _q(conn, """INSERT INTO nexusai_retail_push_subscriptions
                 (subscription_id,recipient_id,endpoint,subscription_json,created_at,updated_at,revoked_at)
