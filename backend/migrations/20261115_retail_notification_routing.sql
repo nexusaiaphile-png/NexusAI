@@ -49,8 +49,7 @@ CREATE TABLE IF NOT EXISTS nexusai_retail_notification_tokens (
     recipient_id TEXT NOT NULL REFERENCES nexusai_retail_notification_recipients(recipient_id) ON DELETE CASCADE,
     created_at DOUBLE PRECISION NOT NULL,
     expires_at DOUBLE PRECISION,
-    revoked_at DOUBLE PRECISION,
-    expires_at DOUBLE PRECISION
+    revoked_at DOUBLE PRECISION
 );
 
 CREATE TABLE IF NOT EXISTS nexusai_retail_notifications (
@@ -89,7 +88,8 @@ CREATE TABLE IF NOT EXISTS nexusai_retail_push_subscriptions (
     subscription_json TEXT NOT NULL,
     created_at DOUBLE PRECISION NOT NULL,
     updated_at DOUBLE PRECISION NOT NULL,
-    revoked_at DOUBLE PRECISION
+    revoked_at DOUBLE PRECISION,
+    expires_at DOUBLE PRECISION
 );
 
 CREATE INDEX IF NOT EXISTS idx_retail_push_recipient_active
