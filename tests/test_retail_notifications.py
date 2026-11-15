@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from backend.src import retail_notifications as notifications
 from backend.src import transaction_correlation as tc
+from backend.src import distributor_portal as dp
 
 
 @pytest.fixture
@@ -16,6 +17,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(tc, "DB_PATH", db_path)
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setenv("NEXUSAI_ADMIN_PIN", "test-admin-pin-123")
+    dp.LOGIN_RATE.clear()
     tc.init_schema()
     conn = sqlite3.connect(db_path)
     conn.executescript("""
