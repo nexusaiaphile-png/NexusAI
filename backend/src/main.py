@@ -1273,6 +1273,11 @@ async def nexusai_admin_portal():
 async def nexusai_client_portal():
     return FileResponse(PORTAL_DIR / "client" / "index.html", media_type="text/html")
 
+@app.get("/app/retail.html", include_in_schema=False)
+async def nexusai_retail_dashboard():
+    return FileResponse(APP_DIR / "retail.html", media_type="text/html", headers={"Cache-Control": "no-store"})
+
+
 @app.get("/app", include_in_schema=False)
 @app.get("/app/", include_in_schema=False)
 async def nexusai_app():
