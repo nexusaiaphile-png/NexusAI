@@ -14,7 +14,17 @@
 <label>Expected camera count<input id="count" type="number" min="0" value="0"></label>
 <button id="create">CREATE NEXUSAI SITE</button><div id="status" class="status"></div><div id="result" class="success hidden"></div></section>
 <section class="card"><h2>Customer sites</h2><button class="secondary" id="refresh">REFRESH SITES</button><div id="sites" class="status">Enter your admin key to load sites.</div></section>
-<section class="card" style="margin-top:18px"><h2>Hik-Partner Pro Integration</h2><div class="small">Official Hikvision cloud integration. No customer Security Box is required for this integration path. Partner credentials stay on NexusAI Cloud.</div><div class="links"><button id="hppStatus">CHECK HPP CONNECTION</button><button class="secondary" id="hppAuth">TEST HPP AUTHENTICATION</button><button class="secondary" id="hppSites">LOAD HIK-PARTNER PRO SITES</button></div><pre id="hppResult" class="success hidden" style="white-space:pre-wrap"></pre></section></main>
+<section class="card" style="margin-top:18px"><h2>Hik-Partner Pro Integration</h2><div class="small">Official Hikvision cloud integration. No customer Security Box is required for this integration path. Partner credentials stay on NexusAI Cloud.</div><div class="links"><button id="hppStatus">CHECK HPP CONNECTION</button><button class="secondary" id="hppAuth">TEST HPP AUTHENTICATION</button><button class="secondary" id="hppSites">LOAD HIK-PARTNER PRO SITES</button></div><pre id="hppResult" class="success hidden" style="white-space:pre-wrap"></pre></section><section class="card" style="grid-column:1/-1"><h2>Retail Intelligence — Create retailer access</h2><div class="small">Create a retailer organisation, assign its authorised branches and issue a one-time Head Office or Store Manager token. Tokens are shown once and expire after 90 days.</div>
+<label>CEO admin PIN<input id="retailPin" type="password" autocomplete="current-password" placeholder="Enter your existing NexusAI admin PIN"></label>
+<button id="retailLoad">LOAD RETAIL BRANCHES</button>
+<div id="retailStatus" class="status" aria-live="polite"></div>
+<div id="retailForm" class="hidden">
+<label>Retailer / organisation name<input id="retailOrgName" placeholder="Retailer group name"></label>
+<label>Recipient name<input id="retailRecipientName" placeholder="Head Office account name"></label>
+<label>Account role<select id="retailRole"><option value="HEAD_OFFICE">Head Office</option><option value="STORE_MANAGER">Store Manager</option></select></label>
+<label>Assign branch(es) — hold Ctrl or Command to select multiple<select id="retailSites" multiple size="5" style="min-height:120px"></select></label>
+<button id="retailCreate">CREATE ACCESS TOKEN</button>
+</div><div id="retailTokenResult" class="success hidden" aria-live="polite"></div></section></main>
 <script>
 const keyName="nexusai_admin_key";const key=()=>localStorage.getItem(keyName)||"";const $=id=>document.getElementById(id);
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
@@ -41,4 +51,51 @@ $("hppStatus").onclick=async()=>{try{await hpp("/api/hpp/status")}catch(e){$("hp
 $("hppAuth").onclick=async()=>{try{await hpp("/api/hpp/test-auth",{method:"POST"})}catch(e){$("hppResult").classList.remove("hidden");$("hppResult").textContent=e.message}};
 $("hppSites").onclick=async()=>{try{await hpp("/api/hpp/sites/search",{method:"POST",body:JSON.stringify({page:1,pageSize:50,search:""})})}catch(e){$("hppResult").classList.remove("hidden");$("hppResult").textContent=e.message}};
 load();
+
+const retailState={adminToken:"",sites:[]};
+async function retailApi(path,options={}){
+ const response=await fetch(path,{...options,headers:{...(options.headers||{}),Authorization:"Bearer "+retailState.adminToken,"Content-Type":"application/json"}});
+ const data=await response.json().catch(()=>({}));
+ if(!response.ok)throw new Error(data.detail||"Retail account request failed.");
+ return data;
+}
+$("retailLoad").onclick=async()=>{
+ const pin=$("retailPin").value.trim();
+ if(!pin){$("retailStatus").textContent="Enter your CEO admin PIN.";return}
+ $("retailLoad").disabled=true;$("retailStatus").textContent="Authenticating and loading branches...";
+ try{
+  const login=await fetch("/api/admin/distributors/auth-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pin})});
+  const auth=await login.json().catch(()=>({}));
+  if(!login.ok)throw new Error(auth.detail||"Admin PIN was not accepted.");
+  retailState.adminToken=auth.access_token;
+  const data=await retailApi("/api/admin/retail/sites");
+  retailState.sites=data.sites||[];
+  $("retailSites").innerHTML=retailState.sites.map(s=>'<option value="'+esc(s.site_id)+'">'+esc(s.business_name)+' — '+esc(s.site_id)+(s.store_address?' — '+esc(s.store_address):'')+'</option>').join("");
+  $("retailForm").classList.remove("hidden");
+  $("retailStatus").textContent=retailState.sites.length?retailState.sites.length+" active customer branch(es) loaded.":"No active customer branches found. Create a customer site first.";
+  $("retailCreate").disabled=!retailState.sites.length;
+ }catch(e){retailState.adminToken="";$("retailForm").classList.add("hidden");$("retailStatus").textContent=e.message}
+ finally{$("retailLoad").disabled=false}
+};
+$("retailCreate").onclick=async()=>{
+ const selected=[...$("retailSites").selectedOptions].map(o=>o.value);
+ const name=$("retailOrgName").value.trim(),display=$("retailRecipientName").value.trim(),role=$("retailRole").value;
+ const result=$("retailTokenResult");result.classList.add("hidden");
+ if(!name||!display||!selected.length){$("retailStatus").textContent="Enter the organisation name, recipient name and select at least one branch.";return}
+ if(role==="STORE_MANAGER"&&selected.length!==1){$("retailStatus").textContent="A Store Manager must be assigned exactly one branch.";return}
+ $("retailCreate").disabled=true;$("retailStatus").textContent="Creating retailer organisation and access token...";
+ try{
+  const organisationId="retail-"+crypto.randomUUID();
+  await retailApi("/api/admin/retail/organisations",{method:"POST",body:JSON.stringify({organisation_id:organisationId,organisation_name:name,site_ids:selected})});
+  const recipient=await retailApi("/api/admin/retail/organisations/"+encodeURIComponent(organisationId)+"/recipients",{method:"POST",body:JSON.stringify({role,display_name:display,site_ids:selected})});
+  result.classList.remove("hidden");
+  result.innerHTML='<strong>Retailer access created.</strong><p>Recipient: '+esc(display)+'<br>Role: '+esc(role.replace("_"," "))+'<br>Expires: '+esc(new Date(recipient.token_expires_at*1000).toLocaleString())+'</p><label>One-time retailer access token</label><input id="retailGeneratedToken" readonly value="'+esc(recipient.access_token)+'"><button class="secondary" id="retailCopyToken">COPY TOKEN</button><p class="small">This token is shown only once. Copy it and give it directly to the authorised recipient. Do not put it in public messages.</p>';
+  $("retailCopyToken").onclick=()=>copy(recipient.access_token);
+  $("retailStatus").textContent="Account created successfully.";
+  $("retailPin").value="";
+  retailState.adminToken="";
+  $("retailLoad").disabled=false;
+ }catch(e){$("retailStatus").textContent=e.message}
+ finally{$("retailCreate").disabled=false}
+};
 </script></body></html>
