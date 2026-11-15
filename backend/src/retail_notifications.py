@@ -24,7 +24,7 @@ def _q(conn, sql, params=()):
 def _admin(authorization: str | None):
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(401, "NexusAI administrator access is required.")
-    require_admin(authorization.split(" ", 1)[1].strip())
+    require_admin(authorization)
 
 
 def _recipient(token: str | None):
