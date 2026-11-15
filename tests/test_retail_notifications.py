@@ -79,6 +79,9 @@ def test_manager_sees_only_assigned_branch_and_head_office_sees_assigned_branche
     head_rows=client.get("/api/retail/notifications",headers=head_headers).json()["notifications"]
     assert len(manager_rows)==1 and manager_rows[0]["site_id"]=="site-branch0001"
     assert len(head_rows)==2
+    notification_id=manager_rows[0]["notification_id"]
+    marked=client.post("/api/retail/notifications/"+notification_id+"/read",headers=manager_headers)
+    assert marked.status_code==200 and marked.json()["status"]=="READ"
     assert client.get("/api/retail/notifications",headers={"Authorization":"Bearer "+manager.json()["access_token"]}).status_code==200
 
 
@@ -102,3 +105,26 @@ def test_delivery_schema_rejects_external_channels(client):
     with sqlite3.connect(tc.DB_PATH) as conn:
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute("INSERT INTO nexusai_retail_notification_deliveries(delivery_id,notification_id,recipient_id,channel,created_at,updated_at) VALUES ('d','n','r','WHATSAPP',1,1)")
+
+
+def test_recipient_can_register_and_revoke_own_browser_push_subscription(client):
+    client.post("/api/admin/retail/organisations", headers=client.admin, json={
+        "organisation_id":"retailer-push","organisation_name":"Retailer Push",
+        "site_ids":["site-branch0001"]})
+    created=client.post("/api/admin/retail/organisations/retailer-push/recipients",headers=client.admin,json={
+        "role":"STORE_MANAGER","display_name":"Push Manager","site_ids":["site-branch0001"]})
+    headers={"Authorization":"Bearer "+created.json()["access_token"]}
+    subscription={"endpoint":"https://push.example.test/subscription/12345678901234567890",
+        "keys":{"p256dh":"public-key","auth":"auth-key"}}
+    registered=client.post("/api/retail/push/subscribe",headers=headers,json={"subscription":subscription})
+    assert registered.status_code==200 and registered.json()["registered"] is True
+    with sqlite3.connect(tc.DB_PATH) as conn:
+        row=conn.execute("SELECT recipient_id,revoked_at FROM nexusai_retail_push_subscriptions WHERE endpoint=?",
+                         (subscription["endpoint"],)).fetchone()
+    assert row[0]==created.json()["recipient_id"] and row[1] is None
+    revoked=client.request("DELETE","/api/retail/push/subscribe",headers=headers,json={"endpoint":subscription["endpoint"]})
+    assert revoked.status_code==200
+    with sqlite3.connect(tc.DB_PATH) as conn:
+        row=conn.execute("SELECT revoked_at FROM nexusai_retail_push_subscriptions WHERE endpoint=?",
+                         (subscription["endpoint"],)).fetchone()
+    assert row[0] is not None
