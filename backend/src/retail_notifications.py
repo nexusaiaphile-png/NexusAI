@@ -5,6 +5,7 @@ import logging
 import secrets
 import time
 import uuid
+from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, Header, HTTPException
@@ -222,6 +223,12 @@ async def retailer_push_subscribe(payload: PushSubscriptionIn, authorization: st
     recipient = _bearer(authorization)
     sub = payload.subscription
     endpoint = str(sub.get("endpoint") or "").strip()
+    parsed = urlsplit(endpoint)
+    host = (parsed.hostname or "").lower()
+    allowed_host = (host == "fcm.googleapis.com" or host == "web.push.apple.com"
+        or host.endswith(".push.services.mozilla.com") or host.endswith(".notify.windows.com"))
+    if parsed.scheme != "https" or not allowed_host or parsed.username or parsed.password or parsed.port:
+        raise HTTPException(422, "The browser push endpoint is not from a supported push service.")
     keys = sub.get("keys") if isinstance(sub.get("keys"), dict) else {}
     if not endpoint.startswith("https://") or len(endpoint) > 2048 or not keys.get("p256dh") or not keys.get("auth"):
         raise HTTPException(422, "A valid browser push subscription is required.")
@@ -233,13 +240,13 @@ async def retailer_push_subscribe(payload: PushSubscriptionIn, authorization: st
             raise HTTPException(409, "This device is already registered to another retailer account. Sign out there first.")
         now = time.time()
         if existing:
-            _q(conn, """UPDATE nexusai_retail_push_subscriptions SET recipient_id=?,subscription_json=?,updated_at=?,revoked_at=NULL
-                WHERE endpoint=?""", (recipient["recipient_id"],encoded,now,endpoint))
+            _q(conn, """UPDATE nexusai_retail_push_subscriptions SET recipient_id=?,subscription_json=?,updated_at=?,revoked_at=NULL,expires_at=(SELECT MAX(expires_at) FROM nexusai_retail_notification_tokens WHERE recipient_id=? AND revoked_at IS NULL)
+                WHERE endpoint=?""", (recipient["recipient_id"],encoded,now,recipient["recipient_id"],endpoint))
         else:
             _q(conn, """INSERT INTO nexusai_retail_push_subscriptions
-                (subscription_id,recipient_id,endpoint,subscription_json,created_at,updated_at,revoked_at)
-                VALUES (?,?,?,?,?,?,NULL)""",
-                ("rps-"+uuid.uuid4().hex,recipient["recipient_id"],endpoint,encoded,now,now))
+                (subscription_id,recipient_id,endpoint,subscription_json,created_at,updated_at,revoked_at,expires_at)
+                VALUES (?,?,?,?,?,?,NULL,(SELECT MAX(expires_at) FROM nexusai_retail_notification_tokens WHERE recipient_id=? AND revoked_at IS NULL))""",
+                ("rps-"+uuid.uuid4().hex,recipient["recipient_id"],endpoint,encoded,now,now,recipient["recipient_id"]))
         conn.commit()
     except HTTPException:
         conn.rollback()
@@ -325,7 +332,7 @@ def create_for_pos_exception(site_id: str, exception_id: int | None, source_even
                     ON CONFLICT(notification_id,recipient_id,channel) DO NOTHING""",
                    ("rtd-"+uuid.uuid4().hex,notification_id,row[0],now,now))
                 subs = _q(conn, """SELECT subscription_json FROM nexusai_retail_push_subscriptions
-                    WHERE recipient_id=? AND revoked_at IS NULL""", (row[0],)).fetchall()
+                    WHERE recipient_id=? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?)""", (row[0],now)).fetchall()
                 for sub in subs:
                     try:
                         push_jobs.append((json.loads(sub[0]),notification_id,row[1]))
