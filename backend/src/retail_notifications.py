@@ -1,4 +1,4 @@
-"""Secure retailer notification routing for POS exceptions."""
+"""Secure dashboard-only retailer notification routing for POS exceptions."""
 import hashlib
 import secrets
 import time
@@ -32,7 +32,7 @@ def _recipient(token: str | None):
         raise HTTPException(401, "A valid retailer access token is required.")
     conn = _db()
     try:
-        row = _q(conn, """SELECT r.recipient_id,r.organisation_id,r.role,r.display_name,r.email
+        row = _q(conn, """SELECT r.recipient_id,r.organisation_id,r.role,r.display_name
             FROM nexusai_retail_notification_tokens t
             JOIN nexusai_retail_notification_recipients r ON r.recipient_id=t.recipient_id
             WHERE t.token_hash=? AND t.revoked_at IS NULL
@@ -41,13 +41,13 @@ def _recipient(token: str | None):
     finally:
         conn.close()
     if not row:
-        raise HTTPException(401, "Your retailer access token has expired or been revoked.")
-    return dict(zip(("recipient_id","organisation_id","role","display_name","email"), row))
+        raise HTTPException(401, "Your retailer dashboard access token has expired or been revoked.")
+    return dict(zip(("recipient_id","organisation_id","role","display_name"), row))
 
 
 def _bearer(authorization: str | None):
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(401, "Please sign in to your retailer account.")
+        raise HTTPException(401, "Please sign in to your retailer dashboard.")
     return _recipient(authorization.split(" ", 1)[1].strip())
 
 
@@ -60,11 +60,7 @@ class OrganisationIn(BaseModel):
 class RecipientIn(BaseModel):
     role: str
     display_name: str = Field(min_length=2, max_length=160)
-    email: str = Field(min_length=5, max_length=200)
-    phone_e164: str | None = Field(default=None, max_length=32)
     site_ids: list[str] = Field(min_length=1, max_length=500)
-    email_opt_in: bool = False
-    whatsapp_opt_in: bool = False
 
 
 @router.post("/api/admin/retail/organisations")
@@ -123,10 +119,9 @@ async def create_recipient(organisation_id: str, payload: RecipientIn, authoriza
         if {r[0] for r in rows} != set(site_ids):
             raise HTTPException(422, "Every assigned branch must belong to this retailer organisation.")
         _q(conn, """INSERT INTO nexusai_retail_notification_recipients
-            (recipient_id,organisation_id,role,display_name,email,phone_e164,active,dashboard_opt_in,email_opt_in,whatsapp_opt_in,created_at,updated_at)
-            VALUES (?,?,?,?,?,?,TRUE,TRUE,?,?,?,?)""",
-           (recipient_id,organisation_id,role,payload.display_name.strip(),payload.email.strip().lower(),
-            payload.phone_e164,payload.email_opt_in,payload.whatsapp_opt_in,now,now))
+            (recipient_id,organisation_id,role,display_name,active,dashboard_opt_in,created_at,updated_at)
+            VALUES (?,?,?,?,TRUE,TRUE,?,?)""",
+           (recipient_id,organisation_id,role,payload.display_name.strip(),now,now))
         for site_id in site_ids:
             _q(conn, "INSERT INTO nexusai_retail_recipient_sites (recipient_id,organisation_id,site_id,created_at) VALUES (?,?,?,?)",
                (recipient_id,organisation_id,site_id,now))
@@ -143,7 +138,7 @@ async def create_recipient(organisation_id: str, payload: RecipientIn, authoriza
         conn.close()
     return {"created": True, "recipient_id": recipient_id, "role": role, "site_count": len(site_ids),
             "access_token": token, "token_expires_at": now+90*86400,
-            "token_notice": "Shown once. Deliver securely to the recipient; never email this token in plain text."}
+            "token_notice": "Shown once. Give the access token directly to the authorised recipient; do not send it through an unapproved channel."}
 
 
 @router.get("/api/retail/notifications/me")
@@ -183,7 +178,7 @@ async def retailer_notifications(limit: int = 50, authorization: str | None = He
 
 
 def create_for_pos_exception(site_id: str, exception_id: int | None, source_event_id: str | None, flagged: bool):
-    """Best-effort post-commit notification creation; never raises into POS ingestion."""
+    """Best-effort dashboard notification creation after POS exception commit."""
     if not flagged or not exception_id or not source_event_id:
         return
     conn = _db()
@@ -216,6 +211,6 @@ def create_for_pos_exception(site_id: str, exception_id: int | None, source_even
     except Exception:
         conn.rollback()
         import logging
-        logging.getLogger("nexusai.retail_notifications").exception("POS event persisted; retail notification creation will need retry.")
+        logging.getLogger("nexusai.retail_notifications").exception("POS event persisted; dashboard notification creation will need retry.")
     finally:
         conn.close()
