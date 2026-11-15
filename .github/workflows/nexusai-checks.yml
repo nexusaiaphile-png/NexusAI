@@ -31,6 +31,10 @@ jobs:
         run: python -m py_compile edge_agent/security_box.py edge_agent/secure_store.py edge_agent/setup_security_box.py
       - name: Validate app JavaScript
         run: node --check nexusai-app/app.js
+      - name: Validate retailer dashboard JavaScript
+        run: |
+          python -c "from pathlib import Path; import re; html=Path('nexusai-app/retail.html').read_text(); scripts=re.findall(r'<script>(.*?)</script>', html, re.S); assert scripts, 'Retail dashboard script missing'; Path('/tmp/nexusai-retail-dashboard.js').write_text('\\n'.join(scripts))"
+          node --check /tmp/nexusai-retail-dashboard.js
       - name: Validate service worker
         run: node --check nexusai-app/service-worker.js
       - name: Validate simple protection JavaScript
