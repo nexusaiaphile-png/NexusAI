@@ -35,6 +35,7 @@ def client(tmp_path, monkeypatch):
       CREATE TABLE nexusai_retail_notification_tokens(token_hash TEXT PRIMARY KEY,recipient_id TEXT NOT NULL,created_at REAL NOT NULL,expires_at REAL,revoked_at REAL);
       CREATE TABLE nexusai_retail_notifications(notification_id TEXT PRIMARY KEY,organisation_id TEXT NOT NULL,site_id TEXT NOT NULL,pos_exception_id INTEGER NOT NULL,source_event_id TEXT NOT NULL,exception_type TEXT NOT NULL,occurred_at TEXT NOT NULL,summary TEXT NOT NULL,created_at REAL NOT NULL,UNIQUE(site_id,source_event_id));
       CREATE TABLE nexusai_retail_notification_deliveries(delivery_id TEXT PRIMARY KEY,notification_id TEXT NOT NULL,recipient_id TEXT NOT NULL,channel TEXT NOT NULL CHECK(channel='DASHBOARD'),status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','QUEUED','READ','FAILED')),attempt_count INTEGER NOT NULL DEFAULT 0,created_at REAL NOT NULL,updated_at REAL NOT NULL,UNIQUE(notification_id,recipient_id,channel));
+      CREATE TABLE nexusai_retail_push_subscriptions(subscription_id TEXT PRIMARY KEY,recipient_id TEXT NOT NULL,endpoint TEXT NOT NULL UNIQUE,subscription_json TEXT NOT NULL,created_at REAL NOT NULL,updated_at REAL NOT NULL,revoked_at REAL);
     """)
     conn.commit()
     conn.close()
@@ -90,6 +91,11 @@ def test_manager_cannot_be_assigned_multiple_branches_and_invalid_token_is_denie
         "site_ids":["site-branch0001","site-branch0002"]})
     assert response.status_code==422
     assert client.get("/api/retail/notifications",headers={"Authorization":"Bearer "+"x"*40}).status_code==401
+
+
+def test_push_subscription_requires_authenticated_recipient_and_valid_subscription(client):
+    assert client.get("/api/retail/push/config").status_code == 200
+    assert client.post("/api/retail/push/subscribe",json={"subscription":{}}).status_code == 401
 
 
 def test_delivery_schema_rejects_external_channels(client):
