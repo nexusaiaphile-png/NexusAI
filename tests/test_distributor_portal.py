@@ -9,15 +9,18 @@ from backend.src import distributor_portal as distributors
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(distributors, "DB_PATH", tmp_path / "distributors.sqlite3")
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-google-client-id")
-    monkeypatch.setattr(distributors, "_verify_google_identity_token", lambda credential, client_id: {"email": "nexusai.aphile@gmail.com", "email_verified": True})
+    monkeypatch.setenv("NEXUSAI_ADMIN_PIN", "test-admin-pin-123")
     distributors.REGISTER_RATE.clear()
     distributors.LOGIN_RATE.clear()
     distributors.init_distributor_db()
     app = FastAPI()
     app.include_router(distributors.router)
     app.include_router(distributors.admin_router)
-    return TestClient(app)
+    test_client = TestClient(app)
+    admin_login = test_client.post("/api/admin/distributors/auth-login", json={"pin": "test-admin-pin-123"})
+    assert admin_login.status_code == 200
+    test_client.admin_token = admin_login.json()["access_token"]
+    return test_client
 
 
 def register(client, email="channel@example.com"):
@@ -30,8 +33,8 @@ def register(client, email="channel@example.com"):
     })
 
 
-def admin_headers():
-    return {"Authorization": "Bearer test-google-id-token"}
+def admin_headers(client):
+    return {"Authorization": f"Bearer {client.admin_token}"}
 
 
 def test_pending_distributor_requires_approval(client):
@@ -49,7 +52,7 @@ def test_admin_can_reject_pending_distributor(client):
     response = register(client, email="reject-me@example.com")
     assert response.status_code == 200
     distributor_id = client.get(
-        "/api/admin/distributors", headers=admin_headers()
+        "/api/admin/distributors", headers=admin_headers(client)
     ).json()["distributors"][0]["distributor_id"]
     rejected = client.post(
         f"/api/admin/distributors/{distributor_id}/status",
@@ -206,21 +209,14 @@ def test_referral_requires_contact_permission_and_admin_key(client):
     assert client.get("/api/admin/distributors").status_code == 401
 
 
-def test_distributor_admin_requires_google_owner_identity(client, monkeypatch):
-    assert client.get("/api/admin/distributors").status_code == 401
-    monkeypatch.setattr(distributors, "_verify_google_identity_token", lambda credential, client_id: {"email": "other@example.com", "email_verified": True})
-    denied = client.get("/api/admin/distributors", headers={"Authorization": "Bearer other-google-token"})
-    assert denied.status_code == 403
-    monkeypatch.setattr(distributors, "_verify_google_identity_token", lambda credential, client_id: {"email": "nexusai.aphile@gmail.com", "email_verified": False})
-    unverified = client.get("/api/admin/distributors", headers={"Authorization": "Bearer unverified-google-token"})
-    assert unverified.status_code == 403
+def test_distributor_admin_requires_valid_pin_session(client, monkeypatch):
+    assert client.get("/api/admin/distributors", headers={"Authorization": "Bearer invalid"}).status_code == 401
+    denied = client.post("/api/admin/distributors/auth-login", json={"pin": "incorrect-admin-pin"})
+    assert denied.status_code == 401
+    assert client.get("/api/admin/distributors", headers=admin_headers(client)).status_code == 200
 
 
 def test_admin_auth_config_exposes_only_public_client_configuration(client):
     response = client.get("/api/admin/distributors/auth-config")
     assert response.status_code == 200
-    assert response.json() == {
-        "configured": True,
-        "client_id": "test-google-client-id",
-        "administrator_email": "nexusai.aphile@gmail.com",
-    }
+    assert response.json() == {"configured": True, "method": "pin"}
