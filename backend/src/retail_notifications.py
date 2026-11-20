@@ -2,6 +2,7 @@
 import hashlib
 import json
 import logging
+import re
 import secrets
 import time
 import uuid
@@ -268,7 +269,7 @@ async def save_white_label_branding(payload: PartnerBrandingIn,
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
             raise HTTPException(422, "Logo URL must be a valid HTTPS URL.")
     support_email = (payload.support_email or "").strip().lower() or None
-    if support_email and not re.fullmatch(r"[^\\s@]+@[^\\s@]+\\.[^\\s@]+", support_email):
+    if support_email and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", support_email):
         raise HTTPException(422, "Enter a valid support email address.")
     conn = _db()
     now = time.time()
