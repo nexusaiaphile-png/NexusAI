@@ -307,7 +307,41 @@ async def retailer_me(authorization: str | None = Header(default=None)):
             WHERE s.recipient_id=? ORDER BY c.business_name""", (recipient["recipient_id"],)).fetchall()
     finally:
         conn.close()
-    return {"recipient": recipient, "branches": [{"site_id": r[0], "business_name": r[1]} for r in rows]}
+
+    # Resolve branding only through the signed-in recipient's own organisation.
+    conn = _db()
+    try:
+        brand = _q(conn, """SELECT o.partner_id,a.company_name,b.brand_mode,b.brand_name,
+            b.logo_url,b.primary_color,b.accent_color,b.support_email,b.enabled
+            FROM nexusai_retail_organisations o
+            LEFT JOIN nexusai_partner_accounts a ON a.partner_id=o.partner_id
+            LEFT JOIN nexusai_partner_branding b ON b.partner_id=o.partner_id
+            WHERE o.organisation_id=? AND o.active=TRUE""",
+            (recipient["organisation_id"],)).fetchone()
+    finally:
+        conn.close()
+
+    branding = {
+        "brand_mode": "CO_BRANDED", "brand_name": "NexusAI Retail Intelligence",
+        "logo_url": None, "primary_color": "#07151d", "accent_color": "#25f5c5",
+        "support_email": None, "partner_assigned": False, "powered_by_nexusai": True,
+        "legal_provider": "NexusAI Technologies",
+    }
+    if brand and brand[0]:
+        partner_name = brand[1] or "Security partner"
+        configured = bool(brand[2] and brand[3] and brand[8] is not False)
+        branding.update({
+            "brand_mode": brand[2] if configured else "CO_BRANDED",
+            "brand_name": brand[3] if configured else partner_name,
+            "logo_url": brand[4] if configured else None,
+            "primary_color": brand[5] if configured and brand[5] else "#07151d",
+            "accent_color": brand[6] if configured and brand[6] else "#25f5c5",
+            "support_email": brand[7] if configured else None,
+            "partner_assigned": True,
+            "powered_by_nexusai": not (configured and brand[2] == "FULL_WHITE_LABEL"),
+        })
+    return {"recipient": recipient, "branches": [{"site_id": r[0], "business_name": r[1]} for r in rows],
+            "branding": branding}
 
 
 @router.get("/api/retail/notifications")
