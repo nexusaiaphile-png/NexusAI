@@ -174,6 +174,8 @@ async def create_recipient(organisation_id: str, payload: RecipientIn, authoriza
 class WhiteLabelAssignmentIn(BaseModel):
     organisation_id: str = Field(min_length=3, max_length=100)
     partner_id: str | None = Field(default=None, min_length=3, max_length=100)
+    authorisation_confirmed: bool = False
+    authorisation_reference: str = Field(min_length=3, max_length=200)
 
 
 class PartnerBrandingIn(BaseModel):
@@ -220,32 +222,90 @@ async def list_white_label_organisations(authorization: str | None = Header(defa
                               for r in rows]}
 
 
+def _ensure_partner_assignment_audit(conn):
+    _q(conn, """CREATE TABLE IF NOT EXISTS nexusai_retail_partner_assignment_audit (
+        audit_id TEXT PRIMARY KEY,
+        organisation_id TEXT NOT NULL,
+        previous_partner_id TEXT,
+        partner_id TEXT,
+        action TEXT NOT NULL,
+        authorisation_reference TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        created_at DOUBLE PRECISION NOT NULL
+    )""")
+    _q(conn, """CREATE INDEX IF NOT EXISTS idx_retail_partner_assignment_audit_org
+        ON nexusai_retail_partner_assignment_audit(organisation_id, created_at)""")
+
+
 @router.post("/api/admin/retail/white-label/assign")
 async def assign_white_label_partner(payload: WhiteLabelAssignmentIn,
                                      authorization: str | None = Header(default=None)):
-    """Assign or unassign a retailer organisation to a verified active security partner."""
+    """Assign/unassign only after an administrator records the retailer's authorisation or revocation basis."""
     _admin(authorization)
+    if payload.authorisation_confirmed is not True:
+        raise HTTPException(422, "Confirm that retailer authorisation has been verified before changing this assignment.")
+    reference = payload.authorisation_reference.strip()
+    if len(reference) < 3:
+        raise HTTPException(422, "Enter a contract, written-consent or revocation reference for the audit record.")
     partner_id = payload.partner_id.strip() if payload.partner_id else None
     conn = _db()
     try:
-        org = _q(conn, "SELECT organisation_id FROM nexusai_retail_organisations WHERE organisation_id=? AND active=TRUE",
+        org = _q(conn, "SELECT organisation_id,partner_id FROM nexusai_retail_organisations WHERE organisation_id=? AND active=TRUE",
                  (payload.organisation_id,)).fetchone()
         if not org:
             raise HTTPException(404, "Active retailer organisation not found.")
+        previous_partner_id = org[1]
         if partner_id:
             partner = _q(conn, "SELECT partner_id FROM nexusai_partner_accounts WHERE partner_id=? AND status='ACTIVE'",
                          (partner_id,)).fetchone()
             if not partner:
                 raise HTTPException(404, "Active security partner not found. Only approved active partners can be assigned.")
+        if previous_partner_id == partner_id:
+            raise HTTPException(409, "This organisation already has the selected security partner.")
+        _ensure_partner_assignment_audit(conn)
         _q(conn, "UPDATE nexusai_retail_organisations SET partner_id=? WHERE organisation_id=?",
            (partner_id, payload.organisation_id))
+        _q(conn, """INSERT INTO nexusai_retail_partner_assignment_audit
+            (audit_id,organisation_id,previous_partner_id,partner_id,action,authorisation_reference,actor,created_at)
+            VALUES(?,?,?,?,?,?,?,?)""",
+           ("rpa-" + uuid.uuid4().hex, payload.organisation_id, previous_partner_id, partner_id,
+            "ASSIGNED" if partner_id else "UNASSIGNED", reference, "NEXUSAI_ADMIN", time.time()))
         conn.commit()
     except HTTPException:
         conn.rollback()
         raise
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
-    return {"assigned": True, "organisation_id": payload.organisation_id, "partner_id": partner_id}
+    return {"assigned": bool(partner_id), "organisation_id": payload.organisation_id,
+            "partner_id": partner_id, "previous_partner_id": previous_partner_id,
+            "audit_recorded": True}
+
+
+@router.get("/api/admin/retail/white-label/assignment-audit")
+async def list_white_label_assignment_audit(authorization: str | None = Header(default=None)):
+    """Return the latest retailer-to-partner assignment and revocation audit records."""
+    _admin(authorization)
+    conn = _db()
+    try:
+        _ensure_partner_assignment_audit(conn)
+        rows = _q(conn, """SELECT l.audit_id,l.organisation_id,o.organisation_name,
+            l.previous_partner_id,old.company_name,l.partner_id,new.company_name,
+            l.action,l.authorisation_reference,l.actor,l.created_at
+            FROM nexusai_retail_partner_assignment_audit l
+            LEFT JOIN nexusai_retail_organisations o ON o.organisation_id=l.organisation_id
+            LEFT JOIN nexusai_partner_accounts old ON old.partner_id=l.previous_partner_id
+            LEFT JOIN nexusai_partner_accounts new ON new.partner_id=l.partner_id
+            ORDER BY l.created_at DESC LIMIT 250""").fetchall()
+        conn.commit()
+    finally:
+        conn.close()
+    keys = ("audit_id","organisation_id","organisation_name","previous_partner_id",
+            "previous_partner_company","partner_id","partner_company","action",
+            "authorisation_reference","actor","created_at")
+    return {"records": [dict(zip(keys, row)) for row in rows]}
 
 
 @router.post("/api/admin/retail/white-label/branding")
