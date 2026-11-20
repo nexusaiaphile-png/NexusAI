@@ -24,7 +24,26 @@
 <label>Account role<select id="retailRole"><option value="HEAD_OFFICE">Head Office</option><option value="STORE_MANAGER">Store Manager</option></select></label>
 <label>Assign branch(es) — hold Ctrl or Command to select multiple<select id="retailSites" multiple size="5" style="min-height:120px"></select></label>
 <button id="retailCreate">CREATE ACCESS TOKEN</button>
-</div><div id="retailTokenResult" class="success hidden" aria-live="polite"></div></section></main>
+</div><div id="retailTokenResult" class="success hidden" aria-live="polite"></div></section>
+<section class="card" style="grid-column:1/-1"><h2>Security Partner White-Label Administration</h2>
+<div class="small">Assign an active security company to a retailer organisation and configure its customer-facing identity. Custom domains are intentionally not activated in this stage.</div>
+<button class="secondary" id="wlLoad">LOAD SECURITY PARTNERS &amp; ORGANISATIONS</button>
+<div id="wlStatus" class="status" aria-live="polite"></div>
+<div id="wlControls" class="hidden">
+<label>Security company<select id="wlPartner"><option value="">Select an active security company</option></select></label>
+<label>Retailer organisation<select id="wlOrg"><option value="">Select a retailer organisation</option></select></label>
+<button id="wlAssign">ASSIGN SECURITY COMPANY TO ORGANISATION</button>
+<div class="site" style="margin-top:18px"><h3>Partner brand settings</h3>
+<label>Branding mode<select id="wlMode"><option value="CO_BRANDED">Co-branded — Powered by NexusAI</option><option value="FULL_WHITE_LABEL">Full white-label — partner brand</option></select></label>
+<label>Customer-facing brand name<input id="wlName" maxlength="160" placeholder="Security company or service brand"></label>
+<label>Logo URL (HTTPS)<input id="wlLogo" type="url" placeholder="https://example.co.za/logo.png"></label>
+<label>Primary colour<input id="wlPrimary" type="text" value="#07151d" maxlength="7"></label>
+<label>Accent colour<input id="wlAccent" type="text" value="#25f5c5" maxlength="7"></label>
+<label>Partner support email<input id="wlSupport" type="email" placeholder="support@example.co.za"></label>
+<button id="wlSave">SAVE PARTNER BRAND SETTINGS</button>
+</div></div>
+<div class="small">Full white-label mode does not remove legally required privacy, controller/processor or service-provider disclosures. Branding settings do not grant access to retailer data.</div>
+</section></main>
 <script>
 const keyName="nexusai_admin_key";const key=()=>localStorage.getItem(keyName)||"";const $=id=>document.getElementById(id);
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
@@ -81,6 +100,67 @@ $("retailLoad").onclick=async()=>{
   $("retailCreate").disabled=!retailState.sites.length;
  }catch(e){retailState.adminToken="";$("retailForm").classList.add("hidden");$("retailStatus").textContent=e.message}
  finally{$("retailLoad").disabled=false}
+};
+
+async function wlEnsureAdmin(){
+ if(retailState.adminToken)return;
+ const pin=$("retailPin").value.trim();
+ if(!pin)throw new Error("Enter your existing CEO admin PIN, then load branches or try again.");
+ const login=await fetch("/api/admin/distributors/auth-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pin})});
+ const auth=await login.json().catch(()=>({}));
+ if(!login.ok)throw new Error(auth.detail||"Admin PIN was not accepted.");
+ retailState.adminToken=auth.access_token;
+}
+async function wlLoad(){
+ await wlEnsureAdmin();
+ const [p,o]=await Promise.all([
+  retailApi("/api/admin/retail/white-label/partners"),
+  retailApi("/api/admin/retail/white-label/organisations")
+ ]);
+ const partners=p.partners||[],orgs=o.organisations||[];
+ $("wlPartner").innerHTML='<option value="">Select an active security company</option>'+partners.map(x=>'<option value="'+esc(x.partner_id)+'">'+esc(x.company_name)+' — '+esc(x.email)+'</option>').join("");
+ $("wlOrg").innerHTML='<option value="">Select a retailer organisation</option>'+orgs.map(x=>'<option value="'+esc(x.organisation_id)+'">'+esc(x.organisation_name)+(x.partner_company?' — '+esc(x.partner_company):' — Unassigned')+'</option>').join("");
+ $("wlControls").classList.remove("hidden");
+ $("wlStatus").textContent=partners.length+" active security partner(s) and "+orgs.length+" retailer organisation(s) loaded.";
+ $("wlPartner").onchange=()=>{
+  const p=partners.find(x=>x.partner_id===$("wlPartner").value);
+  $("wlMode").value=p?.brand_mode||"CO_BRANDED";
+  $("wlName").value=p?.brand_name||p?.company_name||"";
+  $("wlLogo").value=p?.logo_url||"";
+  $("wlPrimary").value=p?.primary_color||"#07151d";
+  $("wlAccent").value=p?.accent_color||"#25f5c5";
+  $("wlSupport").value=p?.support_email||"";
+ };
+}
+$("wlLoad").onclick=async()=>{
+ $("wlLoad").disabled=true;$("wlStatus").textContent="Loading active partners and retailer organisations...";
+ try{await wlLoad()}catch(e){$("wlStatus").textContent=e.message}
+ finally{$("wlLoad").disabled=false}
+};
+$("wlAssign").onclick=async()=>{
+ const organisation_id=$("wlOrg").value,partner_id=$("wlPartner").value;
+ if(!organisation_id||!partner_id){$("wlStatus").textContent="Select both a security company and a retailer organisation.";return}
+ $("wlAssign").disabled=true;
+ try{
+  await wlEnsureAdmin();
+  await retailApi("/api/admin/retail/white-label/assign",{method:"POST",body:JSON.stringify({organisation_id,partner_id})});
+  $("wlStatus").textContent="Security company assigned successfully. This assignment does not yet change the retailer dashboard branding.";
+  await wlLoad();
+ }catch(e){$("wlStatus").textContent=e.message}
+ finally{$("wlAssign").disabled=false}
+};
+$("wlSave").onclick=async()=>{
+ const partner_id=$("wlPartner").value;
+ if(!partner_id){$("wlStatus").textContent="Select a security company before saving its branding.";return}
+ const payload={partner_id,brand_mode:$("wlMode").value,brand_name:$("wlName").value.trim(),logo_url:$("wlLogo").value.trim()||null,primary_color:$("wlPrimary").value.trim(),accent_color:$("wlAccent").value.trim(),support_email:$("wlSupport").value.trim()||null};
+ $("wlSave").disabled=true;
+ try{
+  await wlEnsureAdmin();
+  await retailApi("/api/admin/retail/white-label/branding",{method:"POST",body:JSON.stringify(payload)});
+  $("wlStatus").textContent="Brand settings saved. Dashboard rendering is a later implementation stage; no retailer-facing branding has changed yet.";
+  await wlLoad();
+ }catch(e){$("wlStatus").textContent=e.message}
+ finally{$("wlSave").disabled=false}
 };
 $("retailCreate").onclick=async()=>{
  const selected=[...$("retailSites").selectedOptions].map(o=>o.value);
