@@ -212,7 +212,7 @@ async def list_white_label_organisations(authorization: str | None = Header(defa
     try:
         rows = _q(conn, """SELECT o.organisation_id,o.organisation_name,o.partner_id,a.company_name
             FROM nexusai_retail_organisations o
-            LEFT JOIN nexusai_partner_accounts a ON a.partner_id=o.partner_id
+            LEFT JOIN nexusai_partner_accounts a ON a.partner_id=o.partner_id AND a.status='ACTIVE'
             WHERE o.active=TRUE ORDER BY o.organisation_name""").fetchall()
     finally:
         conn.close()
@@ -327,7 +327,7 @@ async def retailer_me(authorization: str | None = Header(default=None)):
         "support_email": None, "partner_assigned": False, "powered_by_nexusai": True,
         "legal_provider": "NexusAI Technologies",
     }
-    if brand and brand[0]:
+    if brand and brand[0] and brand[1]:
         partner_name = brand[1] or "Security partner"
         configured = bool(brand[2] and brand[3] and brand[8])
         branding.update({
