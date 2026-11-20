@@ -35,6 +35,7 @@
 <label>Authorisation / agreement reference<input id="wlAuthRef" maxlength="200" placeholder="e.g. signed service agreement reference"></label>
 <label style="display:flex;gap:10px;align-items:flex-start"><input id="wlAuthConfirmed" type="checkbox" style="width:auto;margin-top:2px">I have independently verified the retailer's written authorisation for this security partner to provide the service and access the assigned organisation's dashboard data.</label>
 <button id="wlAssign">CONFIRM &amp; ASSIGN SECURITY COMPANY</button>
+<button class="secondary" id="wlUnassign">REVOKE / REMOVE PARTNER ASSIGNMENT</button>
 <div class="small">Only assign after retailer consent and the applicable service/privacy terms are verified. This records your confirmation and the reference in an audit log; it does not itself create HPP access or prove vendor authorisation.</div>
 <button class="secondary" id="wlAudit">VIEW ASSIGNMENT AUDIT LOG</button><div id="wlAuditList" class="small" aria-live="polite"></div>
 <div class="site" style="margin-top:18px"><h3>Partner brand settings</h3>
@@ -164,6 +165,22 @@ async function wlAudit(){
  $("wlAuditList").innerHTML=rows.length?rows.map(x=>'<div class="site"><strong>'+esc(x.action)+'</strong> · '+esc(x.organisation_name||x.organisation_id)+'<br>'+esc(x.previous_partner_company||"Unassigned")+' → '+esc(x.partner_company||"Unassigned")+'<br>Reference: '+esc(x.authorisation_reference)+' · '+esc(new Date(Number(x.created_at)*1000).toLocaleString())+'</div>').join(""):'<p>No assignment changes have been recorded.</p>';
 }
 $("wlAudit").onclick=async()=>{try{await wlAudit()}catch(e){$("wlStatus").textContent=e.message}};
+$("wlUnassign").onclick=async()=>{
+ const organisation_id=$("wlOrg").value,authorisation_reference=$("wlAuthRef").value.trim();
+ if(!organisation_id){$("wlStatus").textContent="Select the retailer organisation whose partner assignment should be removed.";return}
+ if(!$("wlAuthConfirmed").checked||authorisation_reference.length<3){$("wlStatus").textContent="Confirm the revocation basis and enter its reference.";return}
+ if(!confirm("Remove the current security partner from this retailer organisation? Existing partner sessions remain separate and may need separate suspension."))return;
+ $("wlUnassign").disabled=true;
+ try{
+  await wlEnsureAdmin();
+  await retailApi("/api/admin/retail/white-label/assign",{method:"POST",body:JSON.stringify({organisation_id,partner_id:null,authorisation_confirmed:true,authorisation_reference})});
+  $("wlStatus").textContent="Partner assignment removed and recorded in the audit log. This does not automatically suspend the partner account.";
+  $("wlAuthRef").value="";$("wlAuthConfirmed").checked=false;
+  await wlLoad();await wlAudit();
+ }catch(e){$("wlStatus").textContent=e.message}
+ finally{$("wlUnassign").disabled=false}
+};
+
 $("wlSave").onclick=async()=>{
  const partner_id=$("wlPartner").value;
  if(!partner_id){$("wlStatus").textContent="Select a security company before saving its branding.";return}
