@@ -2507,6 +2507,11 @@ try:
 except Exception:
     logging.exception("Retailer assessment integration failed to load.")
 
+@app.get("/partner/register.html", include_in_schema=False)
+async def partner_registration_page():
+    return FileResponse(PORTAL_DIR / "partner-register.html", media_type="text/html",
+                        headers={"Cache-Control": "no-store"})
+
 @app.get("/partner/branding.html", include_in_schema=False)
 async def partner_branding_page():
     return FileResponse(PORTAL_DIR / "partner-branding.html", media_type="text/html",

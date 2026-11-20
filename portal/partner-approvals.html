@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Partner Applications | NexusAI Admin</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#040a10;color:#eef8f6;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:1050px;margin:auto;padding:28px 18px 60px}.eyebrow{font-size:11px;letter-spacing:2px;color:#25f5c5;font-weight:900}h1{font-size:25px;margin:8px 0}.intro,.muted{color:#9eb2b1;font-size:14px;line-height:1.5}.card,.partner{background:#08131b;border:1px solid #18353b;border-radius:16px;padding:18px;margin-top:16px}.toolbar{display:flex;gap:10px;flex-wrap:wrap}input{padding:12px;border-radius:10px;border:1px solid #24434a;background:#061018;color:#fff;font:inherit;min-width:220px;flex:1}button{border:0;border-radius:10px;padding:12px 15px;background:#25f5c5;color:#03110e;font-weight:900;cursor:pointer}button.secondary{background:#10222b;color:#eaf6f4;border:1px solid #24434a}button.danger{background:#3a1b20;color:#ffd7d7;border:1px solid #6a3038}button:disabled{opacity:.5;cursor:wait}.status{margin-top:12px;color:#9eb2b1;min-height:22px}.partner-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.partner h3{margin:0 0 6px}.tag{font-size:11px;letter-spacing:1px;color:#25f5c5;font-weight:900}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.empty{padding:22px;text-align:center;color:#9eb2b1;border:1px dashed #24434a;border-radius:12px;margin-top:14px}a{color:#25f5c5}
+</style></head><body><main class="wrap">
+<div class="eyebrow">NEXUSAI COMMAND CENTRE</div><h1>Security Partner Applications</h1>
+<p class="intro">Review new security company registrations. Approving an application activates the partner's account so they can sign in with the password they created. Registration checks email format, not ownership or company identity; independently verify both before approving. Rejected or suspended accounts cannot sign in.</p>
+<section class="card"><div class="toolbar"><input id="adminKey" type="password" autocomplete="current-password" placeholder="NexusAI admin key"><button id="load">LOAD APPLICATIONS</button><a href="/portal/admin.html" style="align-self:center">Back to Admin Portal</a></div><div id="status" class="status" role="status" aria-live="polite">Enter your existing NexusAI admin key to load applications.</div></section>
+<section id="list" aria-live="polite"></section>
+</main>
+<script>
+const keyInput=document.getElementById("adminKey"),statusBox=document.getElementById("status"),list=document.getElementById("list"),loadButton=document.getElementById("load");
+const storageKey="nexusai_admin_key";keyInput.value=localStorage.getItem(storageKey)||"";
+function esc(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+async function api(path,options={}){
+ const response=await fetch(path,{...options,headers:{...(options.headers||{}),"X-NexusAI-Admin-Key":keyInput.value.trim(),"Content-Type":"application/json"}});
+ const data=await response.json().catch(()=>({}));
+ if(!response.ok)throw new Error(data.detail||"Admin request failed.");
+ return data;
+}
+function render(items){
+ if(!items.length){list.innerHTML='<div class="empty">No security partner applications have been submitted yet.</div>';return;}
+ list.innerHTML=items.map(p=>{
+  const action=p.status==="PENDING"?'<button data-action="approve" data-id="'+esc(p.partner_id)+'">APPROVE</button><button class="danger" data-action="reject" data-id="'+esc(p.partner_id)+'">REJECT</button>':p.status==="ACTIVE"?'<button class="secondary" data-action="suspend" data-id="'+esc(p.partner_id)+'">SUSPEND ACCESS</button>':p.status==="SUSPENDED"?'<button data-action="approve" data-id="'+esc(p.partner_id)+'">REACTIVATE</button>':'';
+  return '<article class="partner"><div class="partner-head"><div><h3>'+esc(p.company_name)+'</h3><div class="muted">'+esc(p.full_name)+' · '+esc(p.email)+'</div><div class="muted">Submitted: '+(p.created_at?new Date(Number(p.created_at)*1000).toLocaleString():"—")+'</div></div><div class="tag">'+esc(p.status)+'</div></div><div class="actions">'+action+'</div></article>';
+ }).join("");
+}
+async function refresh(){
+ loadButton.disabled=true;statusBox.textContent="Loading partner applications...";
+ try{
+  const data=await api("/api/admin/partners");localStorage.setItem(storageKey,keyInput.value.trim());
+  const items=data.partners||[];render(items);
+  statusBox.textContent=items.filter(x=>x.status==="PENDING").length+" pending application(s); "+items.length+" total partner account(s).";
+ }catch(error){list.innerHTML="";statusBox.textContent=error.message;}
+ finally{loadButton.disabled=false;}
+}
+loadButton.addEventListener("click",refresh);
+list.addEventListener("click",async event=>{
+ const button=event.target.closest("button[data-action]");if(!button)return;
+ const id=button.dataset.id,action=button.dataset.action;
+ const status=action==="approve"?"ACTIVE":action==="reject"?"REJECTED":"SUSPENDED";
+ const promptText=status==="ACTIVE"?"Approve this security partner and enable partner login?":status==="REJECTED"?"Reject this partner application?":"Suspend this partner's access?";
+ if(!confirm(promptText))return;
+ button.disabled=true;
+ try{await api("/api/admin/partners/"+encodeURIComponent(id)+"/status",{method:"POST",body:JSON.stringify({status})});statusBox.textContent="Partner status updated.";await refresh();}
+ catch(error){statusBox.textContent=error.message;button.disabled=false;}
+});
+</script></body></html>

@@ -435,11 +435,11 @@ async def admin_update_partner_status(partner_id: str, payload: PartnerStatus,
                                       x_nexusai_admin_key: str | None = Header(default=None)):
     _admin(x_nexusai_admin_key)
     normalized = payload.status.strip().upper()
-    if normalized not in {"ACTIVE", "SUSPENDED"}:
-        raise HTTPException(400, "Status must be ACTIVE or SUSPENDED.")
+    if normalized not in {"ACTIVE", "SUSPENDED", "REJECTED"}:
+        raise HTTPException(400, "Status must be ACTIVE, SUSPENDED or REJECTED.")
     with _db() as conn:
         cur = _sql(conn, """UPDATE nexusai_partner_accounts SET status=%s
-            WHERE partner_id=%s AND status IN ('PENDING','ACTIVE','SUSPENDED')""",
+            WHERE partner_id=%s AND status IN ('PENDING','ACTIVE','SUSPENDED','REJECTED')""",
             (normalized, partner_id))
         if cur.rowcount != 1:
             raise HTTPException(404, "Partner account not found or cannot be updated.")
