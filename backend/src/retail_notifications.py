@@ -170,6 +170,132 @@ async def create_recipient(organisation_id: str, payload: RecipientIn, authoriza
             "token_notice": "Shown once. Give the access token directly to the authorised recipient."}
 
 
+class WhiteLabelAssignmentIn(BaseModel):
+    organisation_id: str = Field(min_length=3, max_length=100)
+    partner_id: str | None = Field(default=None, min_length=3, max_length=100)
+
+
+class PartnerBrandingIn(BaseModel):
+    partner_id: str = Field(min_length=3, max_length=100)
+    brand_mode: str = Field(default="CO_BRANDED", max_length=32)
+    brand_name: str = Field(min_length=2, max_length=160)
+    logo_url: str | None = Field(default=None, max_length=2048)
+    primary_color: str = Field(default="#07151d", max_length=7)
+    accent_color: str = Field(default="#25f5c5", max_length=7)
+    support_email: str | None = Field(default=None, max_length=254)
+
+
+@router.get("/api/admin/retail/white-label/partners")
+async def list_white_label_partners(authorization: str | None = Header(default=None)):
+    """List active security partners and their current brand configuration for NexusAI admins."""
+    _admin(authorization)
+    conn = _db()
+    try:
+        rows = _q(conn, """SELECT a.partner_id,a.company_name,a.email,a.status,
+            b.brand_mode,b.brand_name,b.logo_url,b.primary_color,b.accent_color,b.support_email,b.enabled
+            FROM nexusai_partner_accounts a
+            LEFT JOIN nexusai_partner_branding b ON b.partner_id=a.partner_id
+            WHERE a.status='ACTIVE' ORDER BY a.company_name""").fetchall()
+    finally:
+        conn.close()
+    keys = ("partner_id","company_name","email","status","brand_mode","brand_name",
+            "logo_url","primary_color","accent_color","support_email","branding_enabled")
+    return {"partners": [dict(zip(keys, row)) for row in rows]}
+
+
+@router.get("/api/admin/retail/white-label/organisations")
+async def list_white_label_organisations(authorization: str | None = Header(default=None)):
+    """List retailer organisations and their current security-company assignment."""
+    _admin(authorization)
+    conn = _db()
+    try:
+        rows = _q(conn, """SELECT o.organisation_id,o.organisation_name,o.partner_id,a.company_name
+            FROM nexusai_retail_organisations o
+            LEFT JOIN nexusai_partner_accounts a ON a.partner_id=o.partner_id
+            WHERE o.active=TRUE ORDER BY o.organisation_name""").fetchall()
+    finally:
+        conn.close()
+    return {"organisations": [dict(zip(("organisation_id","organisation_name","partner_id","partner_company"), r))
+                              for r in rows]}
+
+
+@router.post("/api/admin/retail/white-label/assign")
+async def assign_white_label_partner(payload: WhiteLabelAssignmentIn,
+                                     authorization: str | None = Header(default=None)):
+    """Assign or unassign a retailer organisation to a verified active security partner."""
+    _admin(authorization)
+    partner_id = payload.partner_id.strip() if payload.partner_id else None
+    conn = _db()
+    try:
+        org = _q(conn, "SELECT organisation_id FROM nexusai_retail_organisations WHERE organisation_id=? AND active=TRUE",
+                 (payload.organisation_id,)).fetchone()
+        if not org:
+            raise HTTPException(404, "Active retailer organisation not found.")
+        if partner_id:
+            partner = _q(conn, "SELECT partner_id FROM nexusai_partner_accounts WHERE partner_id=? AND status='ACTIVE'",
+                         (partner_id,)).fetchone()
+            if not partner:
+                raise HTTPException(404, "Active security partner not found. Only approved active partners can be assigned.")
+        _q(conn, "UPDATE nexusai_retail_organisations SET partner_id=? WHERE organisation_id=?",
+           (partner_id, payload.organisation_id))
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"assigned": True, "organisation_id": payload.organisation_id, "partner_id": partner_id}
+
+
+@router.post("/api/admin/retail/white-label/branding")
+async def save_white_label_branding(payload: PartnerBrandingIn,
+                                    authorization: str | None = Header(default=None)):
+    """Create or update branding for an active security partner; custom domains are deliberately excluded."""
+    _admin(authorization)
+    mode = payload.brand_mode.strip().upper()
+    if mode not in {"FULL_WHITE_LABEL", "CO_BRANDED"}:
+        raise HTTPException(422, "Brand mode must be FULL_WHITE_LABEL or CO_BRANDED.")
+    brand_name = payload.brand_name.strip()
+    if not brand_name:
+        raise HTTPException(422, "Enter a customer-facing brand name.")
+    primary = payload.primary_color.strip().lower()
+    accent = payload.accent_color.strip().lower()
+    if not re.fullmatch(r"#[0-9a-f]{6}", primary) or not re.fullmatch(r"#[0-9a-f]{6}", accent):
+        raise HTTPException(422, "Brand colours must be six-digit hexadecimal values, such as #07151d.")
+    logo = (payload.logo_url or "").strip() or None
+    if logo:
+        parsed = urlsplit(logo)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise HTTPException(422, "Logo URL must be a valid HTTPS URL.")
+    support_email = (payload.support_email or "").strip().lower() or None
+    if support_email and not re.fullmatch(r"[^\\s@]+@[^\\s@]+\\.[^\\s@]+", support_email):
+        raise HTTPException(422, "Enter a valid support email address.")
+    conn = _db()
+    now = time.time()
+    try:
+        partner = _q(conn, "SELECT partner_id FROM nexusai_partner_accounts WHERE partner_id=? AND status='ACTIVE'",
+                     (payload.partner_id,)).fetchone()
+        if not partner:
+            raise HTTPException(404, "Active security partner not found.")
+        _q(conn, """INSERT INTO nexusai_partner_branding
+            (partner_id,brand_mode,brand_name,logo_url,primary_color,accent_color,support_email,
+             custom_domain,enabled,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,NULL,TRUE,?,?)
+            ON CONFLICT(partner_id) DO UPDATE SET brand_mode=excluded.brand_mode,
+             brand_name=excluded.brand_name,logo_url=excluded.logo_url,
+             primary_color=excluded.primary_color,accent_color=excluded.accent_color,
+             support_email=excluded.support_email,enabled=TRUE,updated_at=excluded.updated_at""",
+           (payload.partner_id,mode,brand_name,logo,primary,accent,support_email,now,now))
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"saved": True, "partner_id": payload.partner_id, "brand_mode": mode,
+            "brand_name": brand_name, "custom_domain_status": "NOT_CONFIGURED"}
+
+
 @router.get("/api/retail/notifications/me")
 async def retailer_me(authorization: str | None = Header(default=None)):
     recipient = _bearer(authorization)
