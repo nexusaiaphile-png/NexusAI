@@ -329,7 +329,7 @@ async def retailer_me(authorization: str | None = Header(default=None)):
     }
     if brand and brand[0]:
         partner_name = brand[1] or "Security partner"
-        configured = bool(brand[2] and brand[3] and brand[8] is not False)
+        configured = bool(brand[2] and brand[3] and brand[8])
         branding.update({
             "brand_mode": brand[2] if configured else "CO_BRANDED",
             "brand_name": brand[3] if configured else partner_name,
