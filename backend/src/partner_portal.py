@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import os
+import re
 import secrets
 import smtplib
 import sqlite3
@@ -169,6 +170,14 @@ class PartnerLogin(BaseModel):
     email: str = Field(..., min_length=5, max_length=200)
     password: str = Field(..., min_length=1, max_length=128)
 
+class PartnerBrandingUpdate(BaseModel):
+    brand_mode: str = Field(default="CO_BRANDED", max_length=32)
+    brand_name: str = Field(..., min_length=2, max_length=160)
+    logo_url: str | None = Field(default=None, max_length=2048)
+    primary_color: str = Field(default="#07151d", max_length=7)
+    accent_color: str = Field(default="#25f5c5", max_length=7)
+    support_email: str | None = Field(default=None, max_length=254)
+
 
 class RegisterPartner(BaseModel):
     email: str = Field(..., min_length=5, max_length=200)
@@ -267,6 +276,67 @@ async def partner_login(payload: PartnerLogin, request: Request):
             raise HTTPException(403, "This partner account is not active. Please contact NexusAI.")
         token = _issue_session(conn, row[0])
     return {"authenticated": True, "access_token": token, "token_type": "bearer", "expires_in": SESSION_TTL}
+
+
+@router.get("/branding")
+async def partner_get_branding(authorization: str | None = Header(default=None)):
+    """Return only the authenticated partner's own branding settings."""
+    partner = _bearer(authorization)
+    with _db() as conn:
+        row = _sql(conn, """SELECT brand_mode,brand_name,logo_url,primary_color,accent_color,
+            support_email,enabled FROM nexusai_partner_branding WHERE partner_id=%s""",
+            (partner["partner_id"],)).fetchone()
+    if not row:
+        return {"branding": {
+            "brand_mode": "CO_BRANDED", "brand_name": partner["company_name"],
+            "logo_url": None, "primary_color": "#07151d", "accent_color": "#25f5c5",
+            "support_email": partner["email"], "enabled": True, "configured": False,
+        }}
+    return {"branding": dict(zip(
+        ("brand_mode","brand_name","logo_url","primary_color","accent_color","support_email","enabled"),
+        row
+    )) | {"configured": True}}
+
+
+@router.put("/branding")
+async def partner_update_branding(payload: PartnerBrandingUpdate,
+                                  authorization: str | None = Header(default=None)):
+    """A partner may edit branding for its own account only; it cannot assign retailers or domains."""
+    partner = _bearer(authorization)
+    mode = payload.brand_mode.strip().upper()
+    if mode not in {"CO_BRANDED", "FULL_WHITE_LABEL"}:
+        raise HTTPException(422, "Choose co-branded or full white-label mode.")
+    brand_name = payload.brand_name.strip()
+    if len(brand_name) < 2:
+        raise HTTPException(422, "Enter a customer-facing brand name.")
+    primary = payload.primary_color.strip().lower()
+    accent = payload.accent_color.strip().lower()
+    if not re.fullmatch(r"#[0-9a-f]{6}", primary) or not re.fullmatch(r"#[0-9a-f]{6}", accent):
+        raise HTTPException(422, "Colours must use six-digit hex format, for example #07151d.")
+    logo = (payload.logo_url or "").strip() or None
+    if logo:
+        parsed = urlsplit(logo)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise HTTPException(422, "Logo URL must be a valid HTTPS URL.")
+    support_email = (payload.support_email or "").strip().lower() or None
+    if support_email and not re.fullmatch(r"[^\\s@]+@[^\\s@]+\\.[^\\s@]+", support_email):
+        raise HTTPException(422, "Enter a valid support email address.")
+    now = time.time()
+    with _db() as conn:
+        _sql(conn, """INSERT INTO nexusai_partner_branding
+            (partner_id,brand_mode,brand_name,logo_url,primary_color,accent_color,support_email,
+             custom_domain,enabled,created_at,updated_at)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,NULL,TRUE,%s,%s)
+            ON CONFLICT(partner_id) DO UPDATE SET brand_mode=EXCLUDED.brand_mode,
+             brand_name=EXCLUDED.brand_name,logo_url=EXCLUDED.logo_url,
+             primary_color=EXCLUDED.primary_color,accent_color=EXCLUDED.accent_color,
+             support_email=EXCLUDED.support_email,enabled=TRUE,updated_at=EXCLUDED.updated_at""",
+            (partner["partner_id"],mode,brand_name,logo,primary,accent,support_email,now,now))
+    return {"saved": True, "branding": {
+        "brand_mode": mode, "brand_name": brand_name, "logo_url": logo,
+        "primary_color": primary, "accent_color": accent, "support_email": support_email,
+        "enabled": True,
+    }, "note": "Settings are saved. Retailer dashboard branding is not activated until the dashboard integration is deployed."}
 
 
 @router.get("/me")
