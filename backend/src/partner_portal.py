@@ -319,7 +319,7 @@ async def partner_update_branding(payload: PartnerBrandingUpdate,
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
             raise HTTPException(422, "Logo URL must be a valid HTTPS URL.")
     support_email = (payload.support_email or "").strip().lower() or None
-    if support_email and not re.fullmatch(r"[^\\s@]+@[^\\s@]+\\.[^\\s@]+", support_email):
+    if support_email and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", support_email):
         raise HTTPException(422, "Enter a valid support email address.")
     now = time.time()
     with _db() as conn:
