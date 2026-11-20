@@ -2500,7 +2500,14 @@ try:
 except Exception:
     logging.exception("Retail Intelligence integration failed to load.")
 
-# Retailer compatibility intake is isolated from distributor and HPP onboarding.\ntry:\n    from backend.src.retailer_assessment import install as install_retailer_assessment\n    install_retailer_assessment(app)\nexcept Exception:\n    logging.exception("Retailer assessment integration failed to load.")\n\n@app.get("/partner/branding.html", include_in_schema=False)
+# Retailer compatibility intake is isolated from distributor and HPP onboarding.
+try:
+    from backend.src.retailer_assessment import install as install_retailer_assessment
+    install_retailer_assessment(app)
+except Exception:
+    logging.exception("Retailer assessment integration failed to load.")
+
+@app.get("/partner/branding.html", include_in_schema=False)
 async def partner_branding_page():
     return FileResponse(PORTAL_DIR / "partner-branding.html", media_type="text/html",
                         headers={"Cache-Control": "no-store"})
