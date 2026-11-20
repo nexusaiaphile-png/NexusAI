@@ -9,7 +9,7 @@
 <section id="dashboard" class="hidden">
 <div class="panel"><div class="top"><div><div class="eyebrow">SIGNED IN</div><h1 id="welcome">Retail dashboard</h1><div class="muted" id="role"></div></div><button id="signOut" class="btn secondary">SIGN OUT</button></div><div id="branches" style="margin-top:12px"></div><div class="row" style="margin-top:15px"><button id="enablePush" class="btn">ENABLE PHONE ALERTS</button><button id="refresh" class="btn secondary">REFRESH</button></div><div id="pushStatus" class="status" aria-live="polite">Phone alerts are optional. Enable them once to receive alerts while this dashboard is closed.</div></div>
 <div class="panel"><div class="top"><h2>Retail alerts</h2><div class="count" id="unread">0 unread</div></div><p class="muted">POS exceptions requiring authorised human review. You will only see branches assigned to your account.</p><div id="alerts"><div class="muted">Loading alerts…</div></div></div>
-</section><footer class="legal" id="legalNotice">Platform technology and data processing services are provided by NexusAI Technologies. Retailer access is limited to the branches assigned to your account. See the applicable retailer privacy notice and service agreement for details. <span id="brandSupport"></span></footer></main>
+</section><footer class="legal" id="legalNotice">Platform technology is provided by NexusAI Technologies. Retailer access is limited to the branches assigned to your account. See the applicable retailer privacy notice and service agreement for details. <span id="brandSupport"></span></footer></main>
 <script>
 const $=id=>document.getElementById(id);let token=localStorage.getItem("nexusai_retail_token")||"";let registration=null;let poll=null;
 function applyBranding(branding){
@@ -20,7 +20,7 @@ function applyBranding(branding){
  document.documentElement.style.setProperty("--brand-primary",primary);
  document.documentElement.style.setProperty("--teal",accent);
  $("themeColor").setAttribute("content",primary);
- $("brandEyebrow").textContent=mode==="FULL_WHITE_LABEL"?"RETAIL INTELLIGENCE":name.toUpperCase();
+ $("brandEyebrow").textContent=name.toUpperCase();
  $("brandTitle").textContent="Retailer Dashboard";
  document.title=name+" — Retailer Dashboard";
  $("poweredBy").classList.toggle("hidden",!branding.powered_by_nexusai);
