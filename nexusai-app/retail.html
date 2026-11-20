@@ -1,17 +1,38 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#06131d"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="manifest" href="/app/manifest.json"><title>NexusAI Retail Dashboard</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#06131d" id="themeColor"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="manifest" href="/app/manifest.json"><title>Retailer Dashboard</title>
 <style>
-:root{color-scheme:dark;--bg:#040a10;--panel:#08131b;--line:#18353b;--teal:#25f5c5;--muted:#9eb2b1;--white:#eef8f6}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--white);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:920px;margin:auto;padding:22px 16px 56px}.brand{display:flex;align-items:center;gap:12px}.logo{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;background:#07151d;border:1px solid #1b4d4a;color:var(--teal);font-weight:950;font-size:24px}.eyebrow{font-size:10px;letter-spacing:2px;color:var(--teal);font-weight:900}.brand strong{font-size:18px}.panel{margin-top:18px;padding:18px;border:1px solid var(--line);border-radius:17px;background:var(--panel)}h1{font-size:29px;margin:8px 0}h2{font-size:18px;margin:0 0 12px}.muted{color:var(--muted);line-height:1.5;font-size:14px}.input{width:100%;padding:14px;border:1px solid #29434a;border-radius:10px;background:#061018;color:var(--white);font-size:15px;margin:10px 0}.btn{border:0;border-radius:10px;padding:13px 15px;background:var(--teal);color:#03110e;font-weight:900;cursor:pointer}.btn.secondary{background:#10222b;color:#eaf6f4;border:1px solid #24434a}.btn:disabled{opacity:.5}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.branch{display:inline-block;border:1px solid #24504a;color:#a4f7e1;background:#0b201e;border-radius:99px;padding:7px 10px;margin:4px;font-size:12px}.alert{padding:15px;border:1px solid #1b3c42;border-left:3px solid var(--teal);border-radius:11px;margin-top:11px;background:#071119}.alert.unread{border-left-color:#ffc86d}.alert strong{display:block}.alert small{display:block;color:var(--muted);margin-top:6px;line-height:1.45}.alert button{margin-top:10px}.status{padding:12px;border-radius:10px;background:#0b1d25;color:#a9bcba;font-size:13px;margin-top:12px}.error{color:#ff9d9d}.hidden{display:none!important}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.count{color:var(--teal);font-weight:900}@media(max-width:520px){.wrap{padding:15px 12px 40px}h1{font-size:25px}.panel{padding:15px}}
+:root{color-scheme:dark;--bg:#040a10;--panel:#08131b;--line:#18353b;--teal:#25f5c5;--brand-primary:#07151d;--muted:#9eb2b1;--white:#eef8f6}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--white);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:920px;margin:auto;padding:22px 16px 56px}.brand{display:flex;align-items:center;gap:12px}.logo{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;background:var(--brand-primary);border:1px solid var(--line);color:var(--teal);font-weight:950;font-size:24px;object-fit:contain}.logo img{width:100%;height:100%;object-fit:contain;border-radius:12px}.powered{font-size:10px;color:var(--muted);letter-spacing:.5px;margin-top:3px}.legal{margin:18px 4px 0;color:var(--muted);font-size:11px;line-height:1.5}.eyebrow{font-size:10px;letter-spacing:2px;color:var(--teal);font-weight:900}.brand strong{font-size:18px}.panel{margin-top:18px;padding:18px;border:1px solid var(--line);border-radius:17px;background:var(--panel)}h1{font-size:29px;margin:8px 0}h2{font-size:18px;margin:0 0 12px}.muted{color:var(--muted);line-height:1.5;font-size:14px}.input{width:100%;padding:14px;border:1px solid #29434a;border-radius:10px;background:#061018;color:var(--white);font-size:15px;margin:10px 0}.btn{border:0;border-radius:10px;padding:13px 15px;background:var(--teal);color:#03110e;font-weight:900;cursor:pointer}.btn.secondary{background:#10222b;color:#eaf6f4;border:1px solid #24434a}.btn:disabled{opacity:.5}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.branch{display:inline-block;border:1px solid #24504a;color:#a4f7e1;background:#0b201e;border-radius:99px;padding:7px 10px;margin:4px;font-size:12px}.alert{padding:15px;border:1px solid #1b3c42;border-left:3px solid var(--teal);border-radius:11px;margin-top:11px;background:#071119}.alert.unread{border-left-color:#ffc86d}.alert strong{display:block}.alert small{display:block;color:var(--muted);margin-top:6px;line-height:1.45}.alert button{margin-top:10px}.status{padding:12px;border-radius:10px;background:#0b1d25;color:#a9bcba;font-size:13px;margin-top:12px}.error{color:#ff9d9d}.hidden{display:none!important}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.count{color:var(--teal);font-weight:900}@media(max-width:520px){.wrap{padding:15px 12px 40px}h1{font-size:25px}.panel{padding:15px}}
 </style></head><body><main class="wrap">
-<header class="brand"><div class="logo">N</div><div><div class="eyebrow">NEXUSAI RETAIL INTELLIGENCE</div><strong>Retailer Dashboard</strong></div></header>
+<header class="brand"><div class="logo" id="brandLogo">N</div><div><div class="eyebrow" id="brandEyebrow">NEXUSAI RETAIL INTELLIGENCE</div><strong id="brandTitle">Retailer Dashboard</strong><div class="powered hidden" id="poweredBy">Powered by NexusAI</div></div></header>
 <section id="login" class="panel"><div class="eyebrow">SECURE SIGN IN</div><h1>Welcome back.</h1><p class="muted">Enter the secure access token issued by your NexusAI administrator. Your branch permissions are checked by NexusAI on every request.</p><input id="token" class="input" type="password" autocomplete="off" placeholder="Retailer access token"><div class="row"><button id="signIn" class="btn">SIGN IN</button></div><div id="loginStatus" class="status" aria-live="polite">Your access token is shown only once when your account is created.</div></section>
 <section id="dashboard" class="hidden">
 <div class="panel"><div class="top"><div><div class="eyebrow">SIGNED IN</div><h1 id="welcome">Retail dashboard</h1><div class="muted" id="role"></div></div><button id="signOut" class="btn secondary">SIGN OUT</button></div><div id="branches" style="margin-top:12px"></div><div class="row" style="margin-top:15px"><button id="enablePush" class="btn">ENABLE PHONE ALERTS</button><button id="refresh" class="btn secondary">REFRESH</button></div><div id="pushStatus" class="status" aria-live="polite">Phone alerts are optional. Enable them once to receive alerts while this dashboard is closed.</div></div>
 <div class="panel"><div class="top"><h2>Retail alerts</h2><div class="count" id="unread">0 unread</div></div><p class="muted">POS exceptions requiring authorised human review. You will only see branches assigned to your account.</p><div id="alerts"><div class="muted">Loading alerts…</div></div></div>
-</section></main>
+</section><footer class="legal" id="legalNotice">Platform technology is provided by NexusAI Technologies. Retailer access is limited to the branches assigned to your account. See the applicable retailer privacy notice and service agreement for details. <span id="brandSupport"></span></footer></main>
 <script>
 const $=id=>document.getElementById(id);let token=localStorage.getItem("nexusai_retail_token")||"";let registration=null;let poll=null;
+function applyBranding(branding){
+ const mode=branding.brand_mode==="FULL_WHITE_LABEL"?"FULL_WHITE_LABEL":"CO_BRANDED";
+ const name=String(branding.brand_name||"NexusAI Retail Intelligence");
+ const primary=/^#[0-9a-f]{6}$/i.test(branding.primary_color||"")?branding.primary_color:"#07151d";
+ const accent=/^#[0-9a-f]{6}$/i.test(branding.accent_color||"")?branding.accent_color:"#25f5c5";
+ document.documentElement.style.setProperty("--brand-primary",primary);
+ document.documentElement.style.setProperty("--teal",accent);
+ $("themeColor").setAttribute("content",primary);
+ $("brandEyebrow").textContent=name.toUpperCase();
+ $("brandTitle").textContent="Retailer Dashboard";
+ document.title=name+" — Retailer Dashboard";
+ $("poweredBy").classList.toggle("hidden",!branding.powered_by_nexusai);
+ const logo=String(branding.logo_url||"");
+ if(/^https:\/\//i.test(logo)){
+  const img=document.createElement("img");img.src=logo;img.alt=name+" logo";img.referrerPolicy="no-referrer";
+  img.onerror=()=>{$("brandLogo").textContent=(name.trim()[0]||"R").toUpperCase()};
+  $("brandLogo").replaceChildren(img);
+ }else $("brandLogo").textContent=(name.trim()[0]||"R").toUpperCase();
+ const support=String(branding.support_email||"");
+ $("brandSupport").textContent=support?" Partner support: "+support+".":"";
+}
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function auth(){return {"Authorization":"Bearer "+token,"Content-Type":"application/json"}}
 function b64bytes(value){const pad="=".repeat((4-value.length%4)%4);const raw=atob((value+pad).replace(/-/g,"+").replace(/_/g,"/"));return Uint8Array.from(raw,c=>c.charCodeAt(0))}
@@ -20,6 +41,7 @@ async function api(path,options={}){const response=await fetch(path,{...options,
 async function loadDashboard(){
  try{
   const me=await api("/api/retail/notifications/me");
+  applyBranding(me.branding||{});
   $("login").classList.add("hidden");$("dashboard").classList.remove("hidden");
   $("welcome").textContent="Hello, "+(me.recipient.display_name||"Retail user");
   $("role").textContent=me.recipient.role==="HEAD_OFFICE"?"Head office · authorised branch overview":"Store manager · assigned branch";
