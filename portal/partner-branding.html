@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Partner Brand Settings | NexusAI</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#040a10;color:#eef8f6;font:15px Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:760px;margin:40px auto;padding:0 18px 50px}.card{background:#08131b;border:1px solid #18353b;border-radius:18px;padding:22px;margin-top:18px}.eyebrow{color:#25f5c5;font-size:11px;font-weight:900;letter-spacing:2px}h1{font-size:25px;margin:8px 0}h2{font-size:18px;margin-top:0}.muted{color:#9eb2b1;line-height:1.6;font-size:13px}label{display:block;color:#b7c8c6;font-size:13px;margin-top:14px}input,select{display:block;width:100%;margin-top:6px;padding:12px;border-radius:10px;border:1px solid #24434a;background:#061018;color:#fff;font:inherit}button{border:0;border-radius:10px;padding:12px 16px;background:#25f5c5;color:#03110e;font-weight:900;cursor:pointer;margin-top:16px}button.secondary{background:#10222b;color:#eaf6f4;border:1px solid #24434a}.status{margin-top:12px;min-height:22px;color:#a9bfbd}.hidden{display:none}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.preview{margin-top:16px;padding:16px;border-radius:12px;border:1px solid #24434a;background:#07151d}.swatch{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:7px}@media(max-width:600px){.grid{grid-template-columns:1fr}.wrap{margin-top:20px}}
+</style></head><body><main class="wrap">
+<div class="eyebrow">NEXUSAI PARTNER NETWORK</div><h1>Partner brand settings</h1><p class="muted">Sign in to manage the customer-facing identity for your own security company. These settings do not grant access to retailer branches, POS records or camera footage.</p>
+<section class="card" id="loginCard"><h2>Partner sign in</h2>
+<label>Email<input id="email" type="email" autocomplete="username" placeholder="you@company.co.za"></label>
+<label>Password<input id="password" type="password" autocomplete="current-password"></label>
+<button id="login">SIGN IN</button><div class="status" id="loginStatus" role="status"></div>
+</section>
+<section class="card hidden" id="settingsCard"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h2>Your brand identity</h2><button class="secondary" id="logout" style="margin:0">SIGN OUT</button></div>
+<div class="muted" id="account"></div>
+<label>Branding mode<select id="mode"><option value="CO_BRANDED">Co-branded — Powered by NexusAI</option><option value="FULL_WHITE_LABEL">Full white-label — partner brand</option></select></label>
+<label>Customer-facing brand name<input id="brandName" maxlength="160" required></label>
+<label>Logo URL (HTTPS)<input id="logo" type="url" placeholder="https://your-company.co.za/logo.png"></label>
+<div class="grid"><div><label>Primary colour<input id="primary" value="#07151d" maxlength="7"></label></div><div><label>Accent colour<input id="accent" value="#25f5c5" maxlength="7"></label></div></div>
+<label>Partner support email<input id="support" type="email" placeholder="support@your-company.co.za"></label>
+<div class="preview" id="preview"><strong id="previewName">Your brand preview</strong><p class="muted">Illustrative preview only. It does not mean a retailer dashboard is live under this brand.</p></div>
+<button id="save">SAVE BRAND SETTINGS</button><div class="status" id="saveStatus" role="status"></div>
+<p class="muted">Custom domains are not available in this stage. Full white-label mode does not remove legally required privacy, controller/processor or service-provider disclosures. Saving settings does not activate branding on retailer dashboards; that integration is a separate stage.</p>
+</section></main>
+<script>
+const $=id=>document.getElementById(id);let token=sessionStorage.getItem("nexusai_partner_session")||"";
+async function api(path,options={}){const r=await fetch(path,{...options,headers:{...(options.headers||{}),"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})}});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.detail||"Request failed.");return d}
+function paint(){const name=$("brandName").value.trim()||"Your brand preview";$("previewName").textContent=name;$("preview").style.background=$("primary").value;$("preview").style.borderColor=$("accent").value;$("previewName").style.color=$("accent").value}
+["brandName","primary","accent"].forEach(id=>$(id).addEventListener("input",paint));
+async function loadBrand(){const d=await api("/api/partners/branding");const b=d.branding||{};$("mode").value=b.brand_mode||"CO_BRANDED";$("brandName").value=b.brand_name||"";$("logo").value=b.logo_url||"";$("primary").value=b.primary_color||"#07151d";$("accent").value=b.accent_color||"#25f5c5";$("support").value=b.support_email||"";paint();$("loginCard").classList.add("hidden");$("settingsCard").classList.remove("hidden");$("account").textContent="Signed in as "+(sessionStorage.getItem("nexusai_partner_email")||"authorised partner account")+". Only your own brand settings are editable."}
+$("login").onclick=async()=>{ $("login").disabled=true;$("loginStatus").textContent="Signing in...";try{const d=await api("/api/partners/login",{method:"POST",body:JSON.stringify({email:$("email").value.trim(),password:$("password").value})});token=d.access_token;sessionStorage.setItem("nexusai_partner_session",token);sessionStorage.setItem("nexusai_partner_email",$("email").value.trim());await loadBrand()}catch(e){$("loginStatus").textContent=e.message}finally{$("login").disabled=false}};
+$("save").onclick=async()=>{$("save").disabled=true;$("saveStatus").textContent="Saving...";try{await api("/api/partners/branding",{method:"PUT",body:JSON.stringify({brand_mode:$("mode").value,brand_name:$("brandName").value.trim(),logo_url:$("logo").value.trim()||null,primary_color:$("primary").value.trim(),accent_color:$("accent").value.trim(),support_email:$("support").value.trim()||null})});$("saveStatus").textContent="Brand settings saved. Retailer dashboard branding is not activated yet."}catch(e){$("saveStatus").textContent=e.message}finally{$("save").disabled=false}};
+$("logout").onclick=async()=>{try{await api("/api/partners/logout",{method:"POST"})}catch(e){}token="";sessionStorage.removeItem("nexusai_partner_session");sessionStorage.removeItem("nexusai_partner_email");$("settingsCard").classList.add("hidden");$("loginCard").classList.remove("hidden");$("password").value=""};
+if(token){loadBrand().catch(e=>{token="";sessionStorage.removeItem("nexusai_partner_session");$("loginStatus").textContent=e.message})}
+</script></body></html>
