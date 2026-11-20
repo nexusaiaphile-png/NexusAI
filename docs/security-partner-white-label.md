@@ -28,3 +28,25 @@ Brand configuration is keyed to a verified `nexusai_partner_accounts.partner_id`
 4. Only NexusAI administrators may assign partner_id to an organisation and update partner branding until a separately permissioned partner-admin workflow is reviewed.
 5. A custom domain remains inactive until domain control, TLS and host-to-tenant resolution are implemented and tested.
 6. Do not activate or imply that any partner has a branded live tenant until the application endpoints and dashboard integration are deployed and validated.
+
+
+## Stage 1: NexusAI admin controls
+
+The admin Command Centre now has a Security Partner White-Label Administration section.
+
+- It lists only active security partner accounts.
+- It lists active retailer organisations and their current partner assignment.
+- NexusAI administrators can assign or unassign an organisation to an active partner.
+- NexusAI administrators can save each active partner's mode, display name, HTTPS logo URL, primary/accent colours and support email.
+- API access uses the existing authenticated NexusAI administrator bearer session. The browser cannot select a partner's identity for access control; the admin action is explicitly privileged.
+- Branding settings are presentation metadata only. They do not grant access to retailer notifications, branches or footage.
+- Custom domains are not configurable or active in this stage.
+- The admin interface explicitly warns that saved settings do not change the retailer dashboard until the dashboard-branding stage is implemented.
+
+Endpoints:
+- `GET /api/admin/retail/white-label/partners`
+- `GET /api/admin/retail/white-label/organisations`
+- `POST /api/admin/retail/white-label/assign`
+- `POST /api/admin/retail/white-label/branding`
+
+All four endpoints require the existing administrator bearer token. Active partner status is checked server-side before assignment or branding updates.
