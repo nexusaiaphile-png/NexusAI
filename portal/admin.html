@@ -32,7 +32,11 @@
 <div id="wlControls" class="hidden">
 <label>Security company<select id="wlPartner"><option value="">Select an active security company</option></select></label>
 <label>Retailer organisation<select id="wlOrg"><option value="">Select a retailer organisation</option></select></label>
-<button id="wlAssign">ASSIGN SECURITY COMPANY TO ORGANISATION</button>
+<label>Authorisation / agreement reference<input id="wlAuthRef" maxlength="200" placeholder="e.g. signed service agreement reference"></label>
+<label style="display:flex;gap:10px;align-items:flex-start"><input id="wlAuthConfirmed" type="checkbox" style="width:auto;margin-top:2px">I have independently verified the retailer's written authorisation for this security partner to provide the service and access the assigned organisation's dashboard data.</label>
+<button id="wlAssign">CONFIRM &amp; ASSIGN SECURITY COMPANY</button>
+<div class="small">Only assign after retailer consent and the applicable service/privacy terms are verified. This records your confirmation and the reference in an audit log; it does not itself create HPP access or prove vendor authorisation.</div>
+<button class="secondary" id="wlAudit">VIEW ASSIGNMENT AUDIT LOG</button><div id="wlAuditList" class="small" aria-live="polite"></div>
 <div class="site" style="margin-top:18px"><h3>Partner brand settings</h3>
 <label>Branding mode<select id="wlMode"><option value="CO_BRANDED">Co-branded — Powered by NexusAI</option><option value="FULL_WHITE_LABEL">Full white-label — partner brand</option></select></label>
 <label>Customer-facing brand name<input id="wlName" maxlength="160" placeholder="Security company or service brand"></label>
@@ -139,16 +143,27 @@ $("wlLoad").onclick=async()=>{
 };
 $("wlAssign").onclick=async()=>{
  const organisation_id=$("wlOrg").value,partner_id=$("wlPartner").value;
+ const authorisation_reference=$("wlAuthRef").value.trim();
  if(!organisation_id||!partner_id){$("wlStatus").textContent="Select both a security company and a retailer organisation.";return}
+ if(!$("wlAuthConfirmed").checked||authorisation_reference.length<3){$("wlStatus").textContent="Verify retailer authorisation, tick the confirmation and enter its agreement/reference.";return}
+ if(!confirm("Confirm that written retailer authorisation has been verified and assign this security company?"))return;
  $("wlAssign").disabled=true;
  try{
   await wlEnsureAdmin();
-  await retailApi("/api/admin/retail/white-label/assign",{method:"POST",body:JSON.stringify({organisation_id,partner_id})});
-  $("wlStatus").textContent="Security company assigned successfully. This assignment does not yet change the retailer dashboard branding.";
-  await wlLoad();
+  await retailApi("/api/admin/retail/white-label/assign",{method:"POST",body:JSON.stringify({organisation_id,partner_id,authorisation_confirmed:true,authorisation_reference})});
+  $("wlStatus").textContent="Assignment saved and audit record created. Branding will apply to recipients in this organisation after they sign in; HPP/site permissions remain separate.";
+  $("wlAuthRef").value="";$("wlAuthConfirmed").checked=false;
+  await wlLoad();await wlAudit();
  }catch(e){$("wlStatus").textContent=e.message}
  finally{$("wlAssign").disabled=false}
 };
+async function wlAudit(){
+ await wlEnsureAdmin();
+ const data=await retailApi("/api/admin/retail/white-label/assignment-audit");
+ const rows=data.records||[];
+ $("wlAuditList").innerHTML=rows.length?rows.map(x=>'<div class="site"><strong>'+esc(x.action)+'</strong> · '+esc(x.organisation_name||x.organisation_id)+'<br>'+esc(x.previous_partner_company||"Unassigned")+' → '+esc(x.partner_company||"Unassigned")+'<br>Reference: '+esc(x.authorisation_reference)+' · '+esc(new Date(Number(x.created_at)*1000).toLocaleString())+'</div>').join(""):'<p>No assignment changes have been recorded.</p>';
+}
+$("wlAudit").onclick=async()=>{try{await wlAudit()}catch(e){$("wlStatus").textContent=e.message}};
 $("wlSave").onclick=async()=>{
  const partner_id=$("wlPartner").value;
  if(!partner_id){$("wlStatus").textContent="Select a security company before saving its branding.";return}
