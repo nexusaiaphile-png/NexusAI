@@ -1826,21 +1826,35 @@ async def admin_hpp_authorized_sites(x_nexusai_admin_key: str | None = Header(de
     require_admin_key(x_nexusai_admin_key)
     try:
         from hpp_integration import search_sites, HppError
-        payload = search_sites(1, 100, "")
-        sites = _hpp_data_rows(payload, "rows", "list", "sites", "items")
         normalized = []
-        for site in sites:
-            if not isinstance(site, dict):
-                continue
-            site_id = str(site.get("siteId") or site.get("id") or site.get("site_id") or "").strip()
-            if not site_id:
-                continue
-            normalized.append({
-                "hpp_site_id": site_id,
-                "name": _hpp_site_name(site),
-                "raw": site,
-            })
-        return {"sites": normalized}
+        seen = set()
+        pages_read = 0
+        for page in range(1, 101):
+            payload = search_sites(page, 100, "")
+            sites = _hpp_data_rows(payload, "rows", "list", "sites", "items")
+            pages_read = page
+            for site in sites:
+                if not isinstance(site, dict):
+                    continue
+                site_id = str(
+                    site.get("siteId") or site.get("id") or site.get("site_id") or ""
+                ).strip()
+                if not site_id or site_id in seen:
+                    continue
+                seen.add(site_id)
+                normalized.append({
+                    "hpp_site_id": site_id,
+                    "name": _hpp_site_name(site),
+                    "raw": site,
+                })
+            if len(sites) < 100:
+                break
+        return {
+            "sites": normalized,
+            "count": len(normalized),
+            "pages_read": pages_read,
+            "truncated": pages_read == 100 and len(sites) == 100,
+        }
     except HppError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
