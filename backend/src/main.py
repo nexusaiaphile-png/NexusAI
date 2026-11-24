@@ -1709,39 +1709,109 @@ async def admin_hpp_connect_site(
     request: HppConnectSiteRequest,
     x_nexusai_admin_key: str | None = Header(default=None),
 ):
+    """Connect only a site actually authorised to the NexusAI HPP partner account.
+
+    This legacy admin route is retained for the existing portal, but follows the
+    same fail-closed onboarding rules as /api/hpp/sites/connect.
+    """
     require_admin_key(x_nexusai_admin_key)
     site_id = validate_site_id(request.nexusai_site_id)
     try:
-        from hpp_integration import search_sites, list_devices, HppError
-        sites_payload = search_sites(1, 100, "")
-        raw_sites = _hpp_data_rows(sites_payload, "rows", "list", "sites", "items")
-        selected = next(
-            (s for s in raw_sites if isinstance(s, dict) and str(
-                s.get("siteId") or s.get("id") or s.get("site_id") or ""
-            ) == request.hpp_site_id),
-            {"siteId": request.hpp_site_id, "siteName": "Hikvision Site"},
+        from hpp_integration import (
+            search_sites, list_devices, list_cameras, subscribe,
+            HppSubscribeRequest, HppError,
         )
+
+        # Do not invent a fallback site when the requested site is not authorised.
+        selected = None
+        for page in range(1, 101):
+            sites_payload = search_sites(page, 100, "")
+            rows = _hpp_data_rows(sites_payload, "rows", "list", "sites", "items")
+            selected = next(
+                (item for item in rows if str(
+                    item.get("siteId") or item.get("id") or item.get("site_id") or ""
+                ).strip() == request.hpp_site_id.strip()),
+                None,
+            )
+            if selected or len(rows) < 100:
+                break
+        if selected is None:
+            raise HTTPException(
+                status_code=404,
+                detail="That HPP site is not present in the currently authorised HPP account.",
+            )
+
+        # Require an existing NexusAI customer before creating any HPP mappings.
+        if not load_customer(site_id):
+            raise HTTPException(
+                status_code=404,
+                detail="Create the NexusAI customer/site record before connecting its HPP-authorised site.",
+            )
+
+        devices = []
+        serials = set()
+        for page in range(1, 101):
+            payload = list_devices(request.hpp_site_id, page, 100)
+            rows = _hpp_site_devices(payload)
+            for device in rows:
+                serial = _hpp_device_serial(device)
+                if serial:
+                    serials.add(serial)
+                    devices.append(device)
+            if len(rows) < 100:
+                break
+
+        serials = sorted(serials)
+        if not serials:
+            raise HTTPException(
+                status_code=409,
+                detail="The authorised HPP site has no discoverable devices yet. Add the device to HPP and retry.",
+            )
+        if len(serials) > 500:
+            raise HTTPException(
+                status_code=409,
+                detail="This HPP site has more than 500 devices. Contact NexusAI to onboard it in batches.",
+            )
+
+        discovered_cameras = []
+        for serial in serials:
+            camera_payload = list_cameras(serial)
+            discovered_cameras.extend(_hpp_data_rows(
+                camera_payload, "rows", "cameras", "list", "channels"
+            ))
+
         hpp_site_name = _hpp_site_name(selected)
-        devices_payload = list_devices(request.hpp_site_id, 1, 1000)
-        devices = _hpp_site_devices(devices_payload)
-        mapped = 0
-        for device in devices:
-            serial = _hpp_device_serial(device)
-            if serial:
-                _save_hpp_mapping(request.hpp_site_id, serial, site_id)
-                mapped += 1
-        _save_hpp_site(request.hpp_site_id, site_id, hpp_site_name, selected)
+        _hpp_site_onboarder(
+            request.hpp_site_id, site_id, hpp_site_name, selected, serials
+        )
+        subscription = subscribe(HppSubscribeRequest(
+            sub_type=1, sub_mode="list", device_serial_list=serials
+        ))
+
         return {
             "connected": True,
+            "onboarding": "complete",
             "nexusai_site_id": site_id,
             "hpp_site_id": request.hpp_site_id,
             "hpp_site_name": hpp_site_name,
             "device_count": len(devices),
-            "mapped_device_count": mapped,
-            "message": "Authorized Hikvision site connected to NexusAI.",
+            "mapped_device_count": len(serials),
+            "cameras_or_channels_discovered": len(discovered_cameras),
+            "subscribed": True,
+            "subscription": subscription,
+            "message": "Authorised HPP site, devices and alarm subscription connected to NexusAI.",
+            "next_step": "Configure the retailer's POS integration separately and run a controlled end-to-end test.",
         }
+    except HTTPException:
+        raise
     except HppError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+    except Exception:
+        logging.exception("Legacy admin HPP site onboarding failed.")
+        raise HTTPException(
+            status_code=500,
+            detail="HPP site onboarding could not be completed. Check the server logs.",
+        )
 
 
 @app.get("/api/admin/sites/{site_id}/hpp")
