@@ -32,6 +32,13 @@ class CorrelationError(RuntimeError):
     """A retryable error while correlating or persisting HPP evidence."""
 
 
+class AmbiguousPOSMatch(RuntimeError):
+    """More than one POS exception is equally plausible for an HPP event."""
+
+
+AMBIGUOUS_MATCH_TOLERANCE_SECONDS = 0.25
+
+
 def _parse_timestamp(value: Any) -> datetime:
     if value is None or value == "":
         raise ValueError("Timestamp is missing")
@@ -173,7 +180,20 @@ def _find_pos_exception(site_id: str, device_serial: str, happened_at: datetime)
             candidates.append((abs((occurred_at - happened_at).total_seconds()), exception))
     if not candidates:
         return None
-    return min(candidates, key=lambda candidate: candidate[0])[1]
+
+    candidates.sort(key=lambda candidate: candidate[0])
+    # Never attach one camera event to an arbitrary transaction when two POS
+    # exceptions are effectively tied in time. A false evidence link is worse
+    # than asking an operator to review an unmatched event.
+    if (
+        len(candidates) > 1
+        and abs(candidates[1][0] - candidates[0][0])
+        <= AMBIGUOUS_MATCH_TOLERANCE_SECONDS
+    ):
+        raise AmbiguousPOSMatch(
+            "Multiple POS exceptions are equally close to this HPP event"
+        )
+    return candidates[0][1]
 
 
 def _persist_snapshot_link(exception: dict[str, Any], snapshot_url: str,
@@ -232,7 +252,19 @@ def correlate_hpp_event(event: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError, OverflowError, OSError) as exc:
         raise CorrelationError("HPP alarm timestamp is invalid") from exc
 
-    exception = _find_pos_exception(site_id, device_serial, happened_at)
+    try:
+        exception = _find_pos_exception(site_id, device_serial, happened_at)
+    except AmbiguousPOSMatch:
+        LOG.warning(
+            "HPP event left unlinked because multiple POS exceptions are equally close "
+            "(site=%s device=%s time=%s)",
+            site_id, device_serial, happened_at.isoformat(),
+        )
+        return {
+            "status": "ambiguous_pos_match",
+            "reason": "Multiple POS exceptions are equally close; no evidence link was created",
+            "window_seconds": MATCH_WINDOW_SECONDS,
+        }
     if not exception:
         return {"status": "no_pos_match", "window_seconds": MATCH_WINDOW_SECONDS}
 
